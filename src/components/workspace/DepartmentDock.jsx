@@ -50,7 +50,7 @@ export default function DepartmentDock() {
   })
 
   if (canAccessWeeklyEntryOnly(userProfile)) {
-    tiles.push({ key: 'weekly-entry', label: 'Weekly Entry', to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`, Icon: PenLine, subpages: [] })
+    tiles.push({ key: 'weekly-entry', label: 'Finance Assistant', to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`, Icon: PenLine, subpages: [] })
   }
 
   // My Workspace leads the menu, same as DesktopDepartmentNav's first tile — so the

@@ -8,7 +8,7 @@ import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore'
 import { auth, db, functions, httpsCallable } from '../lib/firebase'
 import { ROLES, ROLE_PERMISSIONS, deriveRoleFromPositions, deriveDepartmentsFromPositions } from '../constants/roles'
 import { getDepartmentBySlug } from '../constants/departments'
-import { GLOBAL_ROLES, hasAccess, getDepartmentRole, isFounder as isFounderGlobal } from '../utils/access'
+import { GLOBAL_ROLES, hasAccess, getDepartmentRole, isFounder as isFounderGlobal, deptHeadDepartments } from '../utils/access'
 import { upsertUserDirectoryEntry, syncAllUsersToDirectory } from '../services/firestore'
 import { isCellLeaderInPositions } from '../utils/cellReportPermissions'
 
@@ -143,6 +143,7 @@ export function AuthProvider({ children }) {
               cellId: merged.cellGroupId || merged.cellId || '',
               cellGroup: merged.cellGroup || '',
               isCellLeader: isCellLeaderInPositions(merged),
+              deptHeadOf: deptHeadDepartments(merged),
             }).catch((e) => console.warn('Failed to sync user_directory entry:', e))
           }
 

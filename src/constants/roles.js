@@ -17,7 +17,9 @@ export const POSITION_OPTIONS = [
   { value: 'Coordinator', label: 'Coordinator' },
   { value: 'Cell Leader', label: 'Cell Leader' },
   { value: 'Associate', label: 'Associate' },
-  { value: 'Weekly Expense Manager', label: 'Weekly Expense Manager' },
+  // Stored value stays 'Weekly Expense Manager' so existing accounts keep working;
+  // the role is presented everywhere as "Finance Assistant".
+  { value: 'Weekly Expense Manager', label: 'Finance Assistant' },
   { value: 'Worship Leader', label: 'Worship Leader' },
   { value: 'Worship Member', label: 'Worship Member' },
   { value: 'Pre-Service Leader', label: 'Pre-Service Leader' },
@@ -42,8 +44,12 @@ export function formatPositionLabel(department, position) {
   const pos = basePositionName(position)
   if (!pos) return dept
   if (pos.toLowerCase() === 'director' && dept) return `Director - ${dept}`
-  return dept ? `${dept} (${pos})` : pos
+  const shown = pos === 'Weekly Expense Manager' ? FINANCE_ASSISTANT_LABEL : pos
+  return dept ? `${dept} (${shown})` : shown
 }
+
+/** Display name for the Weekly Entry role / Weekly Expense Manager position. */
+export const FINANCE_ASSISTANT_LABEL = 'Finance Assistant'
 
 /** Derive app role from positions array (highest wins). Used for permissions. */
 export function deriveRoleFromPositions(positions) {
@@ -266,23 +272,44 @@ export const EXPENSE_CATEGORIES = [
   'Cell Ministry',
   'Caring',
   'Sunday Ministry',
+  'D Light',
   'River Kids',
   'Outreach',
   'Building',
+  'Event M',
+  'Mission',
   'Media',
   'Accounts',
   'Human Resources',
   'General Affairs',
   'Thunderstorm',
   'SP Office',
+  'Sec-Core',
+  'Administration',
 ]
 
-// "Junior Church" was this department's old expense/budget category label — the rest
-// of the app (nav, department pages) has always called it "River Kids". Existing
-// finance_expense/finance_budget_items records may still carry the old label, so
-// treat it as an alias when matching a record's department against the category list.
+// Department pages (DEPARTMENT_LIST in constants/departments.js) save expenses under
+// their own short names, while the Accounts / Finance Assistant category list above
+// uses longer ones. Both mean the same department, so each alias maps onto its
+// expense category. "Junior Church" is River Kids' old expense/budget label.
+const DEPARTMENT_NAME_ALIASES = {
+  'Junior Church': 'River Kids',
+  'Cell': 'Cell Ministry',
+  'Building Care': 'Building',
+  'Human Resourses': 'Human Resources',
+  'Gen Affairs': 'General Affairs',
+}
+
 export function normalizeDepartmentName(name) {
-  return name === 'Junior Church' ? 'River Kids' : name
+  return DEPARTMENT_NAME_ALIASES[name] || name
+}
+
+/** Every stored `department` value that means the same department as `name` (its
+ *  expense category plus all aliases) — for Firestore `in` queries and role checks. */
+export function departmentNameVariants(name) {
+  if (!name) return []
+  const canon = normalizeDepartmentName(name)
+  return [canon, ...Object.keys(DEPARTMENT_NAME_ALIASES).filter(k => DEPARTMENT_NAME_ALIASES[k] === canon)]
 }
 
 export const DEPARTMENT_TAGS = [

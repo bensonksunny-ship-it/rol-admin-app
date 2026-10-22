@@ -939,8 +939,58 @@ service cloud.firestore {
       allow read, write: if isSignedIn();
     }
 
+    // A month's expenses lock after the 10th of the following month (IST) for
+    // everyone but the Founder, unless the Founder has reopened that month —
+    // finance_month_unlocks/{yyyy-MM}.unlockedUntil still in the future.
+    // Mirrors src/utils/financeEntryLock.js. Dates are stored as IST midnight, so
+    // shift by +5:30 before reading year/month.
+    function expenseMonthWritable(ts) {
+      let ist = ts + duration.value(330, 'm');
+      let y = ist.year();
+      let m = ist.month();
+      let closeAt = (m == 12 ? timestamp.date(y + 1, 1, 11) : timestamp.date(y, m + 1, 11)) - duration.value(330, 'm');
+      let key = string(y) + '-' + (m < 10 ? '0' + string(m) : string(m));
+      let unlockPath = /databases/$(database)/documents/finance_month_unlocks/$(key);
+      return request.time < closeAt
+        || (exists(unlockPath) && get(unlockPath).data.unlockedUntil > request.time);
+    }
+    function expenseDataWritable(data) {
+      return !('date' in data) || !(data.date is timestamp) || expenseMonthWritable(data.date);
+    }
+
     match /finance_expense/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && (isFullAccess() || expenseDataWritable(request.resource.data));
+      allow update: if isSignedIn() && (isFullAccess() || (expenseDataWritable(resource.data) && expenseDataWritable(request.resource.data)));
+      allow delete: if isSignedIn() && (isFullAccess() || expenseDataWritable(resource.data));
+    }
+
+    // Accounts Director's follow-ups on department-disputed expenses (doc id = expense id).
+    match /finance_expense_followups/{expenseId} {
       allow read, write: if isSignedIn();
+    }
+
+    // Founder-only reopen windows for locked finance months (see expenseMonthWritable).
+    match /finance_month_unlocks/{monthKey} {
+      allow read: if isSignedIn();
+      allow write: if isFullAccess();
+    }
+
+    // Finance Assistant's per-department, per-period (week/month) expense sign-off.
+    match /finance_dept_confirmations/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Finance Assistant → department head "file your expenses by the 5th" reminders.
+    match /finance_expense_reminders/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Accounts Director's per-person unlock of a closed month's expense entry.
+    // Only Accounts (or Founder) may grant/revoke; anyone signed in may read.
+    match /finance_entry_unlocks/{docId} {
+      allow read: if isSignedIn();
+      allow write: if canAccessDept('Accounts');
     }
 
     match /finance_savings/{docId} {

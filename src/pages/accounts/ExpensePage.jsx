@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
 import { EXPENSE_CATEGORIES, normalizeDepartmentName } from '../../constants/roles'
 import { parseFlexibleDate, toDisplayDate, parseFlexibleAmount, sanitizeAmountString, normalizePastedCell } from '../../utils/entryTableHelpers'
-import { Pencil, Trash2 } from 'lucide-react'
+import { Pencil, Trash2, X } from 'lucide-react'
 import {
   listenFinanceExpense,
   listenFinanceExpenseBySheet,
@@ -20,6 +20,9 @@ import {
 } from '../../services/firestore'
 import { SAVINGS_FUNDS } from '../../constants/savingsFunds'
 import WeeklyEntryPage from './WeeklyEntryPage'
+import { isExpenseDisputed } from '../../utils/expenseDispute'
+import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
+import FinanceMonthLockBanner from '../../components/finance/FinanceMonthLockBanner'
 import SavingsPage from './SavingsPage'
 
 const ROW_FIELDS = ['date', 'item', 'billNo', 'amount']
@@ -117,10 +120,66 @@ const DEFAULT_DEPT_STATE = {
   editRows: [],
 }
 
+// Popup that hosts a department card's entry table (or the Funds Reserved editor)
+// instead of expanding it inline in the grid. `panelRef` is ExpensePage's
+// expandedCardRef, so its existing mousedown click-outside handler treats a click on
+// the backdrop as "outside" and closes the popup. Escape closes it too — unless one
+// of the nested confirm dialogs (save-warning / bulk-delete, both portaled with
+// data-row-menu-overlay) is open, so Esc doesn't throw away the editor behind them.
+function ExpenseDeptModal({ panelRef, title, subtitle, onClose, children }) {
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key !== 'Escape') return
+      if (document.querySelector('[data-row-menu-overlay]')) return
+      onClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [onClose])
+
+  return createPortal(
+    <div className="fixed inset-0 z-[900] flex items-center justify-center p-3 sm:p-6 bg-black/50 backdrop-blur-sm">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${title} — ${subtitle}`}
+        className="w-full max-w-4xl max-h-[90vh] flex flex-col bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden"
+      >
+        <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-slate-200 bg-indigo-50/60 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-slate-900 truncate">{title}</h2>
+            <p className="text-xs font-medium text-slate-500">{subtitle}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-900/5 hover:text-slate-800 transition-colors shrink-0"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {children}
+        </div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
 export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   const { userProfile, hasPermission, isFounder } = useAuth()
   const [internalMonth, setInternalMonth] = useState(startOfMonth(new Date()))
   const activeMonth = controlledMonth || internalMonth
+  // Lock notice / Founder unlock for this month (writes are enforced in firestore.rules).
+  const { unlocks: monthUnlocks, now: lockNow } = useFinanceMonthLocks(isFounder)
   const [entries, setEntries] = useState([])
   const [anchoredEntries, setAnchoredEntries] = useState([])
   const [loading, setLoading] = useState(false)
@@ -133,6 +192,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   const [saveWarning, setSaveWarning] = useState(null) // { dept, count } — pending "Save rows" click blocked by a date-mismatch confirmation
   const [filterDept, setFilterDept] = useState('all')
   const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0) // bumped by the load-error "Retry" button to re-subscribe the expense listener
   const [viewMode, setViewMode] = useState('grid')
   const [expandedDepts, setExpandedDepts] = useState([])
   const [deptEditState, setDeptEditState] = useState({})
@@ -257,10 +317,10 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
     unsubRef.current = listenFinanceExpense(
       { year: activeMonth.getFullYear(), month: activeMonth.getMonth() },
       (data) => { setEntries(data); setLoading(false) },
-      (err) => { console.error(err); setLoadError('Failed to load entries. Please refresh.'); setLoading(false) },
+      (err) => { console.error(err); setLoadError('Failed to load entries.'); setLoading(false) },
     )
     return () => { if (unsubRef.current) { unsubRef.current(); unsubRef.current = null } }
-  }, [activeMonth, canAccess])
+  }, [activeMonth, canAccess, reloadKey])
 
   // Entries explicitly kept under this month's sheet (via sheetYear/sheetMonth) even
   // though their own date falls in a different month — loaded separately since the
@@ -274,7 +334,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
       (err) => console.error(err),
     )
     return () => { if (sheetUnsubRef.current) { sheetUnsubRef.current(); sheetUnsubRef.current = null } }
-  }, [activeMonth, canAccess])
+  }, [activeMonth, canAccess, reloadKey])
 
   // The entries this page actually shows/counts for the active month: date-matched
   // entries, MINUS any that have been explicitly anchored to a different month's sheet
@@ -660,10 +720,18 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   }
 
   return (
-    // A4-ish sheet width by default; while a department card is expanded the cap is
-    // dropped so its editor table gets the same full-width workspace it had before
-    // the sheet layout. Only one card is ever open at a time (accordion).
-    <div className={`mx-auto space-y-5 pb-12 ${expandedDepts.length ? 'max-w-none' : 'max-w-[250mm]'}`}>
+    // A4-ish sheet width. A department card's editor opens in ExpenseDeptModal (a
+    // portaled popup) rather than inline, so the grid itself never needs to widen.
+    // Only one card is ever open at a time.
+    <div className="mx-auto space-y-5 pb-12 max-w-[250mm]">
+
+      {viewMode === 'grid' && (
+        <FinanceMonthLockBanner
+          monthKey={format(activeMonth, 'yyyy-MM')}
+          unlock={monthUnlocks[format(activeMonth, 'yyyy-MM')]}
+          now={lockNow}
+        />
+      )}
 
       {/* Grid / Weekly view toggle */}
       <div className="flex justify-center">
@@ -684,7 +752,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
               viewMode === 'weekly' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-            Weekly
+            Finance Assistant
           </button>
         </div>
       </div>
@@ -868,11 +936,8 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
           return (
           <div
             key={dept}
-            ref={isExpanded ? expandedCardRef : null}
             className={`rounded-2xl border overflow-hidden transition-colors ${
-              isExpanded
-                ? 'border-indigo-400 ring-1 ring-indigo-300 col-span-2 sm:col-span-3 lg:col-span-2'
-                : 'border-slate-200 bg-white'
+              isExpanded ? 'border-indigo-400 ring-1 ring-indigo-300 bg-white' : 'border-slate-200 bg-white'
             }`}
           >
             <div className={`flex items-start transition-colors ${isExpanded ? 'bg-indigo-50' : 'hover:bg-indigo-50/40'}`}>
@@ -895,7 +960,12 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
             </div>
 
             {isExpanded && (
-              <div className="border-t border-slate-100 bg-white">
+              <ExpenseDeptModal
+                panelRef={expandedCardRef}
+                title={dept}
+                subtitle={format(activeMonth, 'MMMM yyyy')}
+                onClose={() => setExpandedDepts([])}
+              >
                 <div>
                   {rows.length > 0 && (
                     <div className="px-3 pt-3 pb-1.5">
@@ -1223,7 +1293,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                   </p>
                 )}
                 {rowsError && <p className="px-3 py-1.5 text-xs font-medium text-red-600">{rowsError}</p>}
-                <div className="p-3 bg-gradient-to-r from-slate-50 to-indigo-50/50 border-t border-slate-100 flex items-center gap-2">
+                <div className="sticky bottom-0 p-3 bg-gradient-to-r from-slate-50 to-indigo-50 border-t border-slate-100 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleSaveRows(dept)}
@@ -1258,7 +1328,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                     </span>
                   )}
                 </div>
-              </div>
+              </ExpenseDeptModal>
             )}
           </div>
           )
@@ -1275,11 +1345,8 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
           const isExpanded = expandedDepts.includes('__savings__')
           return (
             <div
-              ref={isExpanded ? expandedCardRef : null}
               className={`rounded-2xl border overflow-hidden transition-colors ${
-                isExpanded
-                  ? 'border-indigo-400 ring-1 ring-indigo-300 col-span-2 sm:col-span-3 lg:col-span-2'
-                  : 'border-indigo-200 bg-indigo-50/40'
+                isExpanded ? 'border-indigo-400 ring-1 ring-indigo-300' : 'border-indigo-200 bg-indigo-50/40'
               }`}
             >
               <button
@@ -1293,9 +1360,14 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
               </button>
 
               {isExpanded && (
-                <div className="border-t border-indigo-100 bg-white">
+                <ExpenseDeptModal
+                  panelRef={expandedCardRef}
+                  title="Funds Reserved"
+                  subtitle={format(activeMonth, 'MMMM yyyy')}
+                  onClose={() => setExpandedDepts([])}
+                >
                   <SavingsPage activeMonth={activeMonth} />
-                </div>
+                </ExpenseDeptModal>
               )}
             </div>
           )
@@ -1324,7 +1396,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
       {loadError && (
         <div className="flex items-center justify-between gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
           <p className="text-sm text-red-700 font-medium">{loadError}</p>
-          <button type="button" onClick={load} className="text-xs text-red-600 font-semibold hover:underline">Retry</button>
+          <button type="button" onClick={() => setReloadKey(k => k + 1)} className="text-xs text-red-600 font-semibold hover:underline">Retry</button>
         </div>
       )}
 
@@ -1359,7 +1431,9 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {entry.status === 'pending' ? (
+                      {isExpenseDisputed(entry) ? (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">Disapproved</span>
+                      ) : entry.status === 'pending' ? (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Pending</span>
                       ) : entry.status === 'approved' && (
                         <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Confirmed</span>
@@ -1404,7 +1478,9 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                       <td className="px-4 py-3 text-slate-700">
                         <div className="flex items-center gap-1.5">
                           {normalizeDepartmentName(entry.department || entry.category)}
-                          {entry.status === 'pending' ? (
+                          {isExpenseDisputed(entry) ? (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">Disapproved</span>
+                          ) : entry.status === 'pending' ? (
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Pending</span>
                           ) : entry.status === 'approved' && (
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Confirmed</span>

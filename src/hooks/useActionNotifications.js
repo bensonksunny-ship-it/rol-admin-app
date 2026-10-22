@@ -5,10 +5,13 @@ import {
   subscribeDismissedNotificationIds, dismissNotification as dismissNotificationDoc,
   subscribeNotificationTodoAdditionIds, markNotificationAddedToTodo, createTask,
   subscribeSundayLeaderAssignmentNotifications, subscribePCSRemovalNoticesByCellId,
-  subscribePendingApprovals, getUserDirectoryNamesByEmail,
+  subscribePendingApprovals, getUserDirectoryNamesByEmail, subscribePendingDeptExpenseConfirmations,
+  subscribeMyFinanceExpenseReminders, subscribeMyFinanceEntryUnlocks, subscribeExpenseFollowUps,
 } from '../services/firestore'
 import { formatDisplayDate } from '../utils/date'
-import { isDepartmentDirectorInPositions } from '../utils/access'
+import { isDepartmentDirectorInPositions, isDeptExpenseConfirmer } from '../utils/access'
+import { DEPARTMENT_LIST } from '../constants/departments'
+import { normalizeDepartmentName, FINANCE_ASSISTANT_LABEL } from '../constants/roles'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 
 const CONSULT_RESPONSE_ID_PREFIX = 'consult_response:'
@@ -56,6 +59,13 @@ function buildNotificationDeepLink(n) {
     // My Workspace's Approvals card reads ?approval= and scrolls to that request.
     return `/?approval=${encodeURIComponent(n.id || '')}`
   }
+  if (n.type === 'expense_confirmation' || n.type === 'expense_reminder' || n.type === 'expense_unlock' || n.type === 'expense_followup') {
+    // The department's Finance → Expense tab: DeptExpenseTab pins bills awaiting
+    // confirmation (with Confirm / Reject) above everything else, and its
+    // "Add Expense" is where a reminded department files its expenses.
+    const dept = DEPARTMENT_LIST.find((d) => normalizeDepartmentName(d.name) === normalizeDepartmentName(n.department))
+    return dept ? `/department/${dept.slug}?tab=finance&financeSub=expense` : null
+  }
   return null
 }
 
@@ -72,6 +82,10 @@ function notificationTaskType(n) {
     dlight_consult: 'cellAssignConsult',
     consult_response: 'cellAssignRecommendation',
     pcs_discard_approval: 'reviewPcsDiscard',
+    expense_confirmation: 'confirmDeptExpense',
+    expense_reminder: 'fileDeptExpenses',
+    expense_unlock: 'fileDeptExpenses',
+    expense_followup: 'reviewDisputedExpense',
   }[n.type] || n.type || 'task'
 }
 
@@ -90,6 +104,10 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   const [pcsRemovalNotifications, setPcsRemovalNotifications] = useState([])
   const [approvalNotifications, setApprovalNotifications] = useState([])
   const [pendingApprovals, setPendingApprovals] = useState([])
+  const [expenseConfirmNotifications, setExpenseConfirmNotifications] = useState([])
+  const [expenseReminderNotifications, setExpenseReminderNotifications] = useState([])
+  const [expenseUnlockNotifications, setExpenseUnlockNotifications] = useState([])
+  const [expenseFollowUpNotifications, setExpenseFollowUpNotifications] = useState([])
   const [dismissedIds, setDismissedIds] = useState(new Set())
   const [addedToTodoIds, setAddedToTodoIds] = useState(new Set())
   // Optimistic hide — set synchronously the instant Ignore/Add-to-Todo is clicked, so
@@ -286,6 +304,100 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     }, () => { setApprovalNotifications([]); setPendingApprovals([]) })
   }, [isFounder])
 
+  // Department Directors/Coordinators: bills the Finance Assistant entered for their
+  // department, awaiting confirmation. Drops out on its own once confirmed/rejected,
+  // since only deptConfirmation 'pending' is subscribed. Only users holding some
+  // Director/Coordinator position subscribe at all.
+  const hasHeadPosition = (Array.isArray(userProfile?.positions) ? userProfile.positions : []).some((p) => {
+    const role = String(p?.role || '').trim().toUpperCase()
+    const pos = String(p?.position || '').trim().toLowerCase()
+    return role === 'DIRECTOR' || role === 'COORDINATOR' || pos.startsWith('director') || pos === 'coordinator'
+  })
+  useEffect(() => {
+    if (!hasHeadPosition) { setExpenseConfirmNotifications([]); return }
+    return subscribePendingDeptExpenseConfirmations((rows) => {
+      setExpenseConfirmNotifications(rows.filter((e) => isDeptExpenseConfirmer(userProfile, e.department)).map((e) => ({
+        id: `expense_confirm:${e.id}`,
+        type: 'expense_confirmation',
+        department: e.department,
+        title: 'Confirm Expense',
+        body: `${FINANCE_ASSISTANT_LABEL} entered ₹${Number(e.amount || 0).toLocaleString('en-IN')}${e.item ? ` for ${e.item}` : ''}${e.date ? ` (${formatDisplayDate(e.date)})` : ''} — please confirm`,
+        cellName: '',
+        from: cleanSender(e.createdBy) || FINANCE_ASSISTANT_LABEL,
+        to: e.department,
+        sentAt: e.createdAt,
+        personId: '',
+      })))
+    }, () => setExpenseConfirmNotifications([]))
+  }, [userProfile, hasHeadPosition])
+
+  // Finance Assistant → this user: "please file your department's expenses for
+  // <month> before the 5th". Drops out once the department files an expense for
+  // that month (DeptExpenseTab marks it resolved) or when ignored.
+  useEffect(() => {
+    if (!uid) { setExpenseReminderNotifications([]); return }
+    return subscribeMyFinanceExpenseReminders(uid, (rows) => {
+      setExpenseReminderNotifications(rows.map((r) => ({
+        id: `expense_reminder:${r.id}`,
+        type: 'expense_reminder',
+        department: r.department,
+        title: 'File Your Expenses',
+        body: r.message || `Please file your ${r.department} expenses for ${r.monthLabel || r.month} before ${r.dueLabel || 'the 5th of next month'}.`,
+        cellName: '',
+        from: cleanSender(r.sentBy) || FINANCE_ASSISTANT_LABEL,
+        to: r.toName || 'You',
+        sentAt: r.sentAt,
+        personId: uid,
+        date: r.month || '',
+      })))
+    })
+  }, [uid])
+
+  // Department Directors/Coordinators: the Accounts Director is following up on a
+  // bill their department disapproved. The id carries the follow-up count, so each
+  // new follow-up shows again even if an earlier one was ignored. Drops out once
+  // the department approves the bill or Accounts removes it (follow-up doc deleted).
+  useEffect(() => {
+    if (!hasHeadPosition) { setExpenseFollowUpNotifications([]); return }
+    return subscribeExpenseFollowUps((byId) => {
+      setExpenseFollowUpNotifications(Object.values(byId)
+        .filter((f) => isDeptExpenseConfirmer(userProfile, f.department))
+        .map((f) => ({
+          id: `expense_followup:${f.id}:${f.count || 1}`,
+          type: 'expense_followup',
+          department: f.department,
+          title: 'Disapproved Expense — Follow-up',
+          body: `Accounts is following up on ₹${Number(f.amount || 0).toLocaleString('en-IN')}${f.item ? ` for ${f.item}` : ''} that ${f.department} disapproved — please approve it or reply.${f.lastNote ? ` “${f.lastNote}”` : ''}`,
+          cellName: '',
+          from: cleanSender(f.lastBy) || 'Accounts Director',
+          to: f.department,
+          sentAt: f.lastAt,
+          personId: '',
+        })))
+    })
+  }, [userProfile, hasHeadPosition])
+
+  // Accounts Director unlocked a closed month's expense entry for this user. Drops
+  // out when locked again or when ignored.
+  useEffect(() => {
+    if (!uid) { setExpenseUnlockNotifications([]); return }
+    return subscribeMyFinanceEntryUnlocks(uid, (rows) => {
+      setExpenseUnlockNotifications(rows.map((u) => ({
+        id: `expense_unlock:${u.id}:${u.unlockedAt?.getTime?.() || ''}`,
+        type: 'expense_unlock',
+        department: u.department,
+        title: 'Expense Entry Unlocked',
+        body: `You can now enter ${u.department} expenses for ${u.monthLabel || u.month}.`,
+        cellName: '',
+        from: cleanSender(u.unlockedBy) || 'Accounts Director',
+        to: u.toName || 'You',
+        sentAt: u.unlockedAt,
+        personId: uid,
+        date: u.month || '',
+      })))
+    })
+  }, [uid])
+
   // Per-user "Ignore" state — hides an item from this feed everywhere it's rendered
   // without touching the underlying business record it was synthesized from.
   useEffect(() => {
@@ -326,6 +438,12 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         return !!uid && n.personId === uid
       case 'pcs_discard_approval':
         return false // Founder-only (handled above)
+      case 'expense_reminder':
+      case 'expense_unlock':
+        return !!uid && n.personId === uid
+      case 'expense_confirmation':
+      case 'expense_followup':
+        return isDeptExpenseConfirmer(userProfile, n.department)
       default:
         // Unrecognized type: fail closed rather than showing something no known rule
         // has vouched for.
@@ -342,7 +460,7 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   // "From: … → For: …" — many senders are stored as emails; look their names up
   // once in user_directory (falls back to the part before the @).
   const [namesByEmail, setNamesByEmail] = useState({})
-  const allRaw = [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications]
+  const allRaw = [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications, ...expenseConfirmNotifications, ...expenseReminderNotifications, ...expenseUnlockNotifications, ...expenseFollowUpNotifications]
   const emailKey = Array.from(new Set(allRaw.flatMap((n) => [n.from, n.to]).filter((v) => String(v || '').includes('@')).map((v) => v.toLowerCase()))).sort().join(',')
   useEffect(() => {
     const missing = emailKey ? emailKey.split(',').filter((e) => !(e in namesByEmail)) : []
@@ -360,12 +478,12 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   }
 
   const notifications = useMemo(
-    () => [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications]
+    () => [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications, ...expenseConfirmNotifications, ...expenseReminderNotifications, ...expenseUnlockNotifications, ...expenseFollowUpNotifications]
       .filter((n) => !isHidden(n))
       .filter(canSeeNotification)
       .map((n) => ({ ...n, from: personLabel(n.from), to: personLabel(n.to), addedToTodo: addedToTodoIds.has(n.id) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fillNotifications, pcsRemovalNotifications, approvalNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds, userProfile, isFounder, uid, namesByEmail]
+    [fillNotifications, pcsRemovalNotifications, approvalNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, expenseConfirmNotifications, expenseReminderNotifications, expenseUnlockNotifications, expenseFollowUpNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds, userProfile, isFounder, uid, namesByEmail]
   )
 
   const handleNotifAction = (n) => {

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import {
   createRFFProgram,
@@ -8,7 +8,18 @@ import {
 } from '../../services/firestore'
 import useRFFData from '../../hooks/useRFFData'
 import RFFSyncStatus from './RFFSyncStatus'
+import RFFStudentsList from './RFFStudentsList'
+import RFFExpensesTable from './RFFExpensesTable'
 import { summarizeFees, formatINR } from './studentUtils'
+
+// Static class strings so Tailwind's scanner picks them up.
+const CARD_TONES = {
+  indigo: { box: 'bg-gradient-to-br from-indigo-50 to-indigo-100 border-indigo-200', label: 'text-indigo-500', value: 'text-indigo-700' },
+  violet: { box: 'bg-gradient-to-br from-violet-50 to-violet-100 border-violet-200', label: 'text-violet-500', value: 'text-violet-700' },
+  emerald: { box: 'bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200', label: 'text-emerald-500', value: 'text-emerald-700' },
+  amber: { box: 'bg-gradient-to-br from-amber-50 to-amber-100 border-amber-200', label: 'text-amber-500', value: 'text-amber-700' },
+  rose: { box: 'bg-gradient-to-br from-rose-50 to-rose-100 border-rose-200', label: 'text-rose-500', value: 'text-rose-700' },
+}
 
 // RFF is a church-sponsored school program, deliberately kept off the church's
 // regular department roster — see
@@ -30,6 +41,13 @@ export default function RFFHub() {
 
   const rff = useRFFData(canAccess)
   const { programs, students, loading, readOnly } = rff
+  // Connected to the RFF app: it has no programs, so the page shows read-only
+  // Overview (students + fees) and Finance (expenses) tabs instead.
+  const external = rff.source === 'external'
+  // In the URL (?tab=finance) so the Finance view can be linked to directly.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') === 'finance' ? 'finance' : 'overview'
+  const setTab = (t) => setSearchParams(t === 'overview' ? {} : { tab: t }, { replace: true })
 
   const [newProgramName, setNewProgramName] = useState('')
   const [programError, setProgramError] = useState('')
@@ -100,6 +118,64 @@ export default function RFFHub() {
   }
 
   const dash = loading ? '…' : null
+
+  if (external) {
+    const ft = rff.financeTotals || {}
+    const cards = [
+      { label: 'Total Students', value: rff.totalStudents, tone: 'indigo' },
+      { label: 'Total Fee Offered', value: formatINR(ft.totalFeeOffered), tone: 'violet' },
+      { label: 'Total Collected', value: formatINR(ft.totalCollected), tone: 'emerald' },
+      { label: 'Total Pending', value: formatINR(ft.totalPending), tone: 'amber' },
+      { label: 'Total Expenses', value: formatINR(ft.totalExpenses), tone: 'rose' },
+    ]
+    const isFinance = tab === 'finance'
+    return (
+      <div className="w-full space-y-5 pb-12">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-black text-slate-800">RFF</h1>
+            <p className="text-sm text-slate-500">Students and finances from the RFF app — read-only, synced live.</p>
+          </div>
+          <RFFSyncStatus rff={rff} />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {cards.map((c) => (
+            <div key={c.label} className={`rounded-2xl border shadow-sm px-4 py-3 ${CARD_TONES[c.tone].box}`}>
+              <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${CARD_TONES[c.tone].label}`}>{c.label}</p>
+              <p className={`text-xl font-black ${CARD_TONES[c.tone].value}`}>{dash ?? c.value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-1 border-b border-slate-200" role="tablist">
+          {[['overview', 'Overview'], ['finance', 'Finance']].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setTab(key)}
+              className={`px-4 py-2 -mb-px text-sm font-semibold border-b-2 transition-colors ${tab === key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {isFinance ? (
+          <RFFExpensesTable
+            expenses={rff.expenses}
+            total={ft.totalExpenses || 0}
+            loading={loading}
+            error={rff.status === 'error'}
+          />
+        ) : (
+          <RFFStudentsList students={students} loading={loading} error={rff.status === 'error'} />
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="w-full space-y-5 pb-12">

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Plus } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { EXPENSE_CATEGORIES, normalizeDepartmentName } from '../../constants/roles'
+import { EXPENSE_CATEGORIES, normalizeDepartmentName, departmentNameVariants } from '../../constants/roles'
 import {
   getFinanceBudgetItems,
   addFinanceBudgetItem,
@@ -31,7 +31,7 @@ function calcTotal(qty, unit) {
 
 export default function BudgetPage({ department } = {}) {
   const { userProfile, canManageDepartment, isFounder, isSeniorPastor } = useAuth()
-  const canEditRow = (rowDept) => isFounder || isSeniorPastor || canManageDepartment(rowDept)
+  const canEditRow = (rowDept) => isFounder || isSeniorPastor || departmentNameVariants(rowDept).some(canManageDepartment)
 
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -74,7 +74,7 @@ export default function BudgetPage({ department } = {}) {
   }
 
   const visible = (department || filterDept === 'all')
-    ? (department ? items.filter(i => normalizeDepartmentName(i.department) === department) : items)
+    ? (department ? items.filter(i => normalizeDepartmentName(i.department) === normalizeDepartmentName(department)) : items)
     : items.filter(i => normalizeDepartmentName(i.department) === filterDept)
   const totalCost = visible.reduce((s, i) => s + (Number(i.totalCost) || 0), 0)
 

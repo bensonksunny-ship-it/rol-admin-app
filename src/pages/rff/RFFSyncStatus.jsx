@@ -14,6 +14,7 @@ function timeAgo(date, now) {
 const TONES = {
   synced: { dot: 'bg-emerald-500', ring: 'border-emerald-200 bg-emerald-50 text-emerald-800', pulse: true },
   connecting: { dot: 'bg-sky-500', ring: 'border-sky-200 bg-sky-50 text-sky-800', pulse: true },
+  stale: { dot: 'bg-amber-500', ring: 'border-amber-200 bg-amber-50 text-amber-800', pulse: false },
   offline: { dot: 'bg-amber-500', ring: 'border-amber-200 bg-amber-50 text-amber-800', pulse: false },
   error: { dot: 'bg-red-500', ring: 'border-red-200 bg-red-50 text-red-800', pulse: false },
 }
@@ -34,6 +35,7 @@ export default function RFFSyncStatus({ rff }) {
   const label = notConnected ? 'RFF app not connected — showing local data' : {
     synced: 'Synced with RFF app',
     connecting: 'Connecting to RFF app…',
+    stale: 'Showing last synced data',
     offline: 'Offline — showing last synced data',
     error: 'Not synced with RFF app',
   }[status]
@@ -52,7 +54,7 @@ export default function RFFSyncStatus({ rff }) {
             <span className={`relative w-2 h-2 rounded-full ${tone.dot}`} />
           </span>
           <span className="whitespace-nowrap">{label}</span>
-          {status === 'synced' && lastSyncedAt && (
+          {(status === 'synced' || status === 'stale') && lastSyncedAt && (
             <span className="hidden sm:inline font-normal opacity-70 whitespace-nowrap">· {timeAgo(lastSyncedAt, now)}</span>
           )}
         </span>
@@ -68,6 +70,7 @@ export default function RFFSyncStatus({ rff }) {
         </button>
       </div>
       {status === 'error' && error && <p className="text-[11px] text-red-600 max-w-xs text-right">{error}</p>}
+      {status === 'stale' && error && <p className="text-[11px] text-amber-700 max-w-xs text-right">{error}</p>}
     </div>
   )
 }

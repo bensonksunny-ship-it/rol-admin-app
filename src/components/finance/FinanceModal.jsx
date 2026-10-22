@@ -1,9 +1,11 @@
-export default function FinanceModal({ open, onClose, title, children }) {
+// size: 'md' (default, small forms) | 'xl' (report-style views, e.g. a month's expenses)
+export default function FinanceModal({ open, onClose, title, children, size = 'md' }) {
   if (!open) return null
+  const sizeClass = size === 'xl' ? 'sm:max-w-5xl sm:min-h-[60vh]' : 'sm:max-w-md'
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md max-h-[90vh] overflow-y-auto"
+        className={`bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full ${sizeClass} max-h-[90vh] overflow-y-auto`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sm:hidden flex justify-center pt-3 pb-1">

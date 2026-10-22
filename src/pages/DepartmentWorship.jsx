@@ -5,7 +5,7 @@ import useModalOpenGuard from '../hooks/useModalOpenGuard'
 import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2, Copy, ClipboardList } from 'lucide-react'
-import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { Link, Navigate, useSearchParams, useOutletContext } from 'react-router-dom'
 import {
   getDepartmentEntries,
   addDepartmentEntry,
@@ -1618,7 +1618,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
 }
 
 export default function DepartmentWorship() {
-  const { userProfile, hasPermission, isFounder, hasAccess } = useAuth()
+  const { userProfile, hasPermission, isFounder, hasAccess, isSeniorPastor, canManageDepartment } = useAuth()
   const { name: seniorPastorName } = useSeniorPastor()
   if (!hasAccess(userProfile, DEPARTMENT) && !hasWorshipRoleAccess(userProfile)) {
     return (
@@ -2333,8 +2333,12 @@ export default function DepartmentWorship() {
   const canViewInsights = isPastor
 
   // Blue notification ribbon (new musicians, overdue tasks) — above the guards below.
+  const bellFeed = useOutletContext() // MainLayout's bell feed — finance items join the ribbon
   const worshipAlerts = useDepartmentAlerts({
     department: DEPARTMENT,
+    notif: bellFeed,
+    // Same rule as DeptExpenseTab's Confirm/Reject buttons.
+    canConfirmExpenses: isFounder || isSeniorPastor || canManageDepartment(DEPARTMENT),
     team: allMembers,
     memberNoun: 'worship team member',
     open: { team: () => setSearchParams({ tab: 'theTeam' }, { replace: true }) },

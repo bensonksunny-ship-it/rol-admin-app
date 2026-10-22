@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format, startOfWeek } from 'date-fns'
-import { getCellGroups, subscribeLatestCellReports, subscribeTasksByDepartment } from '../services/firestore'
+import { getCellGroups, subscribeLatestCellReports, subscribeTasksByDepartment, subscribeFinanceExpenseByDept } from '../services/firestore'
 import { computeMeetingDateISO, isRealCellReportSubmission } from '../utils/cellWeek'
+import { normalizeDepartmentName } from '../constants/roles'
+import { monthKeyOf } from '../utils/financeEntryLock'
+import useFinanceMonthLocks from './useFinanceMonthLocks'
 
 const NEW_MEMBER_DAYS = 14
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -18,14 +21,27 @@ const isOpenTask = (t) => !['Completed', 'Turned Down', 'Responded'].includes(t.
  * already has:
  *  - team members added in the last 14 days (until "Got it" is pressed),
  *  - open department tasks past their deadline,
- *  - Cell only: cells whose meeting day this week has passed with no report.
+ *  - Cell only: cells whose meeting day this week has passed with no report,
+ *  - the bell's finance items for this department (Finance Assistant bills awaiting
+ *    confirmation, "file your expenses" reminders, unlocked expense months).
  *
  * team: the department's roster (needs createdAt). tasks: pass the loaded list, or
  * leave undefined to subscribe here. cell: { viewAll, myCellIds } scopes the
  * overdue-report alert for the Cell department.
  * open: { team(), tasks(), reports() } — tab switches for the quick actions.
+ * notif: MainLayout's Outlet context ({ notifications, handleNotifAction,
+ * dismissNotification }) — the one bell feed, already permission-filtered and with
+ * "Ignore" applied, so the ribbon never shows something the bell has hidden.
+ * canConfirmExpenses: whoever DeptExpenseTab shows Approve / Confirm buttons to
+ * (Founder, Senior Pastor, canManageDepartment). Pending bills — both the
+ * department's own (Approve/Disapprove) and Finance Assistant entries
+ * (Confirm/Reject) — are read directly for them rather than from the bell, whose
+ * "Confirm Expense" item only covers the latter and only reaches holders of an
+ * actual Director/Coordinator position in the department.
  */
-export default function useDepartmentAlerts({ department, team = [], tasks, cell = null, memberNoun = 'team member', open = {} }) {
+const FINANCE_NOTIF_TYPES = ['expense_reminder', 'expense_unlock']
+
+export default function useDepartmentAlerts({ department, team = [], tasks, cell = null, memberNoun = 'team member', open = {}, notif = null, canConfirmExpenses = false }) {
   const [seenAt, setSeenAt] = useState(() => readSeen(department))
   useEffect(() => { setSeenAt(readSeen(department)) }, [department])
 
@@ -44,6 +60,22 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
     const unsub = subscribeLatestCellReports(200, setReports, () => setReports([]))
     return () => { cancelled = true; unsub?.() }
   }, [isCell])
+
+  // The same per-department expense list DeptExpenseTab reads. Only months still
+  // open for finance count (closed months can't be approved/confirmed any more) —
+  // judged by the regular finance rule, not the Founder's exemption, so a Founder
+  // isn't shown every never-approved bill from past years.
+  const [deptBills, setDeptBills] = useState([])
+  useEffect(() => {
+    if (!canConfirmExpenses || !department) { setDeptBills([]); return undefined }
+    return subscribeFinanceExpenseByDept(department, setDeptBills)
+  }, [canConfirmExpenses, department])
+  const { isLocked: isFinanceMonthLocked } = useFinanceMonthLocks(false)
+  const openBills = deptBills.filter((e) => e.date && !isFinanceMonthLocked(monthKeyOf(e.date)))
+  // Finance Assistant entries → Confirm/Reject; the department's own → Approve/Disapprove.
+  const toConfirm = openBills.filter((e) => e.deptConfirmation === 'pending')
+  const toApprove = openBills.filter((e) => !e.deptConfirmation && (e.status || 'pending') === 'pending')
+  const billKey = [...toConfirm, ...toApprove].map((e) => `${e.id}:${e.amount}`).join('|')
 
   const viewAll = !!cell?.viewAll
   const myCellKey = (cell?.myCellIds || []).filter(Boolean).join('|')
@@ -116,6 +148,75 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       }
     }
 
+    // Finance — one card per kind, each opening the department's Finance → Expense
+    // tab via the bell's own deep link (buildNotificationDeepLink).
+    const deptKey = normalizeDepartmentName(department || '')
+    const finance = (notif?.notifications || []).filter(
+      (n) => FINANCE_NOTIF_TYPES.includes(n.type) && normalizeDepartmentName(n.department || '') === deptKey
+    )
+    const ofType = (type) => finance.filter((n) => n.type === type)
+    const openFirst = (list) => () => notif?.handleNotifAction?.(list[0])
+    const ignoreAll = (list) => () => list.forEach((n) => notif?.dismissNotification?.(n))
+
+    const billLabel = (e) => `₹${Number(e.amount || 0).toLocaleString('en-IN')}${e.item ? ` · ${e.item}` : ''}${e.date ? ` (${format(e.date, 'd MMM')})` : ''}`
+    const openExpenses = () => notif?.handleNotifAction?.({ type: 'expense_confirmation', department })
+
+    if (toConfirm.length) {
+      const n = toConfirm.length
+      alerts.push({
+        id: 'finance-confirm',
+        tone: 'amber',
+        count: n,
+        title: n === 1 ? 'Expense awaiting confirmation' : `${n} expenses awaiting confirmation`,
+        detail: n === 1 ? `Finance Assistant entered ${billLabel(toConfirm[0])}.` : 'Entered by the Finance Assistant.',
+        items: n > 1 ? toConfirm.map(billLabel) : [],
+        actions: [{ label: 'Review expenses', onClick: openExpenses, primary: true }],
+      })
+    }
+
+    if (toApprove.length) {
+      const n = toApprove.length
+      alerts.push({
+        id: 'finance-approve',
+        tone: 'amber',
+        count: n,
+        title: n === 1 ? `Expense to approve: ${billLabel(toApprove[0])}` : `${n} expenses to approve`,
+        detail: 'Approve or disapprove in Finance → Expense.',
+        items: n > 1 ? toApprove.map(billLabel) : [],
+        actions: [{ label: 'Review expenses', onClick: openExpenses, primary: true }],
+      })
+    }
+
+    const reminders = ofType('expense_reminder')
+    if (reminders.length) {
+      alerts.push({
+        id: 'finance-reminder',
+        tone: 'sky',
+        count: reminders.length,
+        title: `File your ${department} expenses`,
+        detail: reminders[0].body,
+        actions: [
+          { label: 'File expenses', onClick: openFirst(reminders), primary: true },
+          notif?.dismissNotification && { label: 'Ignore', onClick: ignoreAll(reminders) },
+        ].filter(Boolean),
+      })
+    }
+
+    const unlocks = ofType('expense_unlock')
+    if (unlocks.length) {
+      alerts.push({
+        id: 'finance-unlock',
+        tone: 'emerald',
+        count: unlocks.length,
+        title: 'Expense entry unlocked',
+        detail: unlocks[0].body,
+        actions: [
+          { label: 'Enter expenses', onClick: openFirst(unlocks), primary: true },
+          notif?.dismissNotification && { label: 'Ignore', onClick: ignoreAll(unlocks) },
+        ].filter(Boolean),
+      })
+    }
+
     return alerts
-  }, [team, taskList, seenAt, department, memberNoun, isCell, cellGroups, reports, viewAll, myCellKey, open.team, open.tasks, open.reports])
+  }, [team, taskList, seenAt, department, memberNoun, isCell, cellGroups, reports, viewAll, myCellKey, open.team, open.tasks, open.reports, notif, billKey]) // eslint-disable-line react-hooks/exhaustive-deps -- toConfirm/toApprove are tracked via billKey
 }

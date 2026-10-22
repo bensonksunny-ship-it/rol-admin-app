@@ -691,10 +691,10 @@ export default function AdminUserManagement() {
                       <option value={ROLES.FOUNDER}>Founder</option>
                       <option value={ROLES.ADMIN}>Admin</option>
                       <option value={ROLES.SENIOR_PASTOR}>Senior Pastor</option>
-                      <option value={ROLES.WEEKLY_ENTRY}>Weekly Entry</option>
+                      <option value={ROLES.WEEKLY_ENTRY}>Finance Assistant</option>
                     </select>
                     <p className="text-xs text-slate-500 mt-1">
-                      Use this only for Founder/Admin accounts or Weekly Entry restricted users. Leave as Auto for normal users.
+                      Use this only for Founder/Admin accounts or Finance Assistant (restricted) users. Leave as Auto for normal users.
                     </p>
                   </div>
                   {isFounderGlobal && (

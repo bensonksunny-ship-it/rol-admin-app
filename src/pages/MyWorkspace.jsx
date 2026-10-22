@@ -12,7 +12,9 @@ import MembershipPipelineWidget from '../components/caring/MembershipPipelineWid
 import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
 import DeclarationRequestRibbon from '../components/workspace/DeclarationRequestRibbon'
 import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
+import ExpenseDisputeRibbon from '../components/workspace/ExpenseDisputeRibbon'
 import QuickActionsWidget from '../components/workspace/QuickActionsWidget'
+import DepartmentAlertRibbons from '../components/workspace/DepartmentAlertRibbons'
 
 function greeting(date = new Date()) {
   const h = date.getHours()
@@ -80,10 +82,11 @@ export default function MyWorkspace() {
     myName: userProfile?.displayName || userProfile?.email || '',
   }
   // Request ribbons addressed to this account (each renders nothing when empty):
-  // Stage 5 cell leader reviews, Deacon interview invitations, and applicants'
-  // Baptism Self-Declaration requests.
+  // department-disapproved expenses (Accounts Director), Stage 5 cell leader
+  // reviews, Deacon interview invitations, and applicants' Baptism Self-Declaration requests.
   const addressedRibbons = (
     <>
+      <ExpenseDisputeRibbon {...ids} />
       <CellLeaderApprovalRibbon {...ids} />
       <DeaconInterviewRibbon {...ids} />
       <DeclarationRequestRibbon {...ids} />
@@ -122,10 +125,14 @@ export default function MyWorkspace() {
         </div>
       </div>
 
+      {/* Department notification ribbons (same blue ribbons as each department page),
+          each opening its alert in a popup: right under the welcome header on Eden
+          Garden, and under the Quick Actions box everywhere else. */}
       {isFounder ? (
         // Eden Garden: metrics first, then every status / action ribbon in one stack
         // (Upcoming Worship → Membership Pipeline → other alerts), then departments.
         <>
+          <DepartmentAlertRibbons />
           <FounderInsightsPanel />
           <div className="space-y-3">
             <WorshipWorkspaceWidget />
@@ -139,14 +146,15 @@ export default function MyWorkspace() {
         </>
       ) : (
         <>
-          {/* Things addressed to me first: To-Do pill (only when tasks are open) and the
+          {/* Quick-action button row directly under the welcome header. */}
+          <QuickActionsWidget />
+          <DepartmentAlertRibbons />
+          {/* Then things addressed to me: To-Do pill (only when tasks are open) and the
               request / assignment ribbons (each renders nothing when it has nothing). */}
           <ToDoListCard />
           {addressedRibbons}
           <WorshipWorkspaceWidget />
           <BoardMeetingWorkspaceWidget />
-          {/* Quick-action bento cards right under the header and ribbons. */}
-          <QuickActionsWidget />
           {pipeline}
         </>
       )}

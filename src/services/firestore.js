@@ -24,7 +24,7 @@ import {
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { db, storage, functions, httpsCallable } from '../lib/firebase'
-import { ROLES, deriveRoleFromPositions } from '../constants/roles'
+import { ROLES, deriveRoleFromPositions, departmentNameVariants } from '../constants/roles'
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
 import { normalizeEngagementType } from '../utils/pcsEngagement'
 import { mergeFamilyIntoProfile } from '../utils/familyDetails'
@@ -1805,11 +1805,12 @@ export async function createFinanceExpense(data) {
   return ref.id
 }
 
-export async function updateFinanceExpenseStatus(id, status, approvedBy) {
+export async function updateFinanceExpenseStatus(id, status, approvedBy, reason) {
   await updateDoc(doc(db, 'finance_expense', id), {
     status,
     approvedBy: approvedBy || '',
     approvedAt: Timestamp.now(),
+    disapproveReason: status === 'disapproved' ? (reason || '') : '',
   })
 }
 
@@ -1822,6 +1823,8 @@ export async function updateFinanceExpense(id, data) {
     billNo: data.billNo || '',
     amount: Number(data.amount) || 0,
     updatedAt: Timestamp.now(),
+    // Finance Assistant edits send the bill back to the department for re-confirmation.
+    ...(data.deptConfirmation ? { deptConfirmation: data.deptConfirmation, deptConfirmedBy: '', deptRejectReason: '' } : {}),
   })
 }
 
@@ -1921,9 +1924,11 @@ export async function deleteFinanceSavings(id) {
   await deleteDoc(doc(db, 'finance_savings', id))
 }
 
+// Department pages and the Finance Assistant / Accounts category list name some
+// departments differently (Cell vs Cell Ministry, …) — match every variant.
 export async function getFinanceExpenseByDept(department) {
   if (!db || !department) return []
-  const q = query(collection(db, 'finance_expense'), where('department', '==', department))
+  const q = query(collection(db, 'finance_expense'), where('department', 'in', departmentNameVariants(department)))
   const snap = await getDocs(q)
   return snap.docs
     .map((d) => {
@@ -1935,7 +1940,7 @@ export async function getFinanceExpenseByDept(department) {
 
 export function subscribeFinanceExpenseByDept(department, onChange) {
   if (!db || !department) return () => {}
-  const q = query(collection(db, 'finance_expense'), where('department', '==', department))
+  const q = query(collection(db, 'finance_expense'), where('department', 'in', departmentNameVariants(department)))
   return onSnapshot(q, (snap) => {
     const entries = snap.docs
       .map((d) => {
@@ -1963,6 +1968,81 @@ export async function approveAllFinanceWeeklyEntries(ids) {
     })
   })
   await batch.commit()
+}
+
+// Bills the Finance Assistant enters on a department's behalf carry
+// deptConfirmation: 'pending' until that department's Director/Coordinator
+// confirms or rejects them. Department-entered bills have no deptConfirmation.
+export async function confirmFinanceExpenseByDept(id, confirmedBy) {
+  await updateDoc(doc(db, 'finance_expense', id), {
+    deptConfirmation: 'confirmed',
+    deptConfirmedBy: confirmedBy || '',
+    deptConfirmedAt: Timestamp.now(),
+    deptRejectReason: '',
+  })
+}
+
+export async function rejectFinanceExpenseByDept(id, rejectedBy, reason) {
+  await updateDoc(doc(db, 'finance_expense', id), {
+    deptConfirmation: 'rejected',
+    deptConfirmedBy: rejectedBy || '',
+    deptConfirmedAt: Timestamp.now(),
+    deptRejectReason: reason || '',
+  })
+}
+
+// Finance Assistant's one-click "receipt received" mark on a single bill —
+// every department must hand in the receipt for each transaction.
+export async function setFinanceExpenseReceipt(id, received, by) {
+  await updateDoc(doc(db, 'finance_expense', id), {
+    receiptConfirmed: !!received,
+    receiptConfirmedBy: received ? (by || '') : '',
+    receiptConfirmedAt: received ? Timestamp.now() : null,
+  })
+}
+
+// Finance Assistant's sign-off on a whole department's expenses for one period
+// (a week or a month). `periodKey` is 'week:yyyy-MM-dd' (week start) or
+// 'month:yyyy-MM'; doc id is `${periodKey}_${department}` so re-confirming after
+// new bills arrive overwrites the earlier sign-off. Also adds (approves) every
+// still-pending bill of that department in the period, in the same batch.
+const FINANCE_DEPT_CONFIRMATIONS = 'finance_dept_confirmations'
+
+export async function getFinanceDeptConfirmations(periodKey) {
+  if (!db || !periodKey) return []
+  const snap = await getDocs(query(collection(db, FINANCE_DEPT_CONFIRMATIONS), where('periodKey', '==', periodKey)))
+  return snap.docs.map((d) => {
+    const data = d.data()
+    return { id: d.id, ...data, confirmedAt: toDate(data.confirmedAt) }
+  })
+}
+
+export async function confirmFinanceDeptPeriod({ periodKey, department, expenseIds, pendingIds, total, confirmedBy }) {
+  const batch = writeBatch(db)
+  pendingIds.forEach((id) => {
+    batch.update(doc(db, 'finance_expense', id), { status: 'approved', approvedAt: Timestamp.now() })
+  })
+  batch.set(doc(db, FINANCE_DEPT_CONFIRMATIONS, `${periodKey}_${department}`.replace(/\//g, '-')), {
+    periodKey,
+    department,
+    expenseIds,
+    count: expenseIds.length,
+    total: Number(total) || 0,
+    confirmedBy: confirmedBy || '',
+    confirmedAt: Timestamp.now(),
+  })
+  await batch.commit()
+}
+
+export function subscribePendingDeptExpenseConfirmations(onChange, onError) {
+  if (!db) return () => {}
+  const q = query(collection(db, 'finance_expense'), where('deptConfirmation', '==', 'pending'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => {
+      const data = d.data()
+      return { id: d.id, ...data, date: toDate(data.date), createdAt: toDate(data.createdAt) }
+    }))
+  }, onError || (() => {}))
 }
 
 // Finance Voucher Requests
@@ -7278,7 +7358,7 @@ export async function getCellVisitorProposalsByReport(reportId) {
 const USER_DIRECTORY = 'user_directory'
 const CONVERSATIONS = 'conversations'
 
-export async function upsertUserDirectoryEntry(uid, { name, email, role, department, departments, status, cellId, cellGroup, isCellLeader } = {}) {
+export async function upsertUserDirectoryEntry(uid, { name, email, role, department, departments, status, cellId, cellGroup, isCellLeader, deptHeadOf } = {}) {
   if (!db || !uid) return
   await setDoc(doc(db, USER_DIRECTORY, uid), {
     uid,
@@ -7292,8 +7372,188 @@ export async function upsertUserDirectoryEntry(uid, { name, email, role, departm
     cellId: cellId || '',
     cellGroup: cellGroup || '',
     isCellLeader: !!isCellLeader,
+    // Departments this user is Director/Coordinator of — lets the Finance Assistant
+    // see who hasn't filed a month's expenses without reading /users.
+    deptHeadOf: Array.isArray(deptHeadOf) ? deptHeadOf : [],
     updatedAt: Timestamp.now(),
   }, { merge: true })
+}
+
+export async function getDeptHeadsFromDirectory() {
+  if (!db) return []
+  const snap = await getDocs(collection(db, USER_DIRECTORY))
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((u) => (u.status || 'active') === 'active' && Array.isArray(u.deptHeadOf) && u.deptHeadOf.length)
+}
+
+// ─── Finance expense filing reminders ───────────────────────────────────────
+// Finance Assistant → department Director/Coordinator: "please file your
+// expenses for <month> before the 5th of the next month". Shown in the
+// recipient's bell until dismissed, or until the department files an expense
+// for that month (resolveFinanceExpenseReminders, called from DeptExpenseTab).
+const FINANCE_EXPENSE_REMINDERS = 'finance_expense_reminders'
+
+export async function sendFinanceExpenseReminders(reminders, sentBy) {
+  const batch = writeBatch(db)
+  reminders.forEach((r) => {
+    batch.set(doc(db, FINANCE_EXPENSE_REMINDERS, `${r.month}_${r.toUid}_${r.department}`.replace(/\//g, '-')), {
+      ...r,
+      resolved: false,
+      sentBy: sentBy || '',
+      sentAt: Timestamp.now(),
+    })
+  })
+  await batch.commit()
+}
+
+export async function getFinanceExpenseRemindersForMonth(month) {
+  if (!db || !month) return []
+  const snap = await getDocs(query(collection(db, FINANCE_EXPENSE_REMINDERS), where('month', '==', month)))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data(), sentAt: toDate(d.data().sentAt) }))
+}
+
+export function subscribeMyFinanceExpenseReminders(uid, onChange) {
+  if (!db || !uid) return () => {}
+  const q = query(collection(db, FINANCE_EXPENSE_REMINDERS), where('toUid', '==', uid))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs
+      .map((d) => ({ id: d.id, ...d.data(), sentAt: toDate(d.data().sentAt) }))
+      .filter((r) => !r.resolved))
+  }, () => onChange([]))
+}
+
+// ─── Late expense-entry unlocks ─────────────────────────────────────────────
+// After the 5th of the following month a department can no longer enter that
+// month's expenses (utils/financeEntryLock.js) unless the Accounts Director
+// unlocks it for one named Director/Coordinator. Doc id `${month}_${toUid}_${department}`.
+const FINANCE_ENTRY_UNLOCKS = 'finance_entry_unlocks'
+
+export async function setFinanceEntryUnlock({ month, monthLabel, department, toUid, toName }, active, by) {
+  await setDoc(doc(db, FINANCE_ENTRY_UNLOCKS, `${month}_${toUid}_${department}`.replace(/\//g, '-')), {
+    month,
+    monthLabel: monthLabel || '',
+    department,
+    toUid,
+    toName: toName || '',
+    active: !!active,
+    ...(active
+      ? { unlockedBy: by || '', unlockedAt: Timestamp.now() }
+      : { lockedBy: by || '', lockedAt: Timestamp.now() }),
+  }, { merge: true })
+}
+
+export async function getFinanceEntryUnlocksForMonth(month) {
+  if (!db || !month) return []
+  const snap = await getDocs(query(collection(db, FINANCE_ENTRY_UNLOCKS), where('month', '==', month)))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data(), unlockedAt: toDate(d.data().unlockedAt) }))
+}
+
+export function subscribeMyFinanceEntryUnlocks(uid, onChange) {
+  if (!db || !uid) return () => {}
+  const q = query(collection(db, FINANCE_ENTRY_UNLOCKS), where('toUid', '==', uid))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs
+      .map((d) => ({ id: d.id, ...d.data(), unlockedAt: toDate(d.data().unlockedAt) }))
+      .filter((u) => u.active))
+  }, () => onChange([]))
+}
+
+// ─── Disputed expenses + Accounts follow-ups ────────────────────────────────
+// A bill the department disapproved (status 'disapproved') or rejected
+// (deptConfirmation 'rejected') is escalated to the Accounts Director's My
+// Workspace ribbon. The Director can follow up any number of times
+// (finance_expense_followups/{expenseId}) until the department approves it or
+// Accounts removes it — both clear the follow-up doc.
+const FINANCE_EXPENSE_FOLLOWUPS = 'finance_expense_followups'
+
+export function subscribeDisputedExpenses(onChange) {
+  if (!db) return () => {}
+  const results = { disapproved: [], rejected: [] }
+  const emit = () => {
+    const byId = new Map([...results.disapproved, ...results.rejected].map((e) => [e.id, e]))
+    onChange([...byId.values()].sort((a, b) => (b.date || 0) - (a.date || 0)))
+  }
+  const toRows = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data(), date: toDate(d.data().date) }))
+  const unsubA = onSnapshot(query(collection(db, 'finance_expense'), where('status', '==', 'disapproved')),
+    (snap) => { results.disapproved = toRows(snap); emit() }, () => {})
+  const unsubB = onSnapshot(query(collection(db, 'finance_expense'), where('deptConfirmation', '==', 'rejected')),
+    (snap) => { results.rejected = toRows(snap); emit() }, () => {})
+  return () => { unsubA(); unsubB() }
+}
+
+export function subscribeExpenseFollowUps(onChange) {
+  if (!db) return () => {}
+  return onSnapshot(collection(db, FINANCE_EXPENSE_FOLLOWUPS), (snap) => {
+    const out = {}
+    snap.docs.forEach((d) => {
+      const data = d.data()
+      out[d.id] = { id: d.id, ...data, lastAt: toDate(data.lastAt) }
+    })
+    onChange(out)
+  }, () => onChange({}))
+}
+
+export async function sendExpenseFollowUp(expense, note, by) {
+  const at = Timestamp.now()
+  await setDoc(doc(db, FINANCE_EXPENSE_FOLLOWUPS, expense.id), {
+    expenseId: expense.id,
+    department: expense.department || '',
+    item: expense.item || '',
+    amount: Number(expense.amount) || 0,
+    date: expense.date instanceof Date ? Timestamp.fromDate(expense.date) : null,
+    count: increment(1),
+    lastAt: at,
+    lastBy: by || '',
+    lastNote: note || '',
+    history: arrayUnion({ at, by: by || '', note: note || '' }),
+  }, { merge: true })
+}
+
+export async function clearExpenseFollowUp(expenseId) {
+  if (!db || !expenseId) return
+  await deleteDoc(doc(db, FINANCE_EXPENSE_FOLLOWUPS, expenseId))
+}
+
+// ─── Founder's finance-month unlocks ────────────────────────────────────────
+// After the 10th of the following month a month's expenses lock for the whole
+// finance team (utils/financeEntryLock.js + firestore.rules). The Founder can
+// reopen it for N days, any number of times. Doc id = 'yyyy-MM'.
+const FINANCE_MONTH_UNLOCKS = 'finance_month_unlocks'
+
+// One doc per month ever reopened — small enough to watch whole.
+export function subscribeFinanceMonthUnlocks(onChange) {
+  if (!db) { onChange({}); return () => {} }
+  return onSnapshot(collection(db, FINANCE_MONTH_UNLOCKS), (snap) => {
+    const out = {}
+    snap.docs.forEach((d) => {
+      const data = d.data()
+      out[data.month] = { ...data, unlockedUntil: toDate(data.unlockedUntil), unlockedAt: toDate(data.unlockedAt) }
+    })
+    onChange(out)
+  }, () => onChange({}))
+}
+
+export async function setFinanceMonthUnlock(month, days, by) {
+  const until = days > 0 ? Timestamp.fromDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000)) : Timestamp.now()
+  await setDoc(doc(db, FINANCE_MONTH_UNLOCKS, month), {
+    month,
+    unlockedUntil: until,
+    ...(days > 0
+      ? { unlockedBy: by || '', unlockedAt: Timestamp.now(), unlockDays: days, unlockCount: increment(1) }
+      : { lockedBy: by || '', lockedAt: Timestamp.now() }),
+  }, { merge: true })
+}
+
+export async function resolveFinanceExpenseReminders(department, month) {
+  if (!db || !department || !month) return
+  const snap = await getDocs(query(collection(db, FINANCE_EXPENSE_REMINDERS), where('month', '==', month)))
+  const variants = departmentNameVariants(department)
+  const open = snap.docs.filter((d) => !d.data().resolved && variants.includes(d.data().department))
+  if (!open.length) return
+  const batch = writeBatch(db)
+  open.forEach((d) => batch.update(d.ref, { resolved: true, resolvedAt: Timestamp.now() }))
+  await batch.commit()
 }
 
 /** { email(lowercase) → display name } for the given emails, read from user_directory. */

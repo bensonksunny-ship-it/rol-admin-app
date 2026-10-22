@@ -11,7 +11,7 @@ import BudgetPage from './BudgetPage'
 const TABS = [
   { key: 'income', label: 'Income' },
   { key: 'expense', label: 'Expense' },
-  { key: 'weekly', label: 'Weekly Entry' },
+  { key: 'weekly', label: 'Finance Assistant' },
   { key: 'budget', label: 'Budget' },
 ]
 

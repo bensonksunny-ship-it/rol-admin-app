@@ -463,6 +463,15 @@ exports.syncUserDirectory = onCall(async (request) => {
         isCellLeader: (Array.isArray(data.positions) ? data.positions : []).some((p) =>
           String(p?.department || '').trim().toLowerCase() === 'cell' &&
           (String(p?.role || '').toUpperCase() === 'LEADER' || p?.position === 'Cell Leader' || String(p?.role || '').toLowerCase() === 'cell leader')),
+        // Departments this user is Director/Coordinator of (Cell Leaders excluded) —
+        // mirrors deptHeadDepartments() in src/utils/access.js.
+        deptHeadOf: [...new Set((Array.isArray(data.positions) ? data.positions : []).filter((p) => {
+          if (!String(p?.department || '').trim()) return false
+          const role = String(p?.role || '').trim().toUpperCase()
+          const raw = String(p?.position || '').trim()
+          const pos = (raw.includes(' - ') ? raw.slice(0, raw.indexOf(' - ')) : raw).trim().toLowerCase()
+          return role === 'DIRECTOR' || role === 'COORDINATOR' || pos === 'director' || pos === 'coordinator'
+        }).map((p) => String(p.department).trim()))],
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true })
       synced += 1
@@ -823,15 +832,30 @@ exports.syncBaptismSelfDeclaration = onDocumentUpdated('baptism_self_declaration
 // ownership, users or security rules. The RFF project's service-account key is
 // stored here as a secret; this function reads RFF's Firestore server-side with
 // it (admin access, so the RFF app's own rules are untouched) and returns the
-// students + programs to signed-in ROL Admin users who have RFF access.
+// student list to signed-in ROL Admin users who have RFF access.
 //   firebase functions:secrets:set RFF_SERVICE_ACCOUNT < rff-service-account.json
 const { defineSecret } = require('firebase-functions/params')
 const RFF_SERVICE_ACCOUNT = defineSecret('RFF_SERVICE_ACCOUNT')
 
-// Collection names in the RFF app's Firestore. Adjust (plus rffMapStudent /
-// rffMapProgram below) to match that app's actual schema.
-const RFF_EXT_PROGRAMS = 'rff_programs'
-const RFF_EXT_STUDENTS = 'rff_students'
+// The RFF app's Firestore (checked against the live data, Oct 2026):
+//   students  numeric `id`, name, className, age, course, city, feeOffered,
+//             fatherName / motherName / parentId (→ parents)
+//   fees      one row per payment/installment: numeric `studentId` (= students.id),
+//             amount, status PAID | PARTIAL | PENDING, paidOn. PAID and PARTIAL
+//             rows are money received; PENDING rows (no paidOn) are not.
+//   expenses  title, category, amount, date — the RFF app has no such
+//             collection yet; read anyway so it shows up once it exists.
+// There is no `payments` collection — `fees` is the payment ledger.
+const RFF_EXT_STUDENTS = 'students'
+const RFF_EXT_FEES = 'fees'
+const RFF_EXT_PARENTS = 'parents'
+const RFF_EXT_EXPENSES = 'expenses'
+const RFF_FEE_RECEIVED = new Set(['PAID', 'PARTIAL'])
+// Server-only cache in ROL's Firestore (admin SDK; no client rule needed).
+// Bump the doc id when the cached shape changes.
+const RFF_CACHE_DOC = 'rff_cache/v2'
+const RFF_CACHE_TTL_MS = 10 * 60_000
+const RFF_FORCE_MIN_MS = 60_000
 
 function rffNorm(v) {
   return String(v || '').trim().toLowerCase().replace(/-/g, ' ')
@@ -858,40 +882,119 @@ function userHasRFFAccess(profile, tokenGlobalRole) {
   return false
 }
 
+// The secret may have been stored as raw JSON, as JSON wrapped in quotes (a
+// JSON-encoded string), or base64-encoded JSON. Errors here name the problem
+// without echoing any part of the key.
+function parseRFFServiceAccount(raw) {
+  let value = String(raw || '').trim().replace(/^﻿/, '')
+  if (!value) throw new Error('RFF_SERVICE_ACCOUNT is empty or not set')
+  for (let i = 0; i < 3 && typeof value === 'string'; i++) {
+    try {
+      value = JSON.parse(value)
+    } catch {
+      const decoded = Buffer.from(value, 'base64').toString('utf8').trim()
+      if (!decoded.startsWith('{') && !decoded.startsWith('"')) {
+        throw new Error('Invalid JSON: RFF_SERVICE_ACCOUNT is neither JSON nor base64-encoded JSON')
+      }
+      value = decoded
+    }
+  }
+  if (!value || typeof value !== 'object') throw new Error('Invalid JSON: RFF_SERVICE_ACCOUNT is not a JSON object')
+  if (!value.private_key) throw new Error('Missing private_key in RFF_SERVICE_ACCOUNT')
+  if (!value.client_email) throw new Error('Missing client_email in RFF_SERVICE_ACCOUNT')
+  if (!value.project_id) throw new Error('Missing project_id in RFF_SERVICE_ACCOUNT')
+  // Keys pasted through some shells keep literal "\n" instead of newlines.
+  value.private_key = String(value.private_key).replace(/\\n/g, '\n')
+  return value
+}
+
 function getRFFAdminApp() {
   const existing = admin.apps.find((a) => a && a.name === 'rff')
   if (existing) return existing
-  const raw = RFF_SERVICE_ACCOUNT.value()
-  if (!raw) throw new HttpsError('failed-precondition', 'The RFF app connection is not set up yet (RFF_SERVICE_ACCOUNT).')
-  return admin.initializeApp({ credential: admin.credential.cert(JSON.parse(raw)) }, 'rff')
+  const serviceAccount = parseRFFServiceAccount(RFF_SERVICE_ACCOUNT.value() || process.env.RFF_SERVICE_ACCOUNT)
+  return admin.initializeApp({ credential: admin.credential.cert(serviceAccount) }, 'rff')
 }
 
-// Firestore Timestamps don't survive the callable's JSON encoding — send ISO strings.
-function rffIso(v) {
-  if (!v) return null
-  if (typeof v.toDate === 'function') return v.toDate().toISOString()
-  const d = new Date(v)
-  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+// The RFF app may store a field as a string or a number — normalise to display
+// text. A map (e.g. parent {name, phone}) is joined; a Timestamp becomes a date.
+function rffText(v) {
+  if (v == null) return ''
+  if (typeof v === 'object') {
+    if (typeof v.toDate === 'function') return v.toDate().toISOString().slice(0, 10)
+    return Object.values(v).filter((x) => x != null && x !== '' && typeof x !== 'object').join(' · ')
+  }
+  return String(v).trim()
 }
 
-function rffMapProgram(d) {
+function rffNum(v) {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+function rffMapStudent(d, parentNames, paidByStudent) {
   const x = d.data()
-  return { id: d.id, name: String(x.name || '') }
+  const totalFeeOffered = rffNum(x.feeOffered)
+  // Students join to fees by their numeric `id` field, not the doc id.
+  const totalFeePaid = paidByStudent.get(String(x.id ?? d.id)) || 0
+  return {
+    id: d.id,
+    name: rffText(x.name),
+    class: rffText(x.className ?? x.class),
+    age: rffText(x.age),
+    course: rffText(x.course),
+    city: rffText(x.city),
+    parent: rffText(x.fatherName) || rffText(x.motherName) || parentNames.get(String(x.parentId)) || rffText(x.parent),
+    // No fee offered on record → pending is unknown, not negative.
+    totalFeeOffered,
+    totalFeePaid,
+    feePending: totalFeeOffered == null ? null : totalFeeOffered - totalFeePaid,
+  }
 }
 
-function rffMapStudent(d) {
+function rffMapExpense(d) {
   const x = d.data()
   return {
     id: d.id,
-    name: String(x.name || ''),
-    programId: String(x.programId || ''),
-    ageOrClass: String(x.ageOrClass || ''),
-    guardianName: String(x.guardianName || ''),
-    guardianPhone: String(x.guardianPhone || ''),
-    admissionDate: rffIso(x.admissionDate),
-    feeAmount: Number(x.feeAmount) || 0,
-    feePaid: !!x.feePaid,
-    feePaidDate: rffIso(x.feePaidDate),
+    title: rffText(x.title),
+    category: rffText(x.category),
+    amount: rffNum(x.amount) || 0,
+    date: rffText(x.date),
+  }
+}
+
+async function readRFFData() {
+  const db = getRFFAdminApp().firestore()
+  const [students, fees, parents, expenses] = await Promise.all(
+    [RFF_EXT_STUDENTS, RFF_EXT_FEES, RFF_EXT_PARENTS, RFF_EXT_EXPENSES].map((c) => db.collection(c).get()),
+  )
+  const parentNames = new Map(parents.docs.map((d) => [String(d.data().id ?? d.id), rffText(d.data().name)]))
+  const paidByStudent = new Map()
+  let totalCollected = 0
+  for (const d of fees.docs) {
+    const f = d.data()
+    if (!RFF_FEE_RECEIVED.has(String(f.status || '').toUpperCase())) continue
+    const amt = rffNum(f.amount) || 0
+    totalCollected += amt
+    const key = String(f.studentId)
+    paidByStudent.set(key, (paidByStudent.get(key) || 0) + amt)
+  }
+  const studentsList = students.docs
+    .map((d) => rffMapStudent(d, parentNames, paidByStudent))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const expensesList = expenses.docs.map(rffMapExpense).sort((a, b) => b.date.localeCompare(a.date))
+  return {
+    totalStudents: studentsList.length,
+    studentsList,
+    expensesList,
+    totals: {
+      totalFeeOffered: studentsList.reduce((n, x) => n + (x.totalFeeOffered || 0), 0),
+      totalCollected,
+      // An overpaid student doesn't offset other students' balances.
+      totalPending: studentsList.reduce((n, x) => n + Math.max(0, x.feePending || 0), 0),
+      totalExpenses: expensesList.reduce((n, x) => n + x.amount, 0),
+    },
+    fetchedAt: new Date().toISOString(),
   }
 }
 
@@ -902,15 +1005,39 @@ exports.getRFFData = onCall({ secrets: [RFF_SERVICE_ACCOUNT] }, async (request) 
   if (!userHasRFFAccess(snap.data() || {}, request.auth.token?.globalRole)) {
     throw new HttpsError('permission-denied', 'Your ROL Admin account does not have RFF access.')
   }
-  const rffDb = getRFFAdminApp().firestore()
-  const [p, s] = await Promise.all([
-    rffDb.collection(RFF_EXT_PROGRAMS).get(),
-    rffDb.collection(RFF_EXT_STUDENTS).get(),
-  ])
-  const byName = (a, b) => a.name.localeCompare(b.name)
-  return {
-    programs: p.docs.map(rffMapProgram).sort(byName),
-    students: s.docs.map(rffMapStudent).sort(byName),
-    fetchedAt: new Date().toISOString(),
+  // Every read of the RFF app costs one read per document against the RFF
+  // project's quota (Spark plan: 50k/day, shared with the RFF app itself), so
+  // the data is cached in ROL's own Firestore and re-read from RFF at most every
+  // RFF_CACHE_TTL_MS — however many people have the page open. A manual
+  // refresh (force) may re-read sooner, but not more than once a minute.
+  const cacheRef = admin.firestore().doc(RFF_CACHE_DOC)
+  const cacheSnap = await cacheRef.get()
+  const cache = cacheSnap.exists ? cacheSnap.data() : null
+  const ageMs = cache?.fetchedAt ? Date.now() - Date.parse(cache.fetchedAt) : Infinity
+  const ttl = request.data?.force ? RFF_FORCE_MIN_MS : RFF_CACHE_TTL_MS
+  if (cache && ageMs < ttl) return { success: true, ...cache }
+
+  // Connection/key/read failures come back as { success: false, error } rather
+  // than an opaque INTERNAL error, so the page can show the real reason.
+  let fresh
+  try {
+    fresh = await readRFFData()
+  } catch (err) {
+    const code = String(err?.code)
+    const reason = code === '7' || /permission/i.test(err?.message || '')
+      ? `Permission denied reading the RFF app's Firestore: ${err.message}`
+      : code === '8' || /quota|RESOURCE_EXHAUSTED/i.test(err?.message || '')
+        ? 'The RFF app has used up its daily Firestore read quota. It resets around 12:30 PM IST.'
+        : (err?.message || String(err))
+    console.error('getRFFData failed:', reason, err?.message)
+    // Last good copy beats an empty page.
+    if (cache) return { success: true, stale: true, warning: reason, ...cache }
+    return { success: false, error: reason }
   }
+  try {
+    await cacheRef.set(fresh)
+  } catch (err) {
+    console.error('getRFFData cache write failed:', err?.message)
+  }
+  return { success: true, ...fresh }
 })

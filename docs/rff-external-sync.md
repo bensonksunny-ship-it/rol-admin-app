@@ -39,12 +39,24 @@ the browser.
 
 ## Matching the RFF app's data
 
-`functions/index.js` assumes the RFF app stores data as:
+`getRFFData` reads these RFF collections:
 
-- `rff_programs`: `name`
-- `rff_students`: `name`, `programId`, `ageOrClass`, `guardianName`,
-  `guardianPhone`, `admissionDate`, `feeAmount`, `feePaid`, `feePaidDate`
+- `students`: numeric `id`, `name`, `className`, `age`, `course`, `city`,
+  `feeOffered`, `fatherName` / `motherName` / `parentId` (→ `parents`)
+- `fees`: one row per payment, linked by numeric `studentId` (= `students.id`).
+  Rows with status `PAID` or `PARTIAL` count as money received; `PENDING` rows
+  don't. (The RFF app has no `payments` collection; `fees` is the ledger.)
+- `expenses`: `title`, `category`, `amount`, `date`. This collection doesn't
+  exist in the RFF app yet; the Finance tab stays empty until it does.
 
-If the RFF app uses different collection or field names, change
-`RFF_EXT_PROGRAMS` / `RFF_EXT_STUDENTS` and `rffMapProgram` / `rffMapStudent` in
-`functions/index.js`. That's the only place to change; the pages don't need to.
+It returns `{ totalStudents, studentsList, expensesList, totals, fetchedAt }`.
+Each student has `totalFeeOffered`, `totalFeePaid` and `feePending`
+(offered − paid; `null` when no fee is offered on record). `totals` holds
+`totalFeeOffered`, `totalCollected`, `totalPending` (overpaid students don't
+offset others) and `totalExpenses`.
+
+Results are cached in ROL's Firestore (`rff_cache/v2`) for 10 minutes, so
+ROL Admin doesn't burn the RFF project's daily read quota.
+
+If the RFF app's collection or field names change, update the `RFF_EXT_*`
+constants and the `rffMap*` / `readRFFData` functions in `functions/index.js`.

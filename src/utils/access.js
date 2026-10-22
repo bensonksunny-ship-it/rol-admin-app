@@ -1,4 +1,4 @@
-import { basePositionName } from '../constants/roles'
+import { basePositionName, departmentNameVariants } from '../constants/roles'
 
 export const GLOBAL_ROLES = {
   FOUNDER: 'FOUNDER',
@@ -79,6 +79,39 @@ export function isDepartmentDirectorInPositions(user, departmentName) {
     if (String(p?.role || '').trim().toUpperCase() === 'DIRECTOR') return true
     const positionField = p?.position != null ? String(p.position).trim() : ''
     return !!positionField && basePositionName(positionField).toLowerCase() === 'director'
+  })
+}
+
+// Departments the user is Director or Coordinator of (positions[] only — Cell Leaders
+// excluded). Written to user_directory.deptHeadOf; functions/index.js
+// (syncUserDirectory) mirrors this logic for its backfill.
+export function deptHeadDepartments(user) {
+  const positions = Array.isArray(user?.positions) ? user.positions : []
+  const out = new Set()
+  positions.forEach((p) => {
+    const dept = String(p?.department || '').trim()
+    if (!dept) return
+    const role = String(p?.role || '').trim().toUpperCase()
+    const pos = basePositionName(p?.position).toLowerCase()
+    if (role === 'DIRECTOR' || role === 'COORDINATOR' || pos === 'director' || pos === 'coordinator') out.add(dept)
+  })
+  return [...out]
+}
+
+// Director or Coordinator (positions[] only — Cell Leaders excluded) of the department
+// a finance_expense record belongs to, matching every alias of its stored name
+// (Cell / Cell Ministry, …). These are the people asked to confirm bills the
+// Finance Assistant enters on the department's behalf.
+export function isDeptExpenseConfirmer(user, expenseDepartment) {
+  const variants = departmentNameVariants(expenseDepartment).map((v) => v.trim().toLowerCase().replace(/-/g, ' '))
+  if (!variants.length) return false
+  const positions = Array.isArray(user?.positions) ? user.positions : []
+  return positions.some((p) => {
+    if (!variants.includes(String(p?.department || '').trim().toLowerCase().replace(/-/g, ' '))) return false
+    const role = String(p?.role || '').trim().toUpperCase()
+    if (role === 'DIRECTOR' || role === 'COORDINATOR') return true
+    const pos = basePositionName(p?.position).toLowerCase()
+    return pos === 'director' || pos === 'coordinator'
   })
 }
 

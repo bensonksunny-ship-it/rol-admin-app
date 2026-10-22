@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronLeft, X } from 'lucide-react'
-import { TILE_STYLES } from '../constants/tileStyles'
+import { TILE_STYLES, DEPARTMENT_ACCENTS, DEFAULT_DEPARTMENT_ACCENT } from '../constants/tileStyles'
 
 function TileGrid({ items, onTap }) {
   // Fixed-width tiles in a wrapping flex row (not a CSS grid) so every row — including
@@ -32,7 +32,7 @@ function TileGrid({ items, onTap }) {
                 />
               )}
             </span>
-            <span className="text-[11px] font-medium text-slate-700 dark:text-slate-200 text-center leading-tight line-clamp-2">
+            <span className="text-[11px] font-semibold text-slate-900 dark:text-slate-100 text-center leading-tight line-clamp-2">
               {item.label}
             </span>
           </button>
@@ -52,6 +52,7 @@ function TileGrid({ items, onTap }) {
 function DepartmentSection({ dept, openChild, onOpenChild, onNavigate }) {
   const DeptIcon = dept.Icon
   const gridItems = openChild ? openChild.children : dept.subpages
+  const accent = DEPARTMENT_ACCENTS[dept.key] || DEFAULT_DEPARTMENT_ACCENT
 
   const handleTap = (item) => {
     if (item.children?.length > 0) onOpenChild(item)
@@ -60,14 +61,13 @@ function DepartmentSection({ dept, openChild, onOpenChild, onNavigate }) {
 
   return (
     <div>
-      <div className="flex items-center gap-2 pb-2.5 mb-3.5 border-b border-slate-300/60 dark:border-white/15">
+      <div className="flex items-center gap-2 pb-2.5 mb-3.5 border-b border-slate-200 dark:border-slate-700">
         <span
-          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-          style={{ background: 'linear-gradient(135deg, #6357c9 0%, #8b7ff0 100%)', boxShadow: '0 2px 8px rgba(99,87,201,0.4)' }}
+          className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-gradient-to-br ${accent.gradient} shadow-md ${accent.shadow}`}
         >
           <DeptIcon size={15} className="text-white" strokeWidth={2} />
         </span>
-        <span className="text-sm font-extrabold uppercase tracking-wide text-slate-800 dark:text-slate-100">{dept.label}</span>
+        <span className="text-sm font-extrabold uppercase tracking-wide text-slate-900 dark:text-white">{dept.label}</span>
       </div>
       {openChild && (
         <button
@@ -135,7 +135,7 @@ export default function DepartmentFolderModal({ departments, activeKey, activeCh
 
   return createPortal(
     <div
-      className={`fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/10 backdrop-blur-sm transition-opacity duration-200 ease-out ${
+      className={`fixed inset-0 z-[100] flex items-center justify-center p-6 bg-slate-900/30 backdrop-blur-sm transition-opacity duration-200 ease-out ${
         shown ? 'opacity-100' : 'opacity-0'
       }`}
       onClick={requestClose}
@@ -145,8 +145,8 @@ export default function DepartmentFolderModal({ departments, activeKey, activeCh
         aria-modal="true"
         aria-label="Departments"
         onClick={(e) => e.stopPropagation()}
-        className={`relative w-full max-w-sm p-5 rounded-3xl border border-white/40 dark:border-white/15
-          bg-white/25 dark:bg-white/10 backdrop-blur-2xl shadow-2xl
+        className={`relative w-full max-w-sm p-5 rounded-3xl border border-slate-200 dark:border-slate-700
+          bg-white dark:bg-slate-900 shadow-2xl shadow-slate-900/25
           transition-all duration-200 ease-out ${
           shown ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
         }`}
@@ -154,7 +154,7 @@ export default function DepartmentFolderModal({ departments, activeKey, activeCh
         <button
           type="button"
           onClick={requestClose}
-          className="absolute top-3 right-3 z-10 w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-900/5 dark:hover:bg-white/10 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+          className="absolute top-3 right-3 z-10 w-7 h-7 flex items-center justify-center rounded-full text-slate-500 dark:text-slate-400 hover:bg-slate-900/5 dark:hover:bg-white/10 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
           aria-label="Close"
         >
           <X size={16} />

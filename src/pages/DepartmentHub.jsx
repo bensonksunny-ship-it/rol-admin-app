@@ -1,4 +1,4 @@
-import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom'
 import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -2845,8 +2845,12 @@ export default function DepartmentHub() {
     setActiveTab(tab)
     setSearchParams({ tab }, { replace: true })
   }
+  const bellFeed = useOutletContext() // MainLayout's bell feed — finance items join the ribbon
   const deptAlerts = useDepartmentAlerts({
     department: department?.name,
+    notif: bellFeed,
+    // Same rule as DeptExpenseTab's Confirm/Reject buttons.
+    canConfirmExpenses: !!department?.name && (isFounder || isSeniorPastor || canManageDepartment(department.name)),
     team,
     tasks,
     cell: slug === 'cell' ? { viewAll: canViewAllCells, myCellIds: [userProfile?.cellGroupId, userProfile?.cellId] } : null,
@@ -3852,7 +3856,7 @@ export default function DepartmentHub() {
                         {acctSummary.isCurrentMonth && (
                           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3">
                             <div className="flex items-center justify-between mb-2">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Weekly Entry</p>
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Finance Assistant</p>
                               <p className="text-[10px] text-slate-400">{weekLabel}</p>
                             </div>
                             <div className="flex items-center gap-4">
@@ -3879,7 +3883,7 @@ export default function DepartmentHub() {
                           {[
                             { label: 'Income', path: `/department/accounts/entry?tab=income${acctSummary.isCurrentMonth ? '' : `&year=${acctSummaryYear}${acctSummaryMonth != null ? `&month=${acctSummaryMonth}` : ''}`}`, icon: '💰', desc: 'View income entries' },
                             { label: 'Expense', path: `/department/accounts/entry?tab=expense${acctSummary.isCurrentMonth ? '' : `&year=${acctSummaryYear}${acctSummaryMonth != null ? `&month=${acctSummaryMonth}` : ''}`}`, icon: '📤', desc: 'View expense entries' },
-                            { label: 'Weekly', path: '/department/accounts/entry?tab=weekly', icon: '📋', desc: 'Weekly entry log' },
+                            { label: 'Finance Assistant', path: '/department/accounts/entry?tab=weekly', icon: '📋', desc: 'Weekly bill entry' },
                           ].map(({ label, icon, desc, path }) => (
                             <button
                               key={label}
