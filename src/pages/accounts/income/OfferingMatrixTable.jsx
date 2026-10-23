@@ -140,9 +140,9 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
   //  - dated: the first column holds real dates (with / . - or a month name). Dates
   //    in the month are used as pasted; if any is outside the month or unreadable,
   //    the lines are laid down the month's date rows in order instead.
-  // Amount pastes always save at once — lines past the last row get new rows on the
-  // month's next free dates (freeMonthDates). Only a dated paste whose dates were
-  // re-mapped opens the review, which never blocks.
+  // Amount pastes save at once onto the month's Sundays, from the clicked row down;
+  // values past the last Sunday are skipped (with a notice). Only a dated paste
+  // whose dates were re-mapped opens the review, which never blocks.
   // Pasted values overwrite the cells they cover; blank pasted cells are skipped.
   function handlePaste(e) {
     const anchor = e.target.closest?.('[data-c]')
@@ -189,38 +189,24 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
         l.note = l.pastedIso && l.pastedIso !== l.iso ? `Pasted as ${isoToDisplay(l.pastedIso)}` : ''
       })
     } else {
-      // Amounts only: line N → the Nth row down from the focused one.
-      const startIdx = Math.max(0, monthIsos.indexOf(rows[r0]?.iso))
-      lines.forEach(l => { l.iso = monthIsos[startIdx + l.i] || '' })
+      // Amounts only (copied from Excel, pasted on the first empty row): line N →
+      // the Nth Sunday from the clicked row's date on. Sundays only — never new dates.
+      const sundays = sundaysInMonth(activeMonth)
+      const fromIso = rows[r0]?.iso || ''
+      const startIdx = Math.max(0, sundays.findIndex(iso => iso >= fromIso))
+      lines.forEach(l => { l.iso = sundays[startIdx + l.i] || '' })
+      const extra = lines.filter(l => !l.iso).length
+      if (extra) {
+        onError(`Offering: ${format(activeMonth, 'MMMM')} has no more Sundays — ${extra} extra ${extra === 1 ? 'value was' : 'values were'} not pasted.`)
+      }
+      commitPaste(lines.filter(l => l.iso), invalid)
+      return
     }
 
-    // More lines than rows: new rows on the month's next free dates, filled at once.
-    const overflow = lines.filter(l => !l.iso)
-    const newIsos = freeMonthDates(overflow.length, new Set([...rows.map(r => r.iso), ...lines.map(l => l.iso)].filter(Boolean)), monthIsos[monthIsos.length - 1])
-    overflow.forEach((l, k) => {
-      l.iso = newIsos[k] || ''
-      if (!l.iso) invalid.push(`Line ${l.i + lineOffset}: no free date left in ${format(activeMonth, 'MMMM')}`)
-    })
-
-    // Plain amounts never stop for a review. Only a dated paste whose dates had to
-    // be re-mapped onto the month's rows is shown for a look before saving.
-    if (dated && lines.some(l => l.note)) { setConfirm({ lines, invalid }); return }
+    // Dated paste: lines that ran past the month's rows are dropped. Only re-mapped
+    // dates are shown for a look before saving.
+    if (lines.some(l => l.note)) { setConfirm({ lines, invalid }); return }
     commitPaste(lines.filter(l => l.iso), invalid)
-  }
-
-  // `count` dates in this month for new rows: days after `afterIso` not already
-  // used, then any earlier free days. Fewer if the month runs out of free days.
-  function freeMonthDates(count, used, afterIso) {
-    if (!count) return []
-    const days = []
-    const d = new Date(activeMonth.getFullYear(), activeMonth.getMonth(), 1)
-    while (d.getMonth() === activeMonth.getMonth()) {
-      const iso = format(d, 'yyyy-MM-dd')
-      if (!used.has(iso)) days.push(iso)
-      d.setDate(d.getDate() + 1)
-    }
-    const after = afterIso ? days.filter(iso => iso > afterIso) : days
-    return [...after, ...days.filter(iso => !after.includes(iso))].slice(0, count)
   }
 
   // Confirmed paste lines → cell writes (IncomePage.handlePastePlan saves them).
