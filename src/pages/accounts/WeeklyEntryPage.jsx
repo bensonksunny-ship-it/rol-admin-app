@@ -588,8 +588,8 @@ export default function WeeklyEntryPage() {
       {/* View: transaction list / per-department sign-off */}
       <div className="flex gap-1 border-b border-slate-200">
         {[
-          { key: 'entries', label: 'Transactions' },
-          { key: 'departments', label: 'Confirm Department Expenses' },
+          { key: 'entries', label: 'My Entry' },
+          { key: 'departments', label: 'Entry by Dep' },
         ].map(v => (
           <button
             key={v.key}
