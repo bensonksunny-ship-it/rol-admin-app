@@ -677,11 +677,7 @@ export default function WeeklyEntryPage() {
           )}
 
           {/* Directors/Coordinators who haven't filed this month — month view only */}
-          {period === 'week' ? (
-            <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-              Switch to <button type="button" onClick={() => setPeriod('month')} className="font-semibold text-indigo-600 hover:underline">Month</button> to see which Directors/Coordinators haven't filed expenses and send them reminders.
-            </p>
-          ) : !loading && (
+          {period === 'month' && !loading && (
             <div className="bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
               <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -741,9 +737,6 @@ export default function WeeklyEntryPage() {
             </div>
           )}
 
-          <p className="text-xs text-slate-500">
-            Departments hand over their bills in person. Check each physical bill and tick <b>Bill received</b>. Once every bill of a department is in for {periodLabel}, confirm its expenses. This adds them all to accounts.
-          </p>
           {loading ? (
             <div className="bg-white rounded-xl border border-slate-200 p-6 text-center text-slate-500 text-sm">Loading…</div>
           ) : deptGroups.length === 0 ? (
