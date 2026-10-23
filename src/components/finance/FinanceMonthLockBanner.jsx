@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react'
 import { Lock, LockOpen } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { subscribePendingFinanceUnlockRequests, setFinanceMonthUnlock } from '../../services/firestore'
-import { isMonthClosedForFinance, isFinanceMonthLocked, monthKeyLabel, financeLockTypeLabel } from '../../utils/financeEntryLock'
+import { isMonthClosedForFinance, isFinanceMonthLocked, monthKeyLabel, monthKeyOf, financeLockTypeLabel } from '../../utils/financeEntryLock'
 import { MonthLockRow } from './FinanceMonthLocksModal'
 
 // Shown on a finance screen (type 'expense' or 'income') for the month in view
 // once it closed (10th of the following month). No text: the page takes on a
 // tint — muted amber while locked, green while the Founder has it unlocked — with
 // a lock / open-lock icon on top. Tapping the icon opens the lock controls:
-// Founder unlock, Accounts unlock request, or "Mark entry completed" to re-lock.
+// Founder unlock, Accounts unlock request, or "Entry completed" to re-lock.
+// Before the close date (e.g. the current month) only the "Entry completed"
+// button shows; pressing it locks the month early.
 // Time left before an unlocked month locks again: a draining bar from the unlock
 // moment to unlockedUntil, plus a short countdown. `now` ticks every minute.
 function UnlockTimerBar({ unlock, now }) {
@@ -37,20 +39,38 @@ function UnlockTimerBar({ unlock, now }) {
 
 export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unlock, now = new Date() }) {
   const closed = !!monthKey && isMonthClosedForFinance(monthKey, now)
+  const completed = unlock?.completed === true
+  const lockable = closed || completed
   const [open, setOpen] = useState(false)
   const [requests, setRequests] = useState([])
   const [completing, setCompleting] = useState(false)
   const [completeError, setCompleteError] = useState('')
   const { userProfile, isFounder } = useAuth()
-  useEffect(() => (closed && open ? subscribePendingFinanceUnlockRequests(setRequests) : undefined), [closed, open])
-  if (!closed) return null
+  useEffect(() => (lockable && open ? subscribePendingFinanceUnlockRequests(setRequests) : undefined), [lockable, open])
+  // Future months have nothing to complete yet.
+  if (!monthKey || (!lockable && monthKey > monthKeyOf(now))) return null
   const by = userProfile?.displayName || userProfile?.name || userProfile?.email || (isFounder ? 'Founder' : 'Accounts')
   async function markCompleted() {
     setCompleting(true); setCompleteError('')
     try { await setFinanceMonthUnlock(monthKey, 0, by, type) } catch { setCompleteError('Could not lock. Please try again.') }
     setCompleting(false)
   }
-  const locked = isFinanceMonthLocked(monthKey, unlock?.unlockedUntil, now)
+  const locked = isFinanceMonthLocked(monthKey, unlock?.unlockedUntil, now, completed)
+  const completeButton = (
+    <button type="button" disabled={completing} onClick={markCompleted}
+      className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm disabled:opacity-50">
+      {completing ? '…' : '✓ Entry completed'}
+    </button>
+  )
+  // Still open (before the 10th, not completed): just the button.
+  if (!lockable) {
+    return (
+      <div className="flex flex-col items-center gap-1">
+        {completeButton}
+        {completeError && <p className="text-xs text-red-600">{completeError}</p>}
+      </div>
+    )
+  }
   const label = `${monthKeyLabel(monthKey)} ${financeLockTypeLabel(type).toLowerCase()} ${locked ? 'locked' : 'unlocked'}`
   const Icon = locked ? Lock : LockOpen
   return (
@@ -62,12 +82,7 @@ export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unl
           <Icon className="w-5 h-5" strokeWidth={2.25} />
         </button>
         {!locked && <UnlockTimerBar unlock={unlock} now={now} />}
-        {!locked && !open && (
-          <button type="button" disabled={completing} onClick={markCompleted}
-            className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm disabled:opacity-50">
-            {completing ? '…' : '✓ Mark entry completed'}
-          </button>
-        )}
+        {!locked && !open && completeButton}
         {completeError && <p className="text-xs text-red-600">{completeError}</p>}
         {open && (
           <div className="w-full max-w-2xl">

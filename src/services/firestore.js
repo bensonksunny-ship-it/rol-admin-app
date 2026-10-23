@@ -7440,7 +7440,7 @@ export async function setFinanceEntryUnlock({ month, monthLabel, department, toU
     active: !!active,
     ...(active
       ? { unlockedBy: by || '', unlockedAt: Timestamp.now() }
-      : { lockedBy: by || '', lockedAt: serverTimestamp() }),
+      : { completed: true, lockedBy: by || '', lockedAt: serverTimestamp() }),
   }, { merge: true })
 }
 

@@ -948,8 +948,11 @@ service cloud.firestore {
       let closeAt = (m == 12 ? timestamp.date(y + 1, 1, 11) : timestamp.date(y, m + 1, 11)) - duration.value(330, 'm');
       let key = prefix + string(y) + '-' + (m < 10 ? '0' + string(m) : string(m));
       let unlockPath = /databases/$(database)/documents/finance_month_unlocks/$(key);
-      return request.time < closeAt
-        || (exists(unlockPath) && get(unlockPath).data.unlockedUntil > request.time);
+      let lock = exists(unlockPath) ? get(unlockPath).data : {};
+      // Open until the close date unless marked "Entry completed" early; a Founder
+      // unlock window reopens either way.
+      return (request.time < closeAt && lock.get('completed', false) != true)
+        || lock.get('unlockedUntil', timestamp.value(0)) > request.time;
     }
     function financeDataWritable(data, prefix) {
       return !('date' in data) || !(data.date is timestamp) || financeMonthWritable(data.date, prefix);
@@ -988,14 +991,19 @@ service cloud.firestore {
     }
 
     // Founder-only reopen windows for locked finance months (see expenseMonthWritable).
-    // The finance team may only close an open window ("Mark entry completed"):
-    // unlockedUntil set to the server time, nothing else but who/when.
+    // The finance team may only lock ("Entry completed" — current month or an
+    // unlocked one): unlockedUntil = server time, completed = true, who/when.
     match /finance_month_unlocks/{monthKey} {
       allow read: if isSignedIn();
       allow write: if isFullAccess();
+      allow create: if canAccessDept('Accounts')
+        && request.resource.data.unlockedUntil == request.time
+        && request.resource.data.completed == true
+        && request.resource.data.keys().hasOnly(['month', 'type', 'unlockedUntil', 'completed', 'lockedBy', 'lockedAt']);
       allow update: if canAccessDept('Accounts')
         && request.resource.data.unlockedUntil == request.time
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unlockedUntil', 'lockedBy', 'lockedAt']);
+        && request.resource.data.completed == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unlockedUntil', 'completed', 'lockedBy', 'lockedAt']);
     }
 
     // Finance Assistant's per-department, per-period (week/month) expense sign-off.

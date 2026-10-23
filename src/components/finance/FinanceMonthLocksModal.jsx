@@ -21,7 +21,7 @@ const UNLOCK_OPTIONS = [
 // One locked month for one type — expense or income, which are unlocked
 // separately. Founder unlocks for 1 day / 2 days / 1 week (repeatable) or locks
 // early; the Accounts Director requests an unlock from the Founder.
-// While unlocked, the Founder or the finance team "Mark entry completed" to lock
+// While unlocked, the Founder or the finance team "Entry completed" to lock
 // it again. `compact` drops the month name (the Month locks panel groups by month).
 export function MonthLockRow({ monthKey, type = 'expense', unlock, pendingRequest, now, compact = false, onDone }) {
   const { isFounder, userProfile, user } = useAuth()
@@ -31,7 +31,8 @@ export function MonthLockRow({ monthKey, type = 'expense', unlock, pendingReques
   const [error, setError] = useState('')
   const by = userProfile?.displayName || userProfile?.name || userProfile?.email || (isFounder ? 'Founder' : 'Accounts Director')
   const typeLabel = financeLockTypeLabel(type)
-  const locked = isFinanceMonthLocked(monthKey, unlock?.unlockedUntil, now)
+  const completed = unlock?.completed === true
+  const locked = isFinanceMonthLocked(monthKey, unlock?.unlockedUntil, now, completed)
   const until = !locked && unlock?.unlockedUntil instanceof Date ? unlock.unlockedUntil : null
 
   async function run(key, fn) {
@@ -48,7 +49,7 @@ export function MonthLockRow({ monthKey, type = 'expense', unlock, pendingReques
     <button type="button" disabled={busy != null}
       onClick={() => run(0, async () => { await setFinanceMonthUnlock(monthKey, 0, by, type); onDone?.() })}
       className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50">
-      {busy === 0 ? '…' : '✓ Mark entry completed'}
+      {busy === 0 ? '…' : '✓ Entry completed'}
     </button>
   )
 
@@ -67,7 +68,7 @@ export function MonthLockRow({ monthKey, type = 'expense', unlock, pendingReques
           <p className="text-xs text-slate-500 mt-0.5">
             {until
               ? `Unlocked until ${format(until, 'd MMM, h:mm a')}${unlock?.unlockedBy ? ` · by ${unlock.unlockedBy}` : ''}`
-              : `Locked since ${financeCloseLabel(monthKey)}`}
+              : isMonthClosedForFinance(monthKey, now) ? `Locked since ${financeCloseLabel(monthKey)}` : 'Entry completed'}
           </p>
           {pendingRequest && (
             <p className="text-xs text-indigo-700 mt-0.5">

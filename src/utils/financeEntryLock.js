@@ -65,9 +65,12 @@ export function isMonthClosedForFinance(monthKey, now = new Date()) {
   return now >= new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)
 }
 
-/** Closed for finance and not inside a Founder unlock window. */
-export function isFinanceMonthLocked(monthKey, unlockedUntil, now = new Date()) {
-  if (!isMonthClosedForFinance(monthKey, now)) return false
+/**
+ * Closed for finance (or marked "Entry completed" early) and not inside a
+ * Founder unlock window. `completed` = finance_month_unlocks.completed.
+ */
+export function isFinanceMonthLocked(monthKey, unlockedUntil, now = new Date(), completed = false) {
+  if (!completed && !isMonthClosedForFinance(monthKey, now)) return false
   return !(unlockedUntil instanceof Date && unlockedUntil > now)
 }
 

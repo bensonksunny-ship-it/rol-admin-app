@@ -16,7 +16,9 @@ export default function useFinanceMonthLocks(isFounder) {
     return () => clearInterval(t)
   }, [])
 
-  const isLocked = (monthKey, type = 'expense') =>
-    !isFounder && isFinanceMonthLocked(monthKey, unlocks[unlockDocId(type, monthKey)]?.unlockedUntil, now)
+  const isLocked = (monthKey, type = 'expense') => {
+    const u = unlocks[unlockDocId(type, monthKey)]
+    return !isFounder && isFinanceMonthLocked(monthKey, u?.unlockedUntil, now, u?.completed === true)
+  }
   return { unlocks, isLocked, now }
 }
