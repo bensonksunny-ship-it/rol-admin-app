@@ -543,8 +543,9 @@ export default function WeeklyEntryPage() {
       }))
     : []
 
+  // A4 page width (210mm ≈ 794px), centred
   return (
-    <div className="space-y-5 pb-12">
+    <div className="mx-auto w-full max-w-[210mm] sm:px-6 lg:px-8 space-y-5 pb-12">
 
       {/* Period: Week / Month toggle + picker */}
       <div className="flex flex-col items-center gap-2 py-2">
