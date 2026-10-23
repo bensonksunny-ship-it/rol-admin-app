@@ -1,64 +1,34 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, useOutletContext } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentByName, getDepartmentIcon } from '../../constants/departments'
-import { getDepartmentHubTabs } from '../../constants/departmentTabs'
+import { RIBBON_CATEGORY_TONE } from '../../constants/ribbon'
 import { myDepartmentNames } from '../../utils/departmentSubpages'
-import { subscribeDepartmentTeamMembers, getWorshipTeamMembers } from '../../services/firestore'
 import useDepartmentAlerts from '../../hooks/useDepartmentAlerts'
 import DepartmentNotificationRibbon from '../DepartmentNotificationRibbon'
 
-// Same roster each department page feeds its ribbon: Worship keeps its musicians in
-// worship_team_members (a one-off read there too), everyone else is a live
-// department_team_members subscription.
-function useDepartmentTeam(name) {
-  const [team, setTeam] = useState([])
-  useEffect(() => {
-    if (name === 'Worship') {
-      let cancelled = false
-      getWorshipTeamMembers(name).then((list) => { if (!cancelled) setTeam(list) }).catch(() => setTeam([]))
-      return () => { cancelled = true }
-    }
-    return subscribeDepartmentTeamMembers(name, setTeam)
-  }, [name])
-  return team
-}
+// My Workspace is the main dashboard: only a department's high-level blue action
+// ribbons (rosters, meetings, overdue tasks) surface here. Amber operational alerts
+// — expenses to approve, overdue cell reports, new team members, finance reminders —
+// stay on that department's own page (DepartmentHub / DepartmentWorship).
+const isBlueAlert = (a) => RIBBON_CATEGORY_TONE[a.category] === 'blue'
 
-// One department's blue ribbon on My Workspace. The quick actions deep-link into
-// that department's page (the hub reads ?tab= / ?opsSub=) instead of switching a tab
-// in place, since there are no tabs here. "Got it" shares the department page's
-// localStorage seen-marker, so dismissing it in either place clears both.
-function DepartmentAlertRibbon({ name, cell, notif }) {
+// One department's blue ribbon on My Workspace. The quick action deep-links into
+// that department's page (the hub reads ?tab=) instead of switching a tab in place,
+// since there are no tabs here. Only the inputs the blue alerts need are passed, so
+// the hook skips the roster, cell-report and expense reads that feed amber ones.
+function DepartmentAlertRibbon({ name }) {
   const navigate = useNavigate()
-  const { isFounder, isSeniorPastor, canManageDepartment } = useAuth()
-  const dept = getDepartmentByName(name)
-  const slug = dept?.slug
-  const team = useDepartmentTeam(name)
-  const isWorship = name === 'Worship'
-  const tabs = slug ? getDepartmentHubTabs(slug) : []
-  const go = (query) => () => navigate(`/department/${slug}?${query}`)
+  const slug = getDepartmentByName(name)?.slug
 
   const alerts = useDepartmentAlerts({
     department: name,
-    team,
-    cell: name === 'Cell' ? cell : null,
-    notif,
-    // Same rule as DeptExpenseTab's Confirm/Reject buttons.
-    canConfirmExpenses: isFounder || isSeniorPastor || canManageDepartment(name),
-    memberNoun: isWorship ? 'worship team member' : 'team member',
-    open: {
-      team: isWorship ? go('tab=theTeam')
-        : tabs.includes('team') ? go('tab=team')
-        : tabs.includes('operations') ? go('tab=operations&opsSub=team')
-        : null,
-      tasks: go('tab=summary'),
-      reports: tabs.includes('reports') ? go('tab=reports') : null,
-    },
-  })
+    open: { tasks: () => navigate(`/department/${slug}?tab=summary`) },
+  }).filter(isBlueAlert)
 
   return (
     <DepartmentNotificationRibbon
       asModal
+      flat
       icon={getDepartmentIcon(name)}
       departmentName={name}
       storageKey={slug}
@@ -68,20 +38,18 @@ function DepartmentAlertRibbon({ name, cell, notif }) {
 }
 
 /**
- * The department pages' blue notification ribbon (new team members, overdue tasks,
- * overdue cell reports), surfaced on My Workspace too — one per department this
- * person runs (the same list the department dock shows), each rendering nothing
- * when that department has no alerts. Clicking one opens its alerts in a popup.
+ * The department pages' blue notification ribbons, surfaced on My Workspace too —
+ * one per department this person runs (the same list the department dock shows),
+ * each rendering nothing when that department has no blue alerts. Clicking one
+ * opens its alerts in a popup. All departments share one grid (`flat`).
  */
 export default function DepartmentAlertRibbons() {
-  const { userProfile, isFounder, isCellDirector } = useAuth()
-  const notif = useOutletContext() // MainLayout's bell feed — supplies the finance alerts
+  const { userProfile, isFounder } = useAuth()
   const names = myDepartmentNames(userProfile, isFounder).filter((n) => getDepartmentByName(n)?.slug)
-  const cell = { viewAll: isFounder || isCellDirector, myCellIds: [userProfile?.cellGroupId, userProfile?.cellId] }
   if (!names.length) return null
   return (
-    <div className="space-y-3 empty:hidden">
-      {names.map((n) => <DepartmentAlertRibbon key={n} name={n} cell={cell} notif={notif} />)}
+    <div className="grid grid-cols-1 sm:grid-cols-2 sm:grid-flow-row-dense items-start gap-2 empty:hidden">
+      {names.map((n) => <DepartmentAlertRibbon key={n} name={n} />)}
     </div>
   )
 }

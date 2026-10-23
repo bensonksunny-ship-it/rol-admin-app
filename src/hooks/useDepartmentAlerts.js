@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { format, startOfWeek } from 'date-fns'
+import { format, parseISO, startOfWeek } from 'date-fns'
 import { getCellGroups, subscribeLatestCellReports, subscribeTasksByDepartment, subscribeFinanceExpenseByDept } from '../services/firestore'
 import { computeMeetingDateISO, isRealCellReportSubmission } from '../utils/cellWeek'
 import { normalizeDepartmentName } from '../constants/roles'
 import { monthKeyOf } from '../utils/financeEntryLock'
 import useFinanceMonthLocks from './useFinanceMonthLocks'
+import useRibbonState from './useRibbonState'
 
 const NEW_MEMBER_DAYS = 14
 const DAY_MS = 24 * 60 * 60 * 1000
 
-const seenKey = (dept) => `rol.deptRibbon.teamSeen.${dept}`
-const readSeen = (dept) => { try { return Number(localStorage.getItem(seenKey(dept))) || 0 } catch { return 0 } }
-const writeSeen = (dept, ms) => { try { localStorage.setItem(seenKey(dept), String(ms)) } catch { /* storage blocked */ } }
+// "Got it" on new team members is saved per user in Firestore (useRibbonState);
+// acknowledgements from the earlier device-only version still count.
+const readLegacySeen = (dept) => { try { return Number(localStorage.getItem(`rol.deptRibbon.teamSeen.${dept}`)) || 0 } catch { return 0 } }
 
 const ms = (d) => (d instanceof Date ? d.getTime() : d ? new Date(d).getTime() : 0) || 0
 const isOpenTask = (t) => !['Completed', 'Turned Down', 'Responded'].includes(t.status)
@@ -29,6 +30,8 @@ const isOpenTask = (t) => !['Completed', 'Turned Down', 'Responded'].includes(t.
  * leave undefined to subscribe here. cell: { viewAll, myCellIds } scopes the
  * overdue-report alert for the Cell department.
  * open: { team(), tasks(), reports() } — tab switches for the quick actions.
+ * Amber alerts also carry a `kind`: 'action' (pending work → the ribbon adds a 24h
+ * "Remind me later") or 'info' (acknowledge-only → a permanent "Got it").
  * Each alert carries a `category` that picks its ribbon colour (RIBBON_CATEGORY_TONE):
  * overdue tasks are action items (blue); new members, cell reports and finance are
  * alerts & submissions (amber).
@@ -45,8 +48,8 @@ const isOpenTask = (t) => !['Completed', 'Turned Down', 'Responded'].includes(t.
 const FINANCE_NOTIF_TYPES = ['expense_reminder', 'expense_unlock']
 
 export default function useDepartmentAlerts({ department, team = [], tasks, cell = null, memberNoun = 'team member', open = {}, notif = null, canConfirmExpenses = false }) {
-  const [seenAt, setSeenAt] = useState(() => readSeen(department))
-  useEffect(() => { setSeenAt(readSeen(department)) }, [department])
+  const ribbonState = useRibbonState()
+  const seenAt = Math.max(ribbonState.seenAt(`teamSeen.${department}`), readLegacySeen(department))
 
   const [ownTasks, setOwnTasks] = useState([])
   const needTasks = tasks === undefined && !!department
@@ -96,6 +99,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       alerts.push({
         id: 'new-members',
         category: 'member_added',
+        kind: 'info',
         tone: 'sky',
         count: n,
         title: n === 1 ? `New ${memberNoun} added: ${fresh[0].name}` : `${n} new ${memberNoun}s assigned to ${department}`,
@@ -103,7 +107,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
         items: n > 1 ? fresh.map((m) => m.name).filter(Boolean) : [],
         actions: [
           open.team && { label: 'View team', onClick: open.team, primary: true },
-          { label: 'Got it', onClick: () => { writeSeen(department, newest); setSeenAt(newest) } },
+          { label: 'Got it', onClick: () => ribbonState.markSeen(`teamSeen.${department}`, newest) },
         ].filter(Boolean),
       })
     }
@@ -141,14 +145,19 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       })
       if (late.length) {
         const n = late.length
+        // The exact meeting date this week's missing report is for, e.g. "Wednesday, Oct 21".
+        const metOn = (g) => format(parseISO(computeMeetingDateISO(g.meetingDay, weekStart)), 'EEEE, MMM d')
+        const metOnShort = (g) => format(parseISO(computeMeetingDateISO(g.meetingDay, weekStart)), 'EEE, MMM d')
         alerts.push({
           id: 'cell-reports-overdue',
           category: 'general_alert',
+          kind: 'action',
           tone: 'amber',
           count: n,
-          title: n === 1 ? `Cell report overdue: ${late[0].cellName}` : `${n} cell reports overdue this week`,
-          detail: n === 1 ? `Met on ${late[0].meetingDay}${late[0].leader ? ` · ${late[0].leader}` : ''}.` : 'The meeting day has passed with no report.',
-          items: n > 1 ? late.map((g) => g.cellName).filter(Boolean) : [],
+          title: n === 1 ? `Cell report overdue: ${late[0].cellName} | Met on ${metOn(late[0])}` : `${n} cell reports overdue this week`,
+          badge: n === 1 ? `Met on ${metOn(late[0])}` : `Week of ${format(weekStart, 'MMM d')}`,
+          detail: n === 1 ? (late[0].leader ? `Leader: ${late[0].leader}` : '') : 'The meeting day has passed with no report.',
+          items: n > 1 ? late.filter((g) => g.cellName).map((g) => `${g.cellName} · ${metOnShort(g)}`) : [],
           actions: open.reports ? [{ label: 'Open reports', onClick: open.reports, primary: true }] : [],
         })
       }
@@ -172,6 +181,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       alerts.push({
         id: 'finance-confirm',
         category: 'expense_approval',
+        kind: 'action',
         tone: 'amber',
         count: n,
         title: n === 1 ? 'Expense awaiting confirmation' : `${n} expenses awaiting confirmation`,
@@ -186,6 +196,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       alerts.push({
         id: 'finance-approve',
         category: 'expense_approval',
+        kind: 'action',
         tone: 'amber',
         count: n,
         title: n === 1 ? `Expense to approve: ${billLabel(toApprove[0])}` : `${n} expenses to approve`,
@@ -200,6 +211,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       alerts.push({
         id: 'finance-reminder',
         category: 'general_alert',
+        kind: 'action',
         tone: 'sky',
         count: reminders.length,
         title: `File your ${department} expenses`,
@@ -216,13 +228,15 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       alerts.push({
         id: 'finance-unlock',
         category: 'general_alert',
+        kind: 'info',
         tone: 'emerald',
         count: unlocks.length,
         title: 'Expense entry unlocked',
         detail: unlocks[0].body,
         actions: [
           { label: 'Enter expenses', onClick: openFirst(unlocks), primary: true },
-          notif?.dismissNotification && { label: 'Ignore', onClick: ignoreAll(unlocks) },
+          // Info only — "Got it" is the bell's permanent per-user dismissal.
+          notif?.dismissNotification && { label: 'Got it', onClick: ignoreAll(unlocks) },
         ].filter(Boolean),
       })
     }

@@ -107,6 +107,28 @@ export function parseCellDate(text, activeMonth) {
   return parsePastedDate(t)
 }
 
+// A pasted date lined up with the month being entered: read day-first
+// (dd/mm/yyyy, or an Excel serial), and if that lands outside the month but the
+// month-first reading (mm/dd/yyyy) lands inside it, use that instead (swapped:
+// true, so it can be shown for confirmation). iso is '' when nothing reads.
+export function alignPastedDate(text, activeMonth) {
+  const iso = parseCellDate(text, activeMonth)
+  if (iso && isoInMonth(iso, activeMonth)) return { iso, swapped: false }
+  const m = String(text ?? '').trim().match(/^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2,4}))?$/)
+  if (m && m[1] !== m[2]) {
+    const alt = parseCellDate(m[3] ? `${m[2]}/${m[1]}/${m[3]}` : `${m[2]}/${m[1]}`, activeMonth)
+    if (alt && isoInMonth(alt, activeMonth)) return { iso: alt, swapped: true }
+  }
+  return { iso, swapped: false }
+}
+
+// A cell that is clearly a date rather than an amount: has a separator or month
+// name (not a bare number, which could be either).
+export function looksLikeDateCell(text, activeMonth) {
+  const t = String(text ?? '').trim()
+  return !!t && !/^₹?\s*\d[\d,]*(\.\d+)?$/.test(t) && !!parseCellDate(t, activeMonth)
+}
+
 export function parseCellAmount(text) {
   return parsePastedAmount(text)
 }

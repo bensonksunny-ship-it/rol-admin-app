@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { format } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import { Plus, Trash2 } from 'lucide-react'
 import { ACCENT_STYLES, matchesCategory, toDate } from './incomeCategorize'
 import { GridCell, SaveStatus } from './gridKit'
-import { handleGridKeyDown, readGridPaste, parseCellDate, parseCellAmount, isoInMonth, isoToDisplay, fmtAmount } from './gridUtils'
+import { handleGridKeyDown, readGridPaste, parseCellDate, parseCellAmount, alignPastedDate, looksLikeDateCell, isoInMonth, isoToDisplay, fmtAmount } from './gridUtils'
+import ConfirmPasteDatesDialog from './ConfirmPasteDatesDialog'
 
 const styles = ACCENT_STYLES.emerald
 
@@ -46,6 +47,7 @@ function mergeOps(into, ops) {
 export default function OfferingMatrixTable({ entries, activeMonth, saveState, onApply, onPastePlan, onError }) {
   const [extras, setExtras] = useState([]) // [{ key, iso }] — "Add row" rows; kept at the end this session
   const [live, setLive] = useState(null) // { iso, category, amount } — the cell being typed in
+  const [confirm, setConfirm] = useState(null) // { lines, invalid } — paste waiting in ConfirmPasteDatesDialog
   const focusReq = useRef(null) // { r, c } to focus once the new row has rendered
   const nextRowId = useRef(0)
   const gridRef = useRef(null)
@@ -130,9 +132,15 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
     }
   }
 
-  // Multi-cell paste at the focused cell. Starting in the Date column, each line
-  // is "date, English, Tamil, Online" and lands on that date's row (wherever it
-  // is). Starting in an amount column, line N fills the Nth row down from there.
+  // Multi-cell paste at the focused cell. Two shapes:
+  //  - dated: each line is "date, English, Tamil, Online" (pasted into the Date
+  //    column, or anywhere when the first column reads as dates). Dates are read
+  //    day-first, falling back to month-first when only that fits this month.
+  //  - amounts only (e.g. one English column copied downwards): line N fills the
+  //    Nth row down from the focused cell; lines past the last row get new dates
+  //    a week apart.
+  // Missing, month-first, out-of-month or newly added dates open the Confirm dates
+  // review (Sundays of the month / start + frequency); otherwise it saves at once.
   // Pasted values overwrite the cells they cover; blank pasted cells are skipped.
   function handlePaste(e) {
     const anchor = e.target.closest?.('[data-c]')
@@ -143,34 +151,63 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
     const r0 = Number(anchor.dataset.r)
     const c0 = Number(anchor.dataset.c)
     const lineOffset = parsed.headerSkipped ? 2 : 1
-    const desired = new Map() // `${iso}|${category}` → { iso, category, amount }
     const invalid = []
 
-    parsed.matrix.forEach((cells, i) => {
-      if (!cells.some(Boolean)) return
+    // Keep each line's index so blank lines still step down one grid row.
+    const filled = parsed.matrix.map((cells, i) => ({ cells, i })).filter(x => x.cells.some(Boolean))
+    const dated = filled.some(x => looksLikeDateCell(x.cells[0], activeMonth)) ||
+      (c0 === 0 && filled.every(x => x.cells.length > 1 && alignPastedDate(x.cells[0], activeMonth).iso))
+    const startCol = dated ? 1 : Math.max(c0, 1)
+
+    const lines = []
+    filled.forEach(({ cells, i }) => {
       const line = i + lineOffset
-      let iso, values, startCol
-      if (c0 === 0) {
-        iso = parseCellDate(cells[0], activeMonth)
-        if (!iso) { invalid.push(`Line ${line}: ${cells[0] ? `can't read date "${cells[0]}"` : 'missing date'}`); return }
-        values = cells.slice(1)
-        startCol = 1
-      } else {
-        iso = rows[r0 + i]?.iso
-        if (!iso) { invalid.push(`Line ${line}: no dated row to paste into — add a row first`); return }
-        values = cells
-        startCol = c0
-      }
-      const lineVals = []
-      for (let j = 0; j < values.length; j++) {
-        const col = COLUMNS[startCol + j - 1]
-        if (!col || !values[j]) continue
-        const { amount, error } = parseCellAmount(values[j])
+      const amounts = dated ? cells.slice(1) : cells
+      const values = COLUMNS.map(() => null)
+      for (let j = 0; j < amounts.length; j++) {
+        const c = startCol + j - 1
+        if (c >= COLUMNS.length || !amounts[j]) continue
+        const { amount, error } = parseCellAmount(amounts[j])
         if (error) { invalid.push(`Line ${line}: ${error}`); return }
-        lineVals.push({ iso, category: col.key, amount })
+        values[c] = amount
       }
-      lineVals.forEach(v => desired.set(`${v.iso}|${v.category}`, v))
+      if (values.every(v => v == null)) return
+
+      let iso, note = ''
+      if (dated) {
+        const a = alignPastedDate(cells[0], activeMonth)
+        iso = a.iso
+        if (a.swapped) note = `Read "${cells[0]}" as month/day`
+        else if (!iso) note = cells[0] ? `Couldn't read "${cells[0]}"` : 'No date pasted'
+        else if (!isoInMonth(iso, activeMonth)) note = `Pasted as ${isoToDisplay(iso)}`
+      } else {
+        iso = rows[r0 + i]?.iso || ''
+        if (c0 === 0) note = 'No date pasted — matched to the grid row'
+      }
+      lines.push({ key: `p${i}`, iso, values, note })
     })
+
+    // Amounts past the last dated row: continue a week after the previous line.
+    if (!dated) {
+      lines.forEach((l, k) => {
+        if (l.iso) return
+        const prev = lines[k - 1]?.iso
+        l.iso = prev ? format(addDays(parseISO(prev), 7), 'yyyy-MM-dd') : ''
+        l.note = 'New row'
+      })
+    }
+
+    if (!lines.length) { onPastePlan({ ops: {}, heldRows: [], invalid }); return }
+    if (lines.some(l => l.note || !l.iso)) { setConfirm({ lines, invalid }); return }
+    commitPaste(lines, invalid)
+  }
+
+  // Confirmed paste lines → cell writes (IncomePage.handlePastePlan saves them).
+  function commitPaste(lines, invalid = []) {
+    const desired = new Map() // `${iso}|${category}` → { iso, category, amount }
+    lines.forEach(({ iso, values }) => values.forEach((amount, c) => {
+      if (amount != null) desired.set(`${iso}|${COLUMNS[c].key}`, { iso, category: COLUMNS[c].key, amount })
+    }))
 
     const plan = { ops: {}, heldRows: [], invalid }
     desired.forEach(({ iso, category, amount }, k) => {
@@ -290,6 +327,19 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
       >
         <Plus size={13} /> Add row
       </button>
+
+      {confirm && (
+        <ConfirmPasteDatesDialog
+          activeMonth={activeMonth}
+          columns={COLUMNS}
+          sundays={sundaysInMonth(activeMonth)}
+          lines={confirm.lines}
+          invalid={confirm.invalid}
+          onCancel={() => setConfirm(null)}
+          // Unreadable lines were already listed in the dialog — don't list them again.
+          onConfirm={chosen => { setConfirm(null); commitPaste(chosen) }}
+        />
+      )}
     </div>
   )
 }

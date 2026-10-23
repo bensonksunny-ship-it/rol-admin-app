@@ -149,7 +149,7 @@ function ExpenseDeptModal({ panelRef, title, subtitle, onClose, children }) {
         role="dialog"
         aria-modal="true"
         aria-label={`${title} — ${subtitle}`}
-        className="w-full max-w-4xl max-h-[90vh] flex flex-col bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden"
+        className="w-full max-w-4xl min-h-[70vh] max-h-[90vh] flex flex-col bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden"
       >
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-slate-200 bg-indigo-50/60 shrink-0">
           <div className="min-w-0">
@@ -165,7 +165,9 @@ function ExpenseDeptModal({ panelRef, title, subtitle, onClose, children }) {
             <X size={18} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        {/* Column flex so a short sheet's footer still sits at the bottom of the
+            taller popup (mt-auto); shrink-0 keeps children from being squeezed. */}
+        <div className="flex-1 overflow-y-auto flex flex-col [&>*]:shrink-0">
           {children}
         </div>
       </div>
@@ -200,6 +202,9 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   const [viewModeState, setViewMode] = useState('grid')
   const viewMode = isFinanceAssistant ? viewModeState : 'grid'
   const [expandedDepts, setExpandedDepts] = useState([])
+  // The department whose popup was switched from read-only to editing by clicking
+  // the placeholder row (see startDraftEntry). Reset each time a card is opened.
+  const [draftOpenDept, setDraftOpenDept] = useState(null)
   const [deptEditState, setDeptEditState] = useState({})
 
   function getDeptState(dept) {
@@ -421,6 +426,17 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   // a department is ever opened, so no explicit reset is needed here.
   function toggleExpand(dept) {
     setExpandedDepts(prev => (prev.includes(dept) ? [] : [dept]))
+    setDraftOpenDept(null) // every open starts read-only
+  }
+
+  // Read-only → editing: clicking a cell of the placeholder row turns it into the
+  // draft input row (adding one if none is left) and focuses the clicked column.
+  function startDraftEntry(dept, field = 'date') {
+    setDraftOpenDept(dept)
+    if (!getDeptState(dept).newRows.some(r => !r.savedId)) addMoreRows(dept, 1)
+    setTimeout(() => {
+      document.querySelector(`[data-draft-dept="${CSS.escape(dept)}"][data-draft-field="${field}"]`)?.focus()
+    }, 0)
   }
 
   function editRowsFromEntries(rows) {
@@ -888,6 +904,11 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
           const pendingTotal = newRows
             .filter(r => !r.savedId)
             .reduce((s, r) => s + parseFlexibleAmount(r.amount), 0)
+          // Opens read-only: saved rows as text plus one placeholder row. Editing turns
+          // on from a placeholder click, a pencil-unlocked row, or draft rows that
+          // already hold data (typed earlier, pasted, or from an Excel upload).
+          const isEditing = draftOpenDept === dept || editRows.length > 0 ||
+            newRows.some(r => r.unlocked || (!r.savedId && !isRowBlank(r)))
 
           // Saved rows in this card a checkbox can tick: the read-only "Entered"
           // entries plus any locked ✓ draft rows still shown (e.g. rows saved onto
@@ -1219,6 +1240,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                               </tr>
                             )
                           }
+                          if (!isEditing) return null
                           return (
                           <tr key={row._key} className={`bg-emerald-50/30 ${isFirstDraftRow ? 'border-t-2 border-dashed border-emerald-300' : 'border-t border-emerald-100/70'}`}>
                             <td className="px-2 py-2.5" />
@@ -1232,6 +1254,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                                 onChange={e => updateRowField(dept, idx, 'date', e.target.value)}
                                 onPaste={e => handlePasteRow(e, dept, idx, 'date')}
                                 onBlur={e => handleDateBlur(dept, idx, e.target.value)}
+                                {...(isFirstDraftRow ? { 'data-draft-dept': dept, 'data-draft-field': 'date' } : {})}
                                 placeholder="dd.mm.yyyy"
                                 className="w-full rounded-lg border border-transparent bg-white/70 hover:border-emerald-300 focus:border-emerald-400 px-2 py-1.5 text-sm placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors"
                               />
@@ -1242,6 +1265,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                                 value={row.item}
                                 onChange={e => updateRowField(dept, idx, 'item', e.target.value)}
                                 onPaste={e => handlePasteRow(e, dept, idx, 'item')}
+                                {...(isFirstDraftRow ? { 'data-draft-dept': dept, 'data-draft-field': 'item' } : {})}
                                 placeholder="Item"
                                 className="w-full rounded-lg border border-transparent bg-white/70 hover:border-emerald-300 focus:border-emerald-400 px-2 py-1.5 text-sm placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-200 transition-colors"
                               />
@@ -1252,6 +1276,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                                 value={row.billNo}
                                 onChange={e => updateRowField(dept, idx, 'billNo', e.target.value)}
                                 onPaste={e => handlePasteRow(e, dept, idx, 'billNo')}
+                                {...(isFirstDraftRow ? { 'data-draft-dept': dept, 'data-draft-field': 'billNo' } : {})}
                                 placeholder="Bill No"
                                 className="w-full rounded-lg border border-transparent bg-white/70 hover:border-amber-300 focus:border-amber-400 px-2 py-1.5 text-sm placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-amber-200 transition-colors"
                               />
@@ -1262,6 +1287,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                                 value={row.amount}
                                 onChange={e => updateRowField(dept, idx, 'amount', e.target.value)}
                                 onPaste={e => handlePasteRow(e, dept, idx, 'amount')}
+                                {...(isFirstDraftRow ? { 'data-draft-dept': dept, 'data-draft-field': 'amount' } : {})}
                                 placeholder="0"
                                 className="w-full rounded-lg border border-transparent bg-white/70 hover:border-rose-300 focus:border-rose-400 px-2 py-1.5 text-sm text-right font-medium text-rose-600 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-rose-200 transition-colors"
                               />
@@ -1270,6 +1296,27 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                           </tr>
                           )
                         })}
+
+                        {/* Read-only: one placeholder row — clicking any column opens it
+                            as the draft input row with that column focused. */}
+                        {!isEditing && (
+                          <tr
+                            tabIndex={0}
+                            aria-label="Add an entry"
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startDraftEntry(dept) } }}
+                            className="group border-t-2 border-dashed border-emerald-200 cursor-text hover:bg-emerald-50/50 focus:outline-none focus-visible:bg-emerald-50/70 transition-colors"
+                          >
+                            <td className="px-2 py-2.5" onClick={() => startDraftEntry(dept, 'date')} />
+                            <td className="px-3 py-2.5 text-center" onClick={() => startDraftEntry(dept, 'date')}>
+                              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-50 text-emerald-500 text-xs font-bold group-hover:bg-emerald-100">+</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-slate-300" onClick={() => startDraftEntry(dept, 'date')}>dd.mm.yyyy</td>
+                            <td className="px-3 py-2.5 text-slate-400 group-hover:text-emerald-700" onClick={() => startDraftEntry(dept, 'item')}>Click to add an entry</td>
+                            <td className="px-3 py-2.5 text-slate-300" onClick={() => startDraftEntry(dept, 'billNo')}>Bill No</td>
+                            <td className="px-3 py-2.5 text-right text-slate-300" onClick={() => startDraftEntry(dept, 'amount')}>0</td>
+                            <td onClick={() => startDraftEntry(dept, 'date')} />
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -1281,7 +1328,8 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                   </p>
                 )}
                 {rowsError && <p className="px-3 py-1.5 text-xs font-medium text-red-600">{rowsError}</p>}
-                <div className="sticky bottom-0 p-3 bg-gradient-to-r from-slate-50 to-indigo-50 border-t border-slate-100 flex items-center gap-2">
+                {isEditing && (
+                <div className="sticky bottom-0 mt-auto p-3 bg-gradient-to-r from-slate-50 to-indigo-50 border-t border-slate-100 flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleSaveRows(dept)}
@@ -1316,6 +1364,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                     </span>
                   )}
                 </div>
+                )}
               </ExpenseDeptModal>
             )}
           </div>

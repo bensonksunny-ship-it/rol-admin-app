@@ -9458,3 +9458,34 @@ export async function respondToInterviewRequest(notif, accepted, { by = '', note
     })
   }
 }
+
+// ── Accounts: bills still waiting for their department's approval ───────────
+// status 'pending' with no Finance Assistant confirmation step (deptConfirmation
+// unset) — the same "Expense to approve" set useDepartmentAlerts builds per
+// department, read across all departments for the Accounts team's ribbon.
+export function subscribePendingFinanceExpenses(onChange) {
+  if (!db) { onChange([]); return () => {} }
+  const q = query(collection(db, 'finance_expense'), where('status', '==', 'pending'))
+  return onSnapshot(q, (snap) => {
+    onChange(snap.docs.map((d) => {
+      const data = d.data()
+      return { id: d.id, ...data, date: toDate(data.date), createdAt: toDate(data.createdAt) }
+    }))
+  }, () => onChange([]))
+}
+
+// ── Ribbon state per user (user_ribbon_state/{uid}) ─────────────────────────
+// "Remind me later" snoozes and "Got it" acknowledgements for the notification
+// ribbons, kept in Firestore so they hold across refreshes, devices and the
+// installed app. Shape: { snoozedUntil: { [key]: ms }, seenAt: { [key]: ms } }.
+const USER_RIBBON_STATE = 'user_ribbon_state'
+
+export function subscribeUserRibbonState(uid, onChange) {
+  if (!db || !uid) { onChange({}); return () => {} }
+  return onSnapshot(doc(db, USER_RIBBON_STATE, uid), (snap) => onChange(snap.exists() ? snap.data() : {}), () => onChange({}))
+}
+
+export async function setUserRibbonState(uid, field, key, value) {
+  if (!db || !uid || !key) return
+  await setDoc(doc(db, USER_RIBBON_STATE, uid), { uid, [field]: { [key]: value }, updatedAt: serverTimestamp() }, { merge: true })
+}

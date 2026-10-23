@@ -1,10 +1,10 @@
-import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom'
+import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle, Trash2, ChevronUp, ChevronDown, ChevronLeft } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { getDepartmentBySlug, getDepartmentIcon } from '../constants/departments'
+import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
 import {
   getTasks,
@@ -187,8 +187,7 @@ import { downloadBaptismCertificates, printBaptismCertificates, baptismRegNo, ba
 import { downloadMembershipCertificate, membershipCertificateData } from '../utils/membershipCertificate'
 import { isRelocated, churchTillDate, RELOCATED_BADGE_CLS } from '../utils/relocation'
 import useSeniorPastor from '../hooks/useSeniorPastor'
-import useDepartmentAlerts from '../hooks/useDepartmentAlerts'
-import DepartmentNotificationRibbon from '../components/DepartmentNotificationRibbon'
+import EntryCompletionProgress from '../components/finance/EntryCompletionProgress'
 import PlanningBoard from '../components/PlanningBoard/PlanningBoard'
 import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
@@ -203,6 +202,7 @@ import MemberPicker from '../components/MemberPicker'
 import MediaHub from '../components/MediaHub'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import AdvancePayoutReviewer from '../components/AdvancePayoutReviewer'
+import AccountsExpenseApprovalRibbon from '../components/finance/AccountsExpenseApprovalRibbon'
 import DeptExpenseTab from '../components/DeptExpenseTab'
 import FinanceTabBar from '../components/finance/FinanceTabBar'
 import OperationsTabBar from '../components/OperationsTabBar'
@@ -683,9 +683,10 @@ export default function DepartmentHub() {
   const [acctSummary, setAcctSummary] = useState(null)
   const [acctSummaryLoading, setAcctSummaryLoading] = useState(false)
   const [acctSavingsTotal, setAcctSavingsTotal] = useState(null)
-  // Accounts Summary always reflects the live current month — the year dropdown
-  // and Jan–Dec month bar that used to scope this header have been removed.
-  const acctSummaryNow = new Date()
+  // Accounts Summary shows the live current month unless a month is picked in the
+  // Entry completion panel's month list ('yyyy-MM'; null = current month).
+  const [acctSummaryPick, setAcctSummaryPick] = useState(null)
+  const acctSummaryNow = acctSummaryPick ? new Date(`${acctSummaryPick}-01T00:00:00`) : new Date()
   const acctSummaryYear = acctSummaryNow.getFullYear()
   const acctSummaryMonth = acctSummaryNow.getMonth()
   const [team, setTeam] = useState([])
@@ -2855,29 +2856,8 @@ export default function DepartmentHub() {
     [subDeptOptionList]
   )
 
-  // Blue notification ribbon at the top of the workspace (new team members,
-  // overdue tasks, overdue cell reports). Must stay above the early returns below.
-  const hubTabs = getDepartmentHubTabs(slug)
-  const goTab = (tab, sub) => () => {
-    if (sub) setOpsSubTab(sub)
-    setActiveTab(tab)
-    setSearchParams({ tab }, { replace: true })
-  }
-  const bellFeed = useOutletContext() // MainLayout's bell feed — finance items join the ribbon
-  const deptAlerts = useDepartmentAlerts({
-    department: department?.name,
-    notif: bellFeed,
-    // Same rule as DeptExpenseTab's Confirm/Reject buttons.
-    canConfirmExpenses: !!department?.name && (isFounder || isSeniorPastor || canManageDepartment(department.name)),
-    team,
-    tasks,
-    cell: slug === 'cell' ? { viewAll: canViewAllCells, myCellIds: [userProfile?.cellGroupId, userProfile?.cellId] } : null,
-    open: {
-      team: hubTabs.includes('team') ? goTab('team') : hubTabs.includes('operations') ? goTab('operations', 'team') : null,
-      tasks: goTab('summary'),
-      reports: hubTabs.includes('reports') ? goTab('reports') : null,
-    },
-  })
+  // Department notification ribbons are shown on My Workspace only
+  // (components/workspace/DepartmentAlertRibbons), not on department pages.
 
   if (!department) {
     return (
@@ -3272,8 +3252,6 @@ export default function DepartmentHub() {
         <div className="py-8 text-center text-slate-500">Loading...</div>
       ) : (
         <>
-          <DepartmentNotificationRibbon icon={getDepartmentIcon(department.name)} departmentName={department.name} storageKey={slug} alerts={deptAlerts} />
-
           {/* ── Pending Consultations: Cell Director asking for D-Light input ──
                Rendered above everything else (including the metrics/KPI section) on
                the Hub landing tab, Visitor Entry, and Assign, so a D-Light Director
@@ -3828,6 +3806,11 @@ export default function DepartmentHub() {
                 </>
               ) : slug === 'accounts' ? (
                 <div className="space-y-4">
+                  {/* Collapsible year score: months marked "Entry completed" on Income + Expense. */}
+                  <EntryCompletionProgress
+                    selectedKey={format(new Date(acctSummaryYear, acctSummaryMonth, 1), 'yyyy-MM')}
+                    onSelectMonth={(mk) => setAcctSummaryPick(mk === format(new Date(), 'yyyy-MM') ? null : mk)}
+                  />
                   {acctSummaryLoading || !acctSummary ? (
                     <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
                   ) : (() => {
@@ -5258,6 +5241,9 @@ export default function DepartmentHub() {
               <AdvancePayoutTab departmentSlug={slug} departmentName={department?.name || slug} />
             </div>
           )}
+
+          {/* Expense approvals surface only here, for the Accounts team (not the Founder). */}
+          {slug === 'accounts' && <AccountsExpenseApprovalRibbon onOpen={() => setActiveTab('expense')} />}
 
           {activeTab === 'income' && slug === 'accounts' && (
             <IncomePage controlledMonth={accountsMonth} onMonthChange={setAccountsMonth} />

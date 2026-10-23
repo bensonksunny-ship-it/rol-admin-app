@@ -5,7 +5,7 @@ import useModalOpenGuard from '../hooks/useModalOpenGuard'
 import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2, Copy, ClipboardList } from 'lucide-react'
-import { Link, Navigate, useSearchParams, useOutletContext } from 'react-router-dom'
+import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
   addDepartmentEntry,
@@ -39,9 +39,6 @@ import { formatDMY } from '../utils/date'
 import { isWorshipLeader, hasWorshipRoleAccess, getAllowedWorshipTabs } from '../utils/worshipAccess'
 import { getDepartmentRole } from '../utils/access'
 import useSeniorPastor from '../hooks/useSeniorPastor'
-import useDepartmentAlerts from '../hooks/useDepartmentAlerts'
-import DepartmentNotificationRibbon from '../components/DepartmentNotificationRibbon'
-import { getDepartmentIcon } from '../constants/departments'
 import WorshipMultiWeekMatrix from '../components/worship/WorshipMultiWeekMatrix'
 import { consecutiveSundays, sundaysInMonth, nextSunday, copiedRoster } from '../utils/worshipRoster'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
@@ -1618,7 +1615,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
 }
 
 export default function DepartmentWorship() {
-  const { userProfile, hasPermission, isFounder, hasAccess, isSeniorPastor, canManageDepartment } = useAuth()
+  const { userProfile, hasPermission, isFounder, hasAccess } = useAuth()
   const { name: seniorPastorName } = useSeniorPastor()
   if (!hasAccess(userProfile, DEPARTMENT) && !hasWorshipRoleAccess(userProfile)) {
     return (
@@ -2332,18 +2329,6 @@ export default function DepartmentWorship() {
 
   const canViewInsights = isPastor
 
-  // Blue notification ribbon (new musicians, overdue tasks) — above the guards below.
-  const bellFeed = useOutletContext() // MainLayout's bell feed — finance items join the ribbon
-  const worshipAlerts = useDepartmentAlerts({
-    department: DEPARTMENT,
-    notif: bellFeed,
-    // Same rule as DeptExpenseTab's Confirm/Reject buttons.
-    canConfirmExpenses: isFounder || isSeniorPastor || canManageDepartment(DEPARTMENT),
-    team: allMembers,
-    memberNoun: 'worship team member',
-    open: { team: () => setSearchParams({ tab: 'theTeam' }, { replace: true }) },
-  })
-
   if (!canManageWorship && !canViewInsights && !hasWorshipRoleAccess(userProfile)) {
     return (
       <div className="p-8 text-slate-600">
@@ -2402,9 +2387,6 @@ export default function DepartmentWorship() {
   return (
     <div>
       <div className="space-y-4 px-4 pb-4 pt-1">
-      {(canManageWorship || canViewInsights) && (
-        <DepartmentNotificationRibbon icon={getDepartmentIcon(DEPARTMENT)} departmentName={DEPARTMENT} storageKey="worship" alerts={worshipAlerts} />
-      )}
       {/* Upcoming Sunday — worship team roster, song list and practice only. The
           order-of-service programme grid was removed from Worship: service order is
           planned by Sunday Ministry alone (no duplicate workflow). */}

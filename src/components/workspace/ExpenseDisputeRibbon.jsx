@@ -71,8 +71,8 @@ function FollowUpModal({ expense, onSend, onClose }) {
  */
 export default function ExpenseDisputeRibbon({ myName }) {
   const { userProfile, isFounder } = useAuth()
-  // Accounts Director, plus the Founder (who oversees every escalation).
-  const isAccountsDirector = isFounder || getDepartmentRole(userProfile, 'Accounts') === 'DIRECTOR'
+  // Accounts Director only — expense ribbons stay off the Founder's dashboard.
+  const isAccountsDirector = !isFounder && getDepartmentRole(userProfile, 'Accounts') === 'DIRECTOR'
   const [disputes, setDisputes] = useState([])
   const [followUps, setFollowUps] = useState({})
   const [followUpFor, setFollowUpFor] = useState(null)
