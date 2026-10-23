@@ -202,7 +202,6 @@ import MemberPicker from '../components/MemberPicker'
 import MediaHub from '../components/MediaHub'
 import AdvancePayoutTab from '../components/AdvancePayoutTab'
 import AdvancePayoutReviewer from '../components/AdvancePayoutReviewer'
-import AccountsExpenseApprovalRibbon from '../components/finance/AccountsExpenseApprovalRibbon'
 import DeptExpenseTab from '../components/DeptExpenseTab'
 import FinanceTabBar from '../components/finance/FinanceTabBar'
 import OperationsTabBar from '../components/OperationsTabBar'
@@ -5241,9 +5240,6 @@ export default function DepartmentHub() {
               <AdvancePayoutTab departmentSlug={slug} departmentName={department?.name || slug} />
             </div>
           )}
-
-          {/* Expense approvals surface only here, for the Accounts team (not the Founder). */}
-          {slug === 'accounts' && <AccountsExpenseApprovalRibbon onOpen={() => setActiveTab('expense')} />}
 
           {activeTab === 'income' && slug === 'accounts' && (
             <IncomePage controlledMonth={accountsMonth} onMonthChange={setAccountsMonth} />

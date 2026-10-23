@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { subscribePendingFinanceExpenses } from '../../services/firestore'
@@ -22,12 +23,14 @@ function isAccountsTeam(userProfile, isFounder) {
 const billLabel = (e) => `₹${Number(e.amount || 0).toLocaleString('en-IN')}${e.item ? ` · ${e.item}` : ''}${e.date ? ` (${format(e.date, 'd MMM')})` : ''}`
 
 /**
- * Accounts module only: one amber "Expense to approve" ribbon for bills still
- * waiting on their department's approval, across all departments, in months still
- * open for finance. Supports "Remind me later" (24h, saved per user).
- * onOpen: switches the Accounts page to its Expense tab.
+ * Accounts team only, on My Workspace: one amber "Expense to approve" ribbon for
+ * bills still waiting on their department's approval, across all departments, in
+ * months still open for finance. Supports "Remind me later" (24h, saved per user).
+ * "Open expenses" goes to the Accounts page's Expense tab.
  */
-export default function AccountsExpenseApprovalRibbon({ onOpen }) {
+export default function AccountsExpenseApprovalRibbon() {
+  const navigate = useNavigate()
+  const onOpen = () => navigate('/department/accounts?tab=expense')
   const { userProfile, isFounder } = useAuth()
   const show = isAccountsTeam(userProfile, isFounder)
   const [bills, setBills] = useState([])
@@ -52,7 +55,7 @@ export default function AccountsExpenseApprovalRibbon({ onOpen }) {
     title: n === 1 ? `Expense to approve: ${billLabel(open[0])}` : `${n} expenses awaiting department approval`,
     detail: 'Waiting for the department Director / Coordinator to approve.',
     items: Object.entries(byDept).sort((a, b) => b[1] - a[1]).map(([d, c]) => `${d} · ${c}`),
-    actions: onOpen ? [{ label: 'Open expenses', onClick: onOpen, primary: true }] : [],
+    actions: [{ label: 'Open expenses', onClick: onOpen, primary: true }],
   }]
-  return <DepartmentNotificationRibbon icon={getDepartmentIcon('Accounts')} departmentName="Accounts" storageKey="accounts" alerts={alerts} />
+  return <DepartmentNotificationRibbon asModal icon={getDepartmentIcon('Accounts')} departmentName="Accounts" storageKey="accounts" alerts={alerts} />
 }
