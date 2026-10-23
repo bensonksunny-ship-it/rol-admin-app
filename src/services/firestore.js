@@ -7440,7 +7440,7 @@ export async function setFinanceEntryUnlock({ month, monthLabel, department, toU
     active: !!active,
     ...(active
       ? { unlockedBy: by || '', unlockedAt: Timestamp.now() }
-      : { lockedBy: by || '', lockedAt: Timestamp.now() }),
+      : { lockedBy: by || '', lockedAt: serverTimestamp() }),
   }, { merge: true })
 }
 
@@ -7578,7 +7578,9 @@ export function subscribeFinanceMonthUnlocks(onChange) {
 }
 
 export async function setFinanceMonthUnlock(month, days, by, type = 'expense') {
-  const until = days > 0 ? Timestamp.fromDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000)) : Timestamp.now()
+  // Locking (days 0 — "Mark entry completed" / Lock now) uses the server clock so
+  // firestore.rules can let the finance team re-lock but never extend an unlock.
+  const until = days > 0 ? Timestamp.fromDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000)) : serverTimestamp()
   await setDoc(doc(db, FINANCE_MONTH_UNLOCKS, unlockDocId(type, month)), {
     month,
     type,

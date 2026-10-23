@@ -23,9 +23,6 @@ import WeeklyEntryPage from './WeeklyEntryPage'
 import { isExpenseDisputed } from '../../utils/expenseDispute'
 import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
 import FinanceMonthLockBanner from '../../components/finance/FinanceMonthLockBanner'
-import FinanceMonthLocksModal from '../../components/finance/FinanceMonthLocksModal'
-import { canManageMonthLocks } from '../../utils/financeEntryLock'
-import { subscribePendingFinanceUnlockRequests } from '../../services/firestore'
 import SavingsPage from './SavingsPage'
 
 const ROW_FIELDS = ['date', 'item', 'billNo', 'amount']
@@ -183,13 +180,6 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   const activeMonth = controlledMonth || internalMonth
   // Lock notice / Founder unlock for this month (writes are enforced in firestore.rules).
   const { unlocks: monthUnlocks, now: lockNow } = useFinanceMonthLocks(isFounder)
-  // "Month locks" panel: Founder unlocks, Accounts Director requests unlocks.
-  const showMonthLocks = canManageMonthLocks(userProfile, isFounder)
-  const [monthLocksOpen, setMonthLocksOpen] = useState(false)
-  const [pendingUnlockCount, setPendingUnlockCount] = useState(0)
-  useEffect(() => (showMonthLocks
-    ? subscribePendingFinanceUnlockRequests(rows => setPendingUnlockCount(rows.length))
-    : undefined), [showMonthLocks])
   const [entries, setEntries] = useState([])
   const [anchoredEntries, setAnchoredEntries] = useState([])
   const [loading, setLoading] = useState(false)
@@ -765,17 +755,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
             Finance Assistant
           </button>
         </div>
-        {showMonthLocks && (
-          <button
-            type="button"
-            onClick={() => setMonthLocksOpen(true)}
-            className="ml-2 px-3 py-1.5 rounded-xl border border-slate-300 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
-          >
-            🔒 Month locks{pendingUnlockCount > 0 ? ` (${pendingUnlockCount})` : ''}
-          </button>
-        )}
       </div>
-      <FinanceMonthLocksModal open={monthLocksOpen} onClose={() => setMonthLocksOpen(false)} />
 
       {viewMode === 'weekly' && <WeeklyEntryPage />}
 

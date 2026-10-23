@@ -988,9 +988,14 @@ service cloud.firestore {
     }
 
     // Founder-only reopen windows for locked finance months (see expenseMonthWritable).
+    // The finance team may only close an open window ("Mark entry completed"):
+    // unlockedUntil set to the server time, nothing else but who/when.
     match /finance_month_unlocks/{monthKey} {
       allow read: if isSignedIn();
       allow write: if isFullAccess();
+      allow update: if canAccessDept('Accounts')
+        && request.resource.data.unlockedUntil == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['unlockedUntil', 'lockedBy', 'lockedAt']);
     }
 
     // Finance Assistant's per-department, per-period (week/month) expense sign-off.

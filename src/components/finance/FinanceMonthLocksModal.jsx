@@ -21,8 +21,9 @@ const UNLOCK_OPTIONS = [
 // One locked month for one type — expense or income, which are unlocked
 // separately. Founder unlocks for 1 day / 2 days / 1 week (repeatable) or locks
 // early; the Accounts Director requests an unlock from the Founder.
-// `compact` drops the month name (the Month locks panel groups rows by month).
-export function MonthLockRow({ monthKey, type = 'expense', unlock, pendingRequest, now, compact = false }) {
+// While unlocked, the Founder or the finance team "Mark entry completed" to lock
+// it again. `compact` drops the month name (the Month locks panel groups by month).
+export function MonthLockRow({ monthKey, type = 'expense', unlock, pendingRequest, now, compact = false, onDone }) {
   const { isFounder, userProfile, user } = useAuth()
   const [busy, setBusy] = useState(null)
   const [requesting, setRequesting] = useState(false)
@@ -42,6 +43,14 @@ export function MonthLockRow({ monthKey, type = 'expense', unlock, pendingReques
   const unlockFor = (days) => run(days, () => (pendingRequest
     ? approveFinanceUnlockRequest(pendingRequest, days, by)
     : setFinanceMonthUnlock(monthKey, days, by, type)))
+
+  const markCompletedButton = (
+    <button type="button" disabled={busy != null}
+      onClick={() => run(0, async () => { await setFinanceMonthUnlock(monthKey, 0, by, type); onDone?.() })}
+      className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50">
+      {busy === 0 ? '…' : '✓ Mark entry completed'}
+    </button>
+  )
 
   const sendRequest = () => run('request', async () => {
     await createFinanceUnlockRequest({ month: monthKey, monthLabel: monthKeyLabel(monthKey), type, reason: reason.trim(), by, uid: user?.uid })
@@ -76,14 +85,9 @@ export function MonthLockRow({ monthKey, type = 'expense', unlock, pendingReques
                   {busy === o.days ? '…' : `Unlock ${o.label}`}
                 </button>
               ))}
-              {until && (
-                <button type="button" onClick={() => run(0, () => setFinanceMonthUnlock(monthKey, 0, by, type))} disabled={busy != null}
-                  className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50">
-                  {busy === 0 ? '…' : 'Lock now'}
-                </button>
-              )}
+              {until && markCompletedButton}
             </>
-          ) : locked && (
+          ) : until ? markCompletedButton : locked && (
             pendingRequest ? (
               <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-semibold">Request sent to Founder</span>
             ) : !requesting && (
