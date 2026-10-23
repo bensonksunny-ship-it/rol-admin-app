@@ -193,10 +193,10 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   const [filterDept, setFilterDept] = useState('all')
   const [loadError, setLoadError] = useState('')
   const [reloadKey, setReloadKey] = useState(0) // bumped by the load-error "Retry" button to re-subscribe the expense listener
-  // The Grid / Finance Assistant toggle is only for the Finance Assistant role itself
-  // (Weekly Expense Manager); the Accounts Director, Admin and Founder work straight
-  // from the grid and never see the Finance Assistant view here.
-  const isFinanceAssistant = canAccessWeeklyEntryOnly(userProfile)
+  // The Grid / Finance Assistant toggle is for the Finance Assistant role itself
+  // (Weekly Expense Manager) and the Founder; the Accounts Director and Admin work
+  // straight from the grid and never see the Finance Assistant view here.
+  const isFinanceAssistant = isFounder || canAccessWeeklyEntryOnly(userProfile)
   const [viewModeState, setViewMode] = useState('grid')
   const viewMode = isFinanceAssistant ? viewModeState : 'grid'
   const [expandedDepts, setExpandedDepts] = useState([])

@@ -23,7 +23,7 @@ export default function EntryPage() {
   const [searchParams] = useSearchParams()
   // The Finance Assistant tab belongs to the Finance Assistant role only (who sees
   // nothing else); the Accounts Director / Admin / Founder get every other tab.
-  const visibleTabs = weeklyOnly ? TABS.filter(t => t.key === 'weekly') : TABS.filter(t => t.key !== 'weekly')
+  const visibleTabs = weeklyOnly ? TABS.filter(t => t.key === 'weekly') : isFounder ? TABS : TABS.filter(t => t.key !== 'weekly')
   const initialTab = visibleTabs.find(t => t.key === searchParams.get('tab'))?.key
   const [subPage, setSubPage] = useState(weeklyOnly ? 'weekly' : (initialTab || 'income'))
   const yearParam = Number(searchParams.get('year'))
