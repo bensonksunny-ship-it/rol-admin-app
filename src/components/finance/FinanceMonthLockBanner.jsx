@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Lock, LockOpen } from 'lucide-react'
-import { subscribePendingFinanceUnlockRequests } from '../../services/firestore'
+import { useAuth } from '../../context/AuthContext'
+import { subscribePendingFinanceUnlockRequests, setFinanceMonthUnlock } from '../../services/firestore'
 import { isMonthClosedForFinance, isFinanceMonthLocked, monthKeyLabel, financeLockTypeLabel } from '../../utils/financeEntryLock'
 import { MonthLockRow } from './FinanceMonthLocksModal'
 
@@ -38,8 +39,17 @@ export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unl
   const closed = !!monthKey && isMonthClosedForFinance(monthKey, now)
   const [open, setOpen] = useState(false)
   const [requests, setRequests] = useState([])
+  const [completing, setCompleting] = useState(false)
+  const [completeError, setCompleteError] = useState('')
+  const { userProfile, isFounder } = useAuth()
   useEffect(() => (closed && open ? subscribePendingFinanceUnlockRequests(setRequests) : undefined), [closed, open])
   if (!closed) return null
+  const by = userProfile?.displayName || userProfile?.name || userProfile?.email || (isFounder ? 'Founder' : 'Accounts')
+  async function markCompleted() {
+    setCompleting(true); setCompleteError('')
+    try { await setFinanceMonthUnlock(monthKey, 0, by, type) } catch { setCompleteError('Could not lock. Please try again.') }
+    setCompleting(false)
+  }
   const locked = isFinanceMonthLocked(monthKey, unlock?.unlockedUntil, now)
   const label = `${monthKeyLabel(monthKey)} ${financeLockTypeLabel(type).toLowerCase()} ${locked ? 'locked' : 'unlocked'}`
   const Icon = locked ? Lock : LockOpen
@@ -52,6 +62,13 @@ export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unl
           <Icon className="w-5 h-5" strokeWidth={2.25} />
         </button>
         {!locked && <UnlockTimerBar unlock={unlock} now={now} />}
+        {!locked && !open && (
+          <button type="button" disabled={completing} onClick={markCompleted}
+            className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm disabled:opacity-50">
+            {completing ? '…' : '✓ Mark entry completed'}
+          </button>
+        )}
+        {completeError && <p className="text-xs text-red-600">{completeError}</p>}
         {open && (
           <div className="w-full max-w-2xl">
             <MonthLockRow
