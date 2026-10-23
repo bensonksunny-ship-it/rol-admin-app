@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import { useAuth } from '../context/AuthContext'
 import { getAdvancePayoutRequests, updateAdvancePayoutRequest } from '../services/firestore'
+import { canManageMonthLocks } from '../utils/financeEntryLock'
 
 const STATUS = {
   pending:     'bg-amber-50 text-amber-700 border-amber-200',
@@ -9,8 +10,11 @@ const STATUS = {
   disapproved: 'bg-red-50 text-red-600 border-red-200',
 }
 
+// Approving / disapproving advance payouts is for the Accounts Director (and the
+// Founder) only — not the Finance Assistant or other Administration staff.
 export default function AdvancePayoutReviewer() {
-  const { userProfile } = useAuth()
+  const { userProfile, isFounder } = useAuth()
+  const canReview = canManageMonthLocks(userProfile, isFounder)
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('pending')
@@ -18,6 +22,7 @@ export default function AdvancePayoutReviewer() {
   const [actioning, setActioning] = useState(null)
 
   const load = useCallback(async () => {
+    if (!canReview) return
     setLoading(true)
     try {
       const data = await getAdvancePayoutRequests(filter ? { status: filter } : {})
@@ -27,7 +32,7 @@ export default function AdvancePayoutReviewer() {
     } finally {
       setLoading(false)
     }
-  }, [filter])
+  }, [filter, canReview])
 
   useEffect(() => { load() }, [load])
 
@@ -46,6 +51,8 @@ export default function AdvancePayoutReviewer() {
       setActioning(null)
     }
   }
+
+  if (!canReview) return null
 
   const pendingCount = filter === 'pending' ? requests.length : null
 
