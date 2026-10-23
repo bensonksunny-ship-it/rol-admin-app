@@ -603,7 +603,7 @@ export default function WeeklyEntryPage() {
         ))}
       </div>
 
-      {/* Lock state of the month(s) in view — Founder gets the unlock buttons here */}
+      {/* Lock state of the month(s) in view — page tint + lock icon */}
       {[...new Set([monthKeyOf(rangeStart), monthKeyOf(rangeEnd)])].map(mk => (
         <FinanceMonthLockBanner key={mk} monthKey={mk} unlock={monthUnlocks[mk]} now={lockNow} />
       ))}
