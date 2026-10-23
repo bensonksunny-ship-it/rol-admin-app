@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { addDays, format, parseISO } from 'date-fns'
+import { format } from 'date-fns'
 import { Plus, Trash2 } from 'lucide-react'
 import { ACCENT_STYLES, matchesCategory, toDate } from './incomeCategorize'
 import { GridCell, SaveStatus } from './gridKit'
@@ -133,14 +133,16 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
   }
 
   // Multi-cell paste at the focused cell. Two shapes:
-  //  - dated: each line is "date, English, Tamil, Online" (pasted into the Date
-  //    column, or anywhere when the first column reads as dates). Dates are read
-  //    day-first, falling back to month-first when only that fits this month.
-  //  - amounts only (e.g. one English column copied downwards): line N fills the
-  //    Nth row down from the focused cell; lines past the last row get new dates
-  //    a week apart.
-  // Missing, month-first, out-of-month or newly added dates open the Confirm dates
-  // review (Sundays of the month / start + frequency); otherwise it saves at once.
+  //  - amounts only (straight from Excel, no date column): the pasted columns map
+  //    onto English / Tamil / Online from the focused column (the Date column counts
+  //    as English), and line N fills the Nth date row down from the focused row.
+  //    Bare numbers are always amounts — never read as days of the month.
+  //  - dated: the first column holds real dates (with / . - or a month name). Dates
+  //    in the month are used as pasted; if any is outside the month or unreadable,
+  //    the lines are laid down the month's date rows in order instead.
+  // Pastes that fit the month's rows save at once. Only lines left without a date
+  // in the month (more lines than rows, or re-mapped dates) open the review, which
+  // never blocks: "Commit paste" adds every line that has a date and skips the rest.
   // Pasted values overwrite the cells they cover; blank pasted cells are skipped.
   function handlePaste(e) {
     const anchor = e.target.closest?.('[data-c]')
@@ -155,8 +157,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
 
     // Keep each line's index so blank lines still step down one grid row.
     const filled = parsed.matrix.map((cells, i) => ({ cells, i })).filter(x => x.cells.some(Boolean))
-    const dated = filled.some(x => looksLikeDateCell(x.cells[0], activeMonth)) ||
-      (c0 === 0 && filled.every(x => x.cells.length > 1 && alignPastedDate(x.cells[0], activeMonth).iso))
+    const dated = filled.some(x => looksLikeDateCell(x.cells[0], activeMonth))
     const startCol = dated ? 1 : Math.max(c0, 1)
 
     const lines = []
@@ -172,34 +173,32 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
         values[c] = amount
       }
       if (values.every(v => v == null)) return
-
-      let iso, note = ''
-      if (dated) {
-        const a = alignPastedDate(cells[0], activeMonth)
-        iso = a.iso
-        if (a.swapped) note = `Read "${cells[0]}" as month/day`
-        else if (!iso) note = cells[0] ? `Couldn't read "${cells[0]}"` : 'No date pasted'
-        else if (!isoInMonth(iso, activeMonth)) note = `Pasted as ${isoToDisplay(iso)}`
-      } else {
-        iso = rows[r0 + i]?.iso || ''
-        if (c0 === 0) note = 'No date pasted — matched to the grid row'
-      }
-      lines.push({ key: `p${i}`, iso, values, note })
+      const pastedIso = dated ? alignPastedDate(cells[0], activeMonth).iso : ''
+      lines.push({ key: `p${i}`, i, pastedIso, values, note: '' })
     })
+    if (!lines.length) { onPastePlan({ ops: {}, heldRows: [], invalid }); return }
 
-    // Amounts past the last dated row: continue a week after the previous line.
-    if (!dated) {
+    // The month's date rows, top to bottom (Sundays + dates already holding entries).
+    const monthIsos = rows.map(r => r.iso).filter(iso => iso && isoInMonth(iso, activeMonth))
+    if (dated && lines.every(l => l.pastedIso && isoInMonth(l.pastedIso, activeMonth))) {
+      lines.forEach(l => { l.iso = l.pastedIso })
+    } else if (dated) {
+      // Out-of-month / unreadable dates: lay the lines down the month's rows in order.
       lines.forEach((l, k) => {
-        if (l.iso) return
-        const prev = lines[k - 1]?.iso
-        l.iso = prev ? format(addDays(parseISO(prev), 7), 'yyyy-MM-dd') : ''
-        l.note = 'New row'
+        l.iso = monthIsos[k] || ''
+        l.note = l.pastedIso && l.pastedIso !== l.iso ? `Pasted as ${isoToDisplay(l.pastedIso)}` : ''
       })
+    } else {
+      // Amounts only: line N → the Nth row down from the focused one.
+      const startIdx = Math.max(0, monthIsos.indexOf(rows[r0]?.iso))
+      lines.forEach(l => { l.iso = monthIsos[startIdx + l.i] || '' })
     }
 
-    if (!lines.length) { onPastePlan({ ops: {}, heldRows: [], invalid }); return }
-    if (lines.some(l => l.note || !l.iso)) { setConfirm({ lines, invalid }); return }
-    commitPaste(lines, invalid)
+    const remapped = lines.some(l => l.note)
+    const overflow = lines.filter(l => !l.iso)
+    overflow.forEach(l => { l.note = `No more dates in ${format(activeMonth, 'MMMM')}` })
+    if (!remapped && !overflow.length) { commitPaste(lines, invalid); return }
+    setConfirm({ lines, invalid })
   }
 
   // Confirmed paste lines → cell writes (IncomePage.handlePastePlan saves them).

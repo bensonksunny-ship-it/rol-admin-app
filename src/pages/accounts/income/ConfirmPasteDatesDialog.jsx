@@ -11,10 +11,12 @@ const FREQUENCIES = [
 ]
 
 /**
- * Offering paste whose dates are missing, were read month-first, or run past the
- * grid: shows every pasted line as Date × English / Tamil / Online for review and
- * lets the dates be filled in one go — the month's Sundays, or a start date plus a
- * frequency — or edited one by one. Nothing is written until "Add".
+ * Offering paste whose dates were re-mapped onto the month or run past its rows:
+ * shows every pasted line as Date × English / Tamil / Online for review and lets the
+ * dates be filled in one go — "Auto-Fill Sundays", or a start date plus a frequency
+ * — or edited one by one. Never blocks: "Commit paste" adds every ticked line with a
+ * date in the month and skips the rest (no date, outside the month, or a date
+ * already used by an earlier line). Nothing is written until then.
  *
  * lines: [{ key, iso, values: [english, tamil, online] (number | null = not pasted), note? }]
  * onConfirm([{ iso, values }]) gets the ticked lines with their final dates.
@@ -41,16 +43,18 @@ export default function ConfirmPasteDatesDialog({ activeMonth, columns, sundays,
   }
 
   const chosen = rows.filter(r => r.include)
-  const seen = new Map()
-  chosen.forEach(r => { if (r.iso) seen.set(r.iso, (seen.get(r.iso) || 0) + 1) })
+  // The first line on a date keeps it; later lines on the same date are skipped.
+  const firstOn = new Map()
+  chosen.forEach(r => { if (r.iso && !firstOn.has(r.iso)) firstOn.set(r.iso, r.key) })
   const problem = r => {
     if (!r.include) return ''
     if (!r.iso) return 'Needs a date'
     if (!isoInMonth(r.iso, activeMonth)) return `Outside ${monthLabel}`
-    if (seen.get(r.iso) > 1) return 'Date used twice'
+    if (firstOn.get(r.iso) !== r.key) return 'Date already used above'
     return ''
   }
-  const blocked = chosen.some(r => problem(r))
+  const ready = chosen.filter(r => !problem(r))
+  const skipped = chosen.length - ready.length
   const totals = columns.map((_, c) => chosen.reduce((s, r) => s + (r.values[c] || 0), 0))
   const usedCols = columns.map((_, c) => rows.some(r => r.values[c] != null))
 
@@ -73,7 +77,7 @@ export default function ConfirmPasteDatesDialog({ activeMonth, columns, sundays,
             onClick={useSundays}
             className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold"
           >
-            Use Sundays of {format(activeMonth, 'MMMM')}
+            Auto-Fill Sundays
           </button>
           <span className="text-[11px] text-slate-400 px-1 self-center">or</span>
           <label className="text-[11px] text-slate-500">
@@ -158,7 +162,8 @@ export default function ConfirmPasteDatesDialog({ activeMonth, columns, sundays,
 
         <div className="flex items-center justify-between gap-2 pt-1">
           <p className="text-[11px] text-slate-500">
-            {blocked ? `Fix the dates in red, or untick those lines.` : chosen.length ? `Overwrites the pasted columns on ${chosen.length} ${chosen.length === 1 ? 'date' : 'dates'}.` : ''}
+            {ready.length ? `Overwrites the pasted columns on ${ready.length} ${ready.length === 1 ? 'date' : 'dates'}.` : ''}
+            {skipped > 0 && <span className="text-amber-700">{ready.length ? ' ' : ''}{skipped} {skipped === 1 ? 'line' : 'lines'} in red will be skipped.</span>}
           </p>
           <div className="flex gap-2">
             <button type="button" onClick={onCancel}
@@ -167,11 +172,11 @@ export default function ConfirmPasteDatesDialog({ activeMonth, columns, sundays,
             </button>
             <button
               type="button"
-              disabled={blocked || !chosen.length}
-              onClick={() => onConfirm(chosen.map(r => ({ iso: r.iso, values: r.values })))}
+              disabled={!ready.length}
+              onClick={() => onConfirm(ready.map(r => ({ iso: r.iso, values: r.values })))}
               className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold disabled:opacity-50"
             >
-              Add {chosen.length} {chosen.length === 1 ? 'line' : 'lines'}
+              Commit paste ({ready.length})
             </button>
           </div>
         </div>
