@@ -28,6 +28,7 @@ import { ROLES, deriveRoleFromPositions, departmentNameVariants } from '../const
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
 import { unlockDocId } from '../utils/financeEntryLock'
 import { normalizeEngagementType } from '../utils/pcsEngagement'
+import { subDeptMatchKey } from '../utils/subDeptMatch'
 import { mergeFamilyIntoProfile } from '../utils/familyDetails'
 import { userLinksToCellGroup } from '../utils/cellReportPermissions'
 
@@ -935,8 +936,37 @@ export async function addDepartmentSubDepartment(department, name, addedBy, serv
   return ref.id
 }
 
+/**
+ * Team members keep their sub-departments as name strings, so a rename or delete of
+ * the sub-department itself is cascaded onto every member of that department who has
+ * it (matched case / spacing / plural tolerant). Member tables, profile popups and
+ * the Assign pickers all read the live team subscription, so they update at once.
+ * newName = null removes the sub-department from those members instead.
+ */
+async function cascadeSubDepartmentToTeamMembers(department, oldName, newName) {
+  if (!db || !department || !String(oldName || '').trim()) return
+  const oldKey = subDeptMatchKey(oldName)
+  if (newName != null && subDeptMatchKey(newName) === oldKey && String(newName).trim() === String(oldName).trim()) return
+  const snap = await getDocs(query(collection(db, 'department_team_members'), where('department', '==', department)))
+  let batch = writeBatch(db)
+  let pending = 0
+  for (const d of snap.docs) {
+    const current = normalizeSubDepartments(d.data())
+    if (!current.some((s) => subDeptMatchKey(s) === oldKey)) continue
+    const next = []
+    for (const s of current) {
+      const v = subDeptMatchKey(s) === oldKey ? newName : s
+      if (v != null && String(v).trim() && !next.some((x) => subDeptMatchKey(x) === subDeptMatchKey(v))) next.push(String(v).trim())
+    }
+    batch.update(d.ref, { subDepartments: next, subDepartment: next[0] || '' })
+    if (++pending === 450) { await batch.commit(); batch = writeBatch(db); pending = 0 }
+  }
+  if (pending) await batch.commit()
+}
+
 export async function updateDepartmentSubDepartment(id, data) {
   if (!db || !id) return
+  const before = data.name != null ? await getDoc(doc(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION, id)) : null
   const payload = {
     name: data.name != null ? String(data.name) : undefined,
     servingArea: data.servingArea != null ? String(data.servingArea) : undefined,
@@ -944,11 +974,16 @@ export async function updateDepartmentSubDepartment(id, data) {
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION, id), clean)
+  if (before?.exists() && clean.name != null) {
+    await cascadeSubDepartmentToTeamMembers(before.data().department, before.data().name, clean.name.trim())
+  }
 }
 
 export async function deleteDepartmentSubDepartment(id) {
   if (!db || !id) return
+  const before = await getDoc(doc(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION, id))
   await deleteDoc(doc(db, DEPARTMENT_SUBDEPARTMENTS_COLLECTION, id))
+  if (before.exists()) await cascadeSubDepartmentToTeamMembers(before.data().department, before.data().name, null)
 }
 
 // Children roster per department (e.g. River Kids)
@@ -4029,18 +4064,27 @@ export async function addDlightSubDepartment({ name, servingArea }, createdBy) {
   return ref.id
 }
 
+// D Light's sub-department docs carry no department field; its team members are
+// stored under the department name 'D Light'.
+const DLIGHT_DEPARTMENT_NAME = 'D Light'
+
 export async function updateDlightSubDepartment(id, { name, servingArea }) {
   if (!db || !id) return
+  const before = await getDoc(doc(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION, id))
+  const nextName = String(name || '').trim()
   await updateDoc(doc(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION, id), {
-    name: String(name || '').trim(),
+    name: nextName,
     servingArea: String(servingArea || '').trim(),
     active: true,
   })
+  if (before.exists()) await cascadeSubDepartmentToTeamMembers(DLIGHT_DEPARTMENT_NAME, before.data().name, nextName)
 }
 
 export async function deleteDlightSubDepartment(id) {
   if (!db || !id) return
+  const before = await getDoc(doc(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION, id))
   await deleteDoc(doc(db, DLIGHT_SUB_DEPARTMENTS_COLLECTION, id))
+  if (before.exists()) await cascadeSubDepartmentToTeamMembers(DLIGHT_DEPARTMENT_NAME, before.data().name, null)
 }
 
 // Sunday Ministry – default program (sunday_program / default doc)

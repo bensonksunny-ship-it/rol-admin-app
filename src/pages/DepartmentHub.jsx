@@ -207,6 +207,7 @@ import DeptExpenseTab from '../components/DeptExpenseTab'
 import FinanceTabBar from '../components/finance/FinanceTabBar'
 import OperationsTabBar from '../components/OperationsTabBar'
 import { getOperationsChildren } from '../utils/departmentSubpages'
+import { subDeptMatchKey } from '../utils/subDeptMatch'
 import SecCoreFinance from './seccore/SecCoreFinance'
 import DailySchedule from './spoffice/DailySchedule'
 import ExpensePage from './accounts/ExpensePage'
@@ -509,20 +510,6 @@ function findVisitorMatchForMember(member, visitorsByPhone) {
   if (!member || member.visitorId) return null
   const key = phoneMatchKey(member.phone)
   return key ? visitorsByPhone.get(key) || null : null
-}
-
-// Loose key for matching a D-Light sub-department name against a team member's
-// assigned sub-department(s) — directors free-type these in "+ Add Sub-Department"
-// with no fixed vocabulary, so the Assign tab's hardcoded duty names ("Light
-// Shiners") need to tolerate case, whitespace, and singular/plural differences
-// ("light shiner", "Light Shiners ", "Light Shiner") rather than requiring a
-// byte-exact match against what got typed in.
-function subDeptMatchKey(name) {
-  return String(name || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/s$/, '')
 }
 
 // D-Light Assign tab duty rows — one row per fixed duty (not a variable-count
@@ -2823,6 +2810,37 @@ export default function DepartmentHub() {
     () => (slug === 'd-light' ? dlightTeamSubOpts : subDepartments),
     [slug, dlightTeamSubOpts, subDepartments]
   )
+  // A member's sub-department badges, read through the live master list: a renamed
+  // sub-department shows its current name, and (D-Light / Media, whose members are
+  // tagged only from that list) a tag whose sub-department was deleted is dropped.
+  // Renames/deletes are also cascaded onto the member docs (services/firestore.js);
+  // this covers tags left over from before that. Until the list loads, tags show as stored.
+  const subDeptNameByKey = useMemo(
+    () => new Map(subDeptOptionList.filter((sd) => sd.active !== false && sd.name).map((sd) => [subDeptMatchKey(sd.name), sd.name])),
+    [subDeptOptionList]
+  )
+  const liveSubDepts = useCallback((m) => {
+    const stored = Array.isArray(m?.subDepartments) && m.subDepartments.length
+      ? m.subDepartments
+      : (m?.subDepartment ? [m.subDepartment] : [])
+    if (!subDeptNameByKey.size) return stored
+    const dropUnknown = slug === 'd-light' || slug === 'media'
+    const out = []
+    for (const s of stored) {
+      const name = subDeptNameByKey.get(subDeptMatchKey(s)) || (dropUnknown ? null : s)
+      if (name && !out.includes(name)) out.push(name)
+    }
+    return out
+  }, [subDeptNameByKey, slug])
+  // Keep an open member popup in step with the live team list, so sub-departments
+  // edited, renamed or removed while it is open re-render straight away.
+  useEffect(() => {
+    setDetailMember((prev) => {
+      if (!prev?.id) return prev
+      const fresh = team.find((m) => m.id === prev.id)
+      return fresh ? { ...prev, ...fresh } : prev
+    })
+  }, [team])
   // Name → serving area, for the roster table's dual sub-department/serving-area
   // display (a team member only stores the sub-department NAME string, not its id,
   // so this is how the table recovers "which serving area" to show alongside it).
@@ -5815,26 +5833,14 @@ export default function DepartmentHub() {
                         {dlightAssignRows.map((row) => {
                           const targetKey = subDeptMatchKey(row.subDept)
                           const inThisSubDept = (m) => {
-                            const memberSubDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
-                              ? m.subDepartments
-                              : (m.subDepartment ? [m.subDepartment] : [])
+                            const memberSubDepts = liveSubDepts(m)
                             return !!row.subDept && memberSubDepts.some((s) => subDeptMatchKey(s) === targetKey)
                           }
-                          const activeTeam = team.filter((m) => !m.isFormer)
-                          const options = row.custom
-                            // A sub-department the Director added: its own members first, then
-                            // the rest of the active team. Previously only members with NO
-                            // sub-department were offered, so once everyone belonged to one of
-                            // the original four, a new sub-department's row had nobody to pick.
-                            ? [...activeTeam.filter(inThisSubDept), ...activeTeam.filter((m) => !inThisSubDept(m))]
-                            : activeTeam.filter((m) => {
-                              if (inThisSubDept(m)) return true
-                              // Fallback: match by role text — covers members with no sub-department
-                              // set yet, and members whose custom-named sub-department doesn't line
-                              // up with this duty's name at all (rather than excluding them outright).
-                              const roleText = (m.role || m.rolePosition || '').toLowerCase()
-                              return roleText.includes((row.subDept || '').toLowerCase().split(' ')[1] || '')
-                            })
+                          // Strictly the members whose Team profile lists this duty's
+                          // sub-department (same rule as Media's Assign). The team list is a
+                          // live subscription, so ticking a sub-department on The Team shows
+                          // here straight away. Members are placed in sub-departments on Team.
+                          const options = team.filter((m) => !m.isFormer && m.status !== 'former' && inThisSubDept(m))
                           const assignedIds = Array.isArray(delightAssignments[row.key])
                             ? delightAssignments[row.key]
                             : (delightAssignments[row.key] ? [delightAssignments[row.key]] : [])
@@ -5868,6 +5874,11 @@ export default function DepartmentHub() {
                                     >
                                       + Add {row.subDept}
                                     </button>
+                                  )}
+                                  {dlightAssignEditing && options.length === 0 && (
+                                    <span className="text-[11px] text-amber-700">
+                                      No team member is in {row.subDept} yet — tick it for them on the Team tab.
+                                    </span>
                                   )}
                                 </div>
                               </td>
@@ -5912,7 +5923,7 @@ export default function DepartmentHub() {
                                       value=""
                                       members={addablePeople}
                                       tint={theme.avatar}
-                                      getDetail={(m) => m.role || ''}
+                                      getDetail={(m) => (Array.isArray(m.subDepartments) && m.subDepartments.length ? m.subDepartments.join(' · ') : (m.role || ''))}
                                       hideClearOption
                                       fitContent
                                       emptyLabel={assignedIds.length === 0 ? '-- Not assigned --' : (addablePeople.length === 0 ? 'No more eligible members' : '+ Add person')}
@@ -6169,7 +6180,9 @@ export default function DepartmentHub() {
             const activeMembers = team.filter((m) => !m.isFormer && m.status !== 'former')
             const memberDetail = (m) => (Array.isArray(m.subDepartments) && m.subDepartments.length ? m.subDepartments.join(' · ') : (m.role || ''))
             const memberSubDepts = (m) => (Array.isArray(m.subDepartments) ? m.subDepartments : (m.subDepartment ? [m.subDepartment] : []))
-            const eligibleFor = (roleName) => activeMembers.filter((m) => memberSubDepts(m).includes(roleName))
+            // Only members whose Team profile lists this sub-department (case / spacing /
+            // plural tolerant, same as D-Light's Assign).
+            const eligibleFor = (roleName) => activeMembers.filter((m) => memberSubDepts(m).some((s) => subDeptMatchKey(s) === subDeptMatchKey(roleName)))
             const addablePeopleFor = (row) => eligibleFor(row.role).filter((m) => !(row.members || []).some((am) => am.id === m.id))
             const addPersonToRow = (subDeptId, id, name) => {
               if (!id) return
@@ -11083,9 +11096,7 @@ export default function DepartmentHub() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredRosterTeam.map((m, idx) => {
-                        const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
-                          ? m.subDepartments
-                          : (m.subDepartment ? [m.subDepartment] : [])
+                        const subDepts = liveSubDepts(m)
                         const menuOpen = teamActionMenuId === m.id
                         const firstSubDept = subDepts[0]
                         const firstSubDeptArea = firstSubDept ? subDeptServingAreaByName.get(firstSubDept) : null
@@ -11233,9 +11244,7 @@ export default function DepartmentHub() {
                           ? differenceInDays(new Date(), new Date(m.memberSince))
                           : null
                         const positionsText = m.role || ''
-                        const memberSubDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
-                          ? m.subDepartments
-                          : (m.subDepartment ? [m.subDepartment] : [])
+                        const memberSubDepts = liveSubDepts(m)
                         return (
                         <tr
                           key={m.id}
@@ -11291,9 +11300,7 @@ export default function DepartmentHub() {
                           {canEdit && (() => {
                             const openEdit = () => {
                               setEditingMember(m)
-                              const subDepts = Array.isArray(m.subDepartments) && m.subDepartments.length
-                                ? m.subDepartments
-                                : (m.subDepartment ? [m.subDepartment] : [])
+                              const subDepts = liveSubDepts(m)
                               setMemberForm({
                                 name: m.name || '',
                                 role: m.role || '',
@@ -14061,9 +14068,7 @@ export default function DepartmentHub() {
                       )}
 
                       {detailMemberContext?.mediaTeam && (() => {
-                        const subDepts = Array.isArray(detailMember.subDepartments) && detailMember.subDepartments.length
-                          ? detailMember.subDepartments
-                          : (detailMember.subDepartment ? [detailMember.subDepartment] : [])
+                        const subDepts = liveSubDepts(detailMember)
                         const isActive = (detailMember.status || 'active') === 'active'
                         // Last 8 services, this member's assignments tallied by role.
                         const recent = [...detailMemberMediaAssignments]
@@ -14151,9 +14156,7 @@ export default function DepartmentHub() {
                       })()}
 
                       {detailMemberContext?.dlightTeam && (() => {
-                        const subDepts = Array.isArray(detailMember.subDepartments) && detailMember.subDepartments.length
-                          ? detailMember.subDepartments
-                          : (detailMember.subDepartment ? [detailMember.subDepartment] : [])
+                        const subDepts = liveSubDepts(detailMember)
                         const isActive = (detailMember.status || 'active') === 'active'
                         const { end } = getMemberTenureEnd(detailMember)
                         const tenureText = detailMember.memberSince ? formatMemberDuration(detailMember.memberSince, end) : ''
