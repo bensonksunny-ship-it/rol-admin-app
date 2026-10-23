@@ -3,7 +3,41 @@ import { Lock, LockOpen } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { subscribePendingFinanceUnlockRequests, setFinanceMonthUnlock } from '../../services/firestore'
 import { isMonthClosedForFinance, isFinanceMonthLocked, monthKeyLabel, monthKeyOf, financeLockTypeLabel } from '../../utils/financeEntryLock'
+import { format, startOfMonth, subMonths } from 'date-fns'
+import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
+import { unlockDocId } from '../../utils/financeEntryLock'
 import { MonthLockRow } from './FinanceMonthLocksModal'
+
+// Founder, inside the lock popup: the last 12 months (this type) that were never
+// marked "Entry completed" — locked by the 10th or still open — each with a
+// one-tap Entry completed.
+function FounderPendingCompletions({ type, by }) {
+  const { unlocks, now } = useFinanceMonthLocks(true)
+  const [busy, setBusy] = useState(null)
+  const [error, setError] = useState('')
+  const months = Array.from({ length: 12 }, (_, i) => format(subMonths(startOfMonth(now), i + 1), 'yyyy-MM'))
+    .filter(mk => unlocks[unlockDocId(type, mk)]?.completed !== true)
+  if (!months.length) return null
+  async function complete(mk) {
+    setBusy(mk); setError('')
+    try { await setFinanceMonthUnlock(mk, 0, by, type) } catch { setError('Could not update. Please try again.') }
+    setBusy(null)
+  }
+  return (
+    <div className="mt-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
+      <p className="text-xs font-semibold text-slate-600 mb-2">Not marked completed</p>
+      <div className="flex flex-wrap gap-1.5">
+        {months.map(mk => (
+          <button key={mk} type="button" disabled={busy != null} onClick={() => complete(mk)}
+            className="px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-50">
+            {busy === mk ? '…' : `✓ ${format(new Date(mk + '-01T00:00:00'), 'MMM yyyy')}`}
+          </button>
+        ))}
+      </div>
+      {error && <p className="text-xs text-red-600 mt-1.5">{error}</p>}
+    </div>
+  )
+}
 
 // Shown on a finance screen (type 'expense' or 'income') for the month in view
 // once it closed (10th of the following month). No text: the page takes on a
@@ -68,6 +102,7 @@ export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unl
       <div className="flex flex-col items-center gap-1">
         {completeButton}
         {completeError && <p className="text-xs text-red-600">{completeError}</p>}
+        {isFounder && <div className="w-full max-w-2xl"><FounderPendingCompletions type={type} by={by} /></div>}
       </div>
     )
   }
@@ -82,7 +117,7 @@ export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unl
           <Icon className="w-5 h-5" strokeWidth={2.25} />
         </button>
         {!locked && <UnlockTimerBar unlock={unlock} now={now} />}
-        {!locked && !open && completeButton}
+        {!open && (!locked || (isFounder && !completed)) && completeButton}
         {completeError && <p className="text-xs text-red-600">{completeError}</p>}
         {open && (
           <div className="w-full max-w-2xl">
@@ -94,6 +129,7 @@ export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unl
               pendingRequest={requests.find(r => r.month === monthKey && (r.type || 'expense') === type) || null}
               onDone={() => setOpen(false)}
             />
+            {isFounder && <FounderPendingCompletions type={type} by={by} />}
           </div>
         )}
       </div>
