@@ -257,8 +257,10 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
                       ariaLabel={`Offering row ${r + 1} date`}
                       value={isoToDisplay(row.iso)}
                       placeholder="dd/mm/yyyy"
-                      // A Sunday with nothing entered yet is a fixed row of the month.
-                      readOnly={!row.extra && !hasEntries}
+                      // Dates aren't editable: the month's Sundays are fixed rows and a
+                      // date with offerings stays put. Only a newly added row, before
+                      // anything is entered on it, takes a typed date.
+                      readOnly={!row.extra || hasEntries}
                       onCommit={text => commitDate(row, text)}
                     />
                   </td>
