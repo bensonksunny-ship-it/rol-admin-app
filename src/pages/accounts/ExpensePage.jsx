@@ -380,8 +380,6 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
 
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
 
-  const grandTotal = combinedEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
-
   // This month's net contribution to the 3 real savings funds — read straight
   // from finance_savings (the same data the embedded Savings tile below edits),
   // just for the collapsed tile's teaser figure.
@@ -414,10 +412,6 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
     setFilterDept('all')
   }
 
-  function selectDept(dept) {
-    setFilterDept(dept)
-    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
 
   // Accordion: opening a department closes whichever one was open before it, so
   // other cards stay at their normal tile size until you actually select them.
@@ -870,20 +864,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
 
       {/* Department grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 items-start">
-        <button
-          type="button"
-          onClick={() => selectDept('all')}
-          className={`rounded-2xl border p-3.5 text-left transition-colors ${
-            filterDept === 'all'
-              ? 'border-indigo-400 bg-indigo-50 ring-1 ring-indigo-300'
-              : 'border-slate-200 bg-white hover:border-indigo-300'
-          }`}
-        >
-          <p className="text-xs font-semibold text-slate-600">All</p>
-          <p className="text-lg font-bold text-slate-900 mt-1">₹{grandTotal.toLocaleString('en-IN')}</p>
-          <p className="text-[11px] text-slate-400 mt-0.5">{combinedEntries.length} {combinedEntries.length === 1 ? 'entry' : 'entries'}</p>
-        </button>
-
+        {/* No "All" card — the red TOTAL EXPENSE banner below is the month total. */}
         {deptStats.map(({ dept, total, count, rows }) => {
           const isExpanded = expandedDepts.includes(dept)
           const { newRows, savingRows, rowsError, hideBlankRows, undoStack, editRows } = getDeptState(dept)
