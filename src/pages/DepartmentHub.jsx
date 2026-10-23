@@ -194,7 +194,7 @@ import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import { CellDirectorCockpit } from '../components/CellDirectorCockpit'
 import DLightDirectorDashboard from '../components/DLightDirectorDashboard'
-import { canAccessAccountsEntry, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
+import { canAccessAccountsEntry, canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../utils/accountsEntryAccess'
 import { defaultCellTab, visibleCellTabs } from '../utils/cellTabVisibility'
 import CellReportsTab from './cell/CellReportsTab'
 import CellLeaderEntryTab from './cell/CellLeaderEntryTab'
@@ -3879,12 +3879,13 @@ export default function DepartmentHub() {
                         )}
 
                         {/* Quick-nav tiles */}
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className={`grid gap-3 ${canAccessWeeklyEntryOnly(userProfile) ? 'grid-cols-3' : 'grid-cols-2'}`}>
                           {[
                             { label: 'Income', path: `/department/accounts/entry?tab=income${acctSummary.isCurrentMonth ? '' : `&year=${acctSummaryYear}${acctSummaryMonth != null ? `&month=${acctSummaryMonth}` : ''}`}`, icon: '💰', desc: 'View income entries' },
                             { label: 'Expense', path: `/department/accounts/entry?tab=expense${acctSummary.isCurrentMonth ? '' : `&year=${acctSummaryYear}${acctSummaryMonth != null ? `&month=${acctSummaryMonth}` : ''}`}`, icon: '📤', desc: 'View expense entries' },
-                            { label: 'Finance Assistant', path: '/department/accounts/entry?tab=weekly', icon: '📋', desc: 'Weekly bill entry' },
-                          ].map(({ label, icon, desc, path }) => (
+                            // Finance Assistant role only — the Accounts Director works from the grid.
+                            canAccessWeeklyEntryOnly(userProfile) && { label: 'Finance Assistant', path: '/department/accounts/entry?tab=weekly', icon: '📋', desc: 'Weekly bill entry' },
+                          ].filter(Boolean).map(({ label, icon, desc, path }) => (
                             <button
                               key={label}
                               type="button"

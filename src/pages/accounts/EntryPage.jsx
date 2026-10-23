@@ -21,8 +21,10 @@ export default function EntryPage() {
   const canAccess = canAccessAccountsEntry(userProfile, hasPermission, isFounder)
 
   const [searchParams] = useSearchParams()
-  const visibleTabs = weeklyOnly ? TABS.filter(t => t.key === 'weekly') : TABS
-  const initialTab = TABS.find(t => t.key === searchParams.get('tab'))?.key
+  // The Finance Assistant tab belongs to the Finance Assistant role only (who sees
+  // nothing else); the Accounts Director / Admin / Founder get every other tab.
+  const visibleTabs = weeklyOnly ? TABS.filter(t => t.key === 'weekly') : TABS.filter(t => t.key !== 'weekly')
+  const initialTab = visibleTabs.find(t => t.key === searchParams.get('tab'))?.key
   const [subPage, setSubPage] = useState(weeklyOnly ? 'weekly' : (initialTab || 'income'))
   const yearParam = Number(searchParams.get('year'))
   const monthParamRaw = searchParams.get('month')

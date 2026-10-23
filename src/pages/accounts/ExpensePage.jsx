@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Navigate } from 'react-router-dom'
 import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
-import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
+import { canAccessAccountsEntry, canAccessWeeklyEntryOnly } from '../../utils/accountsEntryAccess'
 import { EXPENSE_CATEGORIES, normalizeDepartmentName } from '../../constants/roles'
 import { parseFlexibleDate, toDisplayDate, parseFlexibleAmount, sanitizeAmountString, normalizePastedCell } from '../../utils/entryTableHelpers'
 import { Pencil, Trash2, X } from 'lucide-react'
@@ -193,7 +193,12 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   const [filterDept, setFilterDept] = useState('all')
   const [loadError, setLoadError] = useState('')
   const [reloadKey, setReloadKey] = useState(0) // bumped by the load-error "Retry" button to re-subscribe the expense listener
-  const [viewMode, setViewMode] = useState('grid')
+  // The Grid / Finance Assistant toggle is only for the Finance Assistant role itself
+  // (Weekly Expense Manager); the Accounts Director, Admin and Founder work straight
+  // from the grid and never see the Finance Assistant view here.
+  const isFinanceAssistant = canAccessWeeklyEntryOnly(userProfile)
+  const [viewModeState, setViewMode] = useState('grid')
+  const viewMode = isFinanceAssistant ? viewModeState : 'grid'
   const [expandedDepts, setExpandedDepts] = useState([])
   const [deptEditState, setDeptEditState] = useState({})
 
@@ -735,6 +740,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
 
       {/* Grid / Weekly view toggle */}
       <div className="flex justify-center">
+        {isFinanceAssistant && (
         <div className="inline-flex gap-1 bg-slate-100 rounded-xl p-1">
           <button
             type="button"
@@ -755,6 +761,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
             Finance Assistant
           </button>
         </div>
+        )}
       </div>
 
       {viewMode === 'weekly' && <WeeklyEntryPage />}

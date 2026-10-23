@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, X } from 'lucide-react'
-import { RIBBON_BAR } from '../constants/ribbon'
+import { RIBBON_BAR, ribbonTone } from '../constants/ribbon'
 
 const CARD_TONES = {
   sky: 'bg-sky-50 border-sky-200 text-sky-900',
@@ -54,20 +54,25 @@ function AlertCards({ alerts, onAction }) {
 }
 
 /**
- * Blue ribbons at the top of a department workspace (same shape as the Membership
+ * Ribbons at the top of a department workspace (same shape as the Membership
  * Onboarding Pipeline ribbon) — one ribbon per alert, stacked, rather than every
  * alert folded into a single bar. Renders nothing when there are no alerts.
+ * Each ribbon's colour follows its alert's `category` (see RIBBON_CATEGORY_TONE):
+ * blue for action & roster items, amber with dark text for alerts & submissions.
  *
- * alerts: [{ id, tone: 'sky'|'amber'|'rose'|'emerald', title, detail?, items?: string[],
+ * alerts: [{ id, category?: 'roster'|'meeting'|'task'|'member_added'|'expense_approval'|'general_alert',
+ *            tone: 'sky'|'amber'|'rose'|'emerald', title, detail?, items?: string[],
  *            count?: number, actions?: [{ label, onClick, primary? }] }]
+ * category: fallback for alerts that don't set their own.
  */
-export default function DepartmentNotificationRibbon({ alerts, storageKey, departmentName, ...rest }) {
+export default function DepartmentNotificationRibbon({ alerts, storageKey, departmentName, category, ...rest }) {
   if (!alerts?.length) return null
   const base = storageKey || departmentName || 'dept'
   return (
     <div className="space-y-2">
       {alerts.map((a) => (
-        <AlertRibbon key={a.id} {...rest} departmentName={departmentName} alerts={[a]} storageKey={`${base}.${a.id}`} />
+        <AlertRibbon key={a.id} {...rest} departmentName={departmentName} alerts={[a]} storageKey={`${base}.${a.id}`}
+          category={a.category || category} />
       ))}
     </div>
   )
@@ -80,7 +85,8 @@ export default function DepartmentNotificationRibbon({ alerts, storageKey, depar
  * departments' ribbons stack and inline expansion would push the rest of the
  * page around).
  */
-function AlertRibbon({ icon: Icon, departmentName, alerts, storageKey, asModal = false }) {
+function AlertRibbon({ icon: Icon, departmentName, alerts, storageKey, category, asModal = false }) {
+  const tone = ribbonTone(category)
   const key = `rol.deptRibbon.open.${storageKey || departmentName || 'dept'}`
   const [open, setOpenState] = useState(() => (asModal ? false : readOpen(key)))
   const setOpen = (v) => { setOpenState(v); if (!asModal) writeOpen(key, v) }
@@ -110,17 +116,17 @@ function AlertRibbon({ icon: Icon, departmentName, alerts, storageKey, asModal =
         aria-label={`${departmentName || 'Department'} notifications: ${summary}`}
         onClick={toggle}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } }}
-        className={`${RIBBON_BAR} cursor-pointer bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/80`}
+        className={`${RIBBON_BAR} cursor-pointer ${tone.bar} transition-colors outline-none focus-visible:ring-2 focus-visible:ring-inset ${tone.ring}`}
       >
         {Icon && (
-          <span className="flex-shrink-0 w-7 h-7 rounded-lg bg-white/15 flex items-center justify-center">
+          <span className="flex-shrink-0 w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center">
             <Icon size={16} strokeWidth={2} aria-hidden="true" />
           </span>
         )}
         <span className="flex-1 min-w-0 text-sm font-bold truncate">{summary}</span>
-        <span className="flex-shrink-0 text-xs font-bold px-2.5 py-0.5 rounded-full bg-white/20 text-white whitespace-nowrap">{pending} pending</span>
+        <span className={`flex-shrink-0 text-xs font-bold px-2.5 py-0.5 rounded-full whitespace-nowrap ${tone.badge}`}>{pending} pending</span>
         {asModal ? (
-          <span className="flex-shrink-0 text-xs font-bold px-2.5 py-1 rounded-lg bg-white text-indigo-700 whitespace-nowrap">View</span>
+          <span className={`flex-shrink-0 text-xs font-bold px-2.5 py-1 rounded-lg whitespace-nowrap ${tone.primary}`}>View</span>
         ) : (
           <ChevronDown size={18} aria-hidden="true" className={`flex-shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
         )}
@@ -148,21 +154,21 @@ function AlertRibbon({ icon: Icon, departmentName, alerts, storageKey, asModal =
             onClick={(e) => e.stopPropagation()}
             className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden"
           >
-            <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white shrink-0">
+            <div className={`flex items-center gap-3 px-4 py-3 shrink-0 ${tone.head}`}>
               {Icon && (
-                <span className="flex-shrink-0 w-7 h-7 rounded-lg bg-white/15 flex items-center justify-center">
+                <span className="flex-shrink-0 w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center">
                   <Icon size={16} strokeWidth={2} aria-hidden="true" />
                 </span>
               )}
               <div className="flex-1 min-w-0">
                 <h2 className="text-sm font-bold truncate">{departmentName || 'Department'} notifications</h2>
-                <p className="text-xs text-white/80">{pending} pending</p>
+                <p className={`text-xs ${tone.sub}`}>{pending} pending</p>
               </div>
               <button
                 type="button"
                 onClick={close}
                 aria-label="Close"
-                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 transition-colors shrink-0"
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/10 transition-colors shrink-0"
               >
                 <X size={18} />
               </button>

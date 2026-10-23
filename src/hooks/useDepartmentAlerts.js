@@ -29,6 +29,9 @@ const isOpenTask = (t) => !['Completed', 'Turned Down', 'Responded'].includes(t.
  * leave undefined to subscribe here. cell: { viewAll, myCellIds } scopes the
  * overdue-report alert for the Cell department.
  * open: { team(), tasks(), reports() } — tab switches for the quick actions.
+ * Each alert carries a `category` that picks its ribbon colour (RIBBON_CATEGORY_TONE):
+ * overdue tasks are action items (blue); new members, cell reports and finance are
+ * alerts & submissions (amber).
  * notif: MainLayout's Outlet context ({ notifications, handleNotifAction,
  * dismissNotification }) — the one bell feed, already permission-filtered and with
  * "Ignore" applied, so the ribbon never shows something the bell has hidden.
@@ -92,6 +95,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       const newest = Math.max(...fresh.map((m) => ms(m.createdAt)))
       alerts.push({
         id: 'new-members',
+        category: 'member_added',
         tone: 'sky',
         count: n,
         title: n === 1 ? `New ${memberNoun} added: ${fresh[0].name}` : `${n} new ${memberNoun}s assigned to ${department}`,
@@ -110,6 +114,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       const n = overdue.length
       alerts.push({
         id: 'overdue-tasks',
+        category: 'task',
         tone: 'rose',
         count: n,
         title: n === 1 ? `Task overdue: ${overdue[0].taskTitle || overdue[0].title || 'Untitled task'}` : `${n} department tasks overdue`,
@@ -138,6 +143,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
         const n = late.length
         alerts.push({
           id: 'cell-reports-overdue',
+          category: 'general_alert',
           tone: 'amber',
           count: n,
           title: n === 1 ? `Cell report overdue: ${late[0].cellName}` : `${n} cell reports overdue this week`,
@@ -165,6 +171,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       const n = toConfirm.length
       alerts.push({
         id: 'finance-confirm',
+        category: 'expense_approval',
         tone: 'amber',
         count: n,
         title: n === 1 ? 'Expense awaiting confirmation' : `${n} expenses awaiting confirmation`,
@@ -178,6 +185,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
       const n = toApprove.length
       alerts.push({
         id: 'finance-approve',
+        category: 'expense_approval',
         tone: 'amber',
         count: n,
         title: n === 1 ? `Expense to approve: ${billLabel(toApprove[0])}` : `${n} expenses to approve`,
@@ -191,6 +199,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
     if (reminders.length) {
       alerts.push({
         id: 'finance-reminder',
+        category: 'general_alert',
         tone: 'sky',
         count: reminders.length,
         title: `File your ${department} expenses`,
@@ -206,6 +215,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
     if (unlocks.length) {
       alerts.push({
         id: 'finance-unlock',
+        category: 'general_alert',
         tone: 'emerald',
         count: unlocks.length,
         title: 'Expense entry unlocked',

@@ -4,7 +4,10 @@ import {
   subscribePendingFinanceUnlockRequests, approveFinanceUnlockRequest, declineFinanceUnlockRequest,
 } from '../../services/firestore'
 import { monthKeyLabel, financeLockTypeLabel } from '../../utils/financeEntryLock'
-import { RIBBON_BAR } from '../../constants/ribbon'
+import { RIBBON_BAR, ribbonTone } from '../../constants/ribbon'
+
+// A system request (not a roster/action item) → amber ribbon with dark text.
+const TONE = ribbonTone('general_alert')
 
 const UNLOCK_OPTIONS = [
   { days: 1, label: '1 day' },
@@ -13,7 +16,7 @@ const UNLOCK_OPTIONS = [
 ]
 
 /**
- * My Workspace → Founder: one sky-blue ribbon per pending Accounts request to
+ * My Workspace → Founder: one amber ribbon per pending Accounts request to
  * reopen a locked finance month. Unlock for 1 day / 2 days / 1 week or decline;
  * the ribbon drops out once decided. Live (onSnapshot).
  */
@@ -35,7 +38,7 @@ export default function FinanceUnlockRequestRibbon({ myName }) {
   return (
     <div>
       {requests.map((r) => (
-        <div key={r.id} className={`${RIBBON_BAR} rounded-xl bg-sky-600 text-white shadow-md justify-between my-3 flex-wrap`}>
+        <div key={r.id} className={`${RIBBON_BAR} rounded-xl ${TONE.head} shadow-md justify-between my-3 flex-wrap`}>
           <span className="min-w-0 flex-1 text-sm font-medium tracking-wide">
             🔒 <b>{r.requestedBy || 'Accounts'}</b> asks to unlock <b>{r.monthLabel || monthKeyLabel(r.month)} {financeLockTypeLabel(r.type).toLowerCase()}</b>
             {r.reason ? <>: <i>“{r.reason}”</i></> : ''}
@@ -44,13 +47,13 @@ export default function FinanceUnlockRequestRibbon({ myName }) {
             {UNLOCK_OPTIONS.map((o) => (
               <button key={o.days} type="button" disabled={busy != null}
                 onClick={() => run(`${r.id}:${o.days}`, () => approveFinanceUnlockRequest(r, o.days, by))}
-                className="bg-white text-sky-700 hover:bg-sky-50 text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap disabled:opacity-50">
+                className={`${TONE.primary} text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm whitespace-nowrap disabled:opacity-50`}>
                 {busy === `${r.id}:${o.days}` ? '…' : `Unlock ${o.label}`}
               </button>
             ))}
             <button type="button" disabled={busy != null}
               onClick={() => run(`${r.id}:decline`, () => declineFinanceUnlockRequest(r.id, by))}
-              className="bg-sky-700/80 hover:bg-sky-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap disabled:opacity-50">
+              className={`${TONE.secondary} text-xs font-semibold px-3 py-1.5 rounded-lg whitespace-nowrap disabled:opacity-50`}>
               {busy === `${r.id}:decline` ? '…' : 'Decline'}
             </button>
           </div>
