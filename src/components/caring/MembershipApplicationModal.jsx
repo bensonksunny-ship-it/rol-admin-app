@@ -13,7 +13,9 @@ import {
 } from '../../constants/membershipForm'
 import { openMembershipFormPrint } from '../../utils/membershipFormPrint'
 import IdProofAttachment from './IdProofAttachment'
-import { downloadMembershipCertificate, membershipCertificateData } from '../../utils/membershipCertificate'
+import { membershipCertificateData } from '../../utils/membershipCertificate'
+import { openMembershipCertificate } from '../../utils/openMembershipCertificate'
+import { openMembershipIdCard } from '../../utils/openMembershipIdCard'
 
 const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
 
@@ -41,7 +43,6 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [loadNote, setLoadNote] = useState('')
-  const [certBusy, setCertBusy] = useState(false)
 
   useEffect(() => subscribeMembershipApplicationsForEntry(entry.id, setApps, (err) => {
     setApps([])
@@ -245,17 +246,19 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
                 </div>
               )}
               {app.status === 'approved' && (
-                <button type="button" disabled={certBusy}
-                  onClick={async () => {
-                    setCertBusy(true)
-                    try {
-                      await downloadMembershipCertificate(membershipCertificateData(
-                        { name: entry.name, membershipNumber: entry.membershipNumber, serviceAttended: entry.serviceAttended }, app))
-                    } catch { setError('Could not create the certificate.') }
-                    setCertBusy(false)
-                  }}
+                <button type="button"
+                  onClick={() => openMembershipCertificate(membershipCertificateData(
+                    { name: entry.name, membershipNumber: entry.membershipNumber, serviceAttended: entry.serviceAttended }, app))}
                   className="w-full min-h-[44px] rounded-xl bg-[#0d5c46] text-white text-sm font-bold hover:bg-[#168a68] disabled:opacity-60">
-                  {certBusy ? 'Preparing…' : 'Download Membership Certificate (PDF)'}
+                  View Membership Certificate
+                </button>
+              )}
+              {app.status === 'approved' && (
+                <button type="button"
+                  onClick={() => openMembershipIdCard(membershipCertificateData(
+                    { name: entry.name, membershipNumber: entry.membershipNumber, serviceAttended: entry.serviceAttended }, app))}
+                  className="w-full min-h-[44px] rounded-xl border border-[#0d5c46] text-[#0d5c46] text-sm font-bold hover:bg-emerald-50">
+                  View Membership ID Card
                 </button>
               )}
 

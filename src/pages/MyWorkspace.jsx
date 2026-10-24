@@ -17,6 +17,7 @@ import FinanceUnlockRequestRibbon from '../components/workspace/FinanceUnlockReq
 import QuickActionsWidget from '../components/workspace/QuickActionsWidget'
 import DepartmentAlertRibbons from '../components/workspace/DepartmentAlertRibbons'
 import AccountsExpenseApprovalRibbon from '../components/finance/AccountsExpenseApprovalRibbon'
+import TodoAlertRibbons from '../components/workspace/TodoAlertRibbons'
 
 function greeting(date = new Date()) {
   const h = date.getHours()
@@ -136,6 +137,7 @@ export default function MyWorkspace() {
         // (Upcoming Worship → Membership Pipeline → other alerts), then departments.
         <>
           <DepartmentAlertRibbons />
+          <TodoAlertRibbons />
           <FounderInsightsPanel />
           <div className="space-y-3">
             <WorshipWorkspaceWidget />
@@ -154,6 +156,8 @@ export default function MyWorkspace() {
           <DepartmentAlertRibbons />
           {/* Accounts team only (renders nothing for anyone else). */}
           <AccountsExpenseApprovalRibbon />
+          {/* Yellow To-Do ribbons (cell assignment inputs, PCS hand-offs, …). */}
+          <TodoAlertRibbons />
           {/* Then things addressed to me: To-Do pill (only when tasks are open) and the
               request / assignment ribbons (each renders nothing when it has nothing). */}
           <ToDoListCard />

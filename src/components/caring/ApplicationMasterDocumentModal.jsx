@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import MembershipApplicationPreview from './MembershipApplicationPreview'
+import ApplicationReceiptSheet from './ApplicationReceiptSheet'
 import { getMemberDisplayName } from '../../utils/displayName'
 import { INTERVIEW_QUESTIONS, INTERVIEW_ANSWERS } from '../../constants/membershipInterview'
 import { scheduleSummary, scheduleWhere } from '../../utils/meetingSchedule'
@@ -94,6 +95,7 @@ export default function ApplicationMasterDocumentModal({ entry, application, cel
   const docRef = useRef(null)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
+  const [showSheet, setShowSheet] = useState(false)
   const name = getMemberDisplayName(entry)
   const mp = entry.membershipPipeline || {}
   const st = mp.stages || {}
@@ -127,11 +129,13 @@ export default function ApplicationMasterDocumentModal({ entry, application, cel
   const print = () => { if (!printNode(docRef.current, `Membership Application — ${name}`)) setError('Allow pop-ups to print.') }
 
   return createPortal(
+    <>
     <div className="fixed inset-0 z-[85] bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-label={`Full application record — ${name}`}
         className="w-full sm:max-w-3xl max-h-[94dvh] overflow-y-auto bg-slate-100 rounded-t-2xl sm:rounded-2xl shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex flex-wrap items-center gap-2">
           <p className="flex-1 min-w-0 font-bold text-slate-800 truncate">Full Application Record</p>
+          <button type="button" onClick={() => setShowSheet(true)} className="px-3 py-1.5 rounded-lg border border-emerald-300 bg-emerald-50 text-xs font-bold text-emerald-800 hover:bg-emerald-100">🧾 Form & Receipt (A4)</button>
           <button type="button" onClick={print} className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-bold text-slate-700 hover:bg-slate-50">📄 Print Full Application Record</button>
           <button type="button" disabled={exporting} onClick={exportPdf} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 disabled:opacity-50">{exporting ? 'Exporting…' : '⬇ Export PDF'}</button>
           <button type="button" onClick={onClose} aria-label="Close" className="w-9 h-9 rounded-full hover:bg-slate-100 flex items-center justify-center text-lg text-slate-500">×</button>
@@ -240,7 +244,11 @@ export default function ApplicationMasterDocumentModal({ entry, application, cel
           </div>
         </div>
       </div>
-    </div>,
+    </div>
+    {/* Sibling, not child: React click events bubble through portals, so a
+        child would also trigger this modal's backdrop close. */}
+    {showSheet && <ApplicationReceiptSheet entry={entry} application={application} onClose={() => setShowSheet(false)} />}
+    </>,
     document.body
   )
 }

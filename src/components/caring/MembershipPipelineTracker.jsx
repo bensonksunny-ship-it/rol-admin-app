@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { setMembershipStage, completeMembershipPipeline, updateApplication, markMembershipRevisionResubmitted, closeMembershipApplication } from '../../services/firestore'
 import { advanceBlockReason, currentStage, stageSummary, undoableStageKey, progressMirror } from '../../utils/membershipPipeline'
-import { downloadMembershipCertificate, membershipCertificateData } from '../../utils/membershipCertificate'
+import { membershipCertificateData } from '../../utils/membershipCertificate'
+import { openMembershipCertificate } from '../../utils/openMembershipCertificate'
 import MembershipStageModal, { InterviewStatusLine, CellLeaderRequestLine } from './MembershipStageModal'
 import { flaggedItemsText } from '../../constants/membershipRevision'
 const fmt = (d) => {
@@ -84,7 +85,7 @@ export default function MembershipPipelineTracker({
     local('certificateAndCardIssued', { status: 'completed', completedAt: now, issuedAt: now, by }, { status: 'completed', completedAt: now })
     onChanged?.(entry.id, null, { membershipNumber: String(membershipNumber || '').trim() || entry.membershipNumber })
     const data = membershipCertificateData({ name: entry.name, membershipNumber, serviceAttended: entry.serviceAttended }, application)
-    await downloadMembershipCertificate({ ...data, memberSince: data.memberSince || new Date().getFullYear() })
+    openMembershipCertificate({ ...data, memberSince: data.memberSince || new Date().getFullYear() })
   })
 
   const undo = (key) => {

@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { format } from 'date-fns'
-import { CheckCircle2, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
 import { FINANCE_LOCK_TYPES, unlockDocId } from '../../utils/financeEntryLock'
 
-const OPEN_KEY = 'rol.accounts.entryProgress.open'
-const readOpen = () => { try { return localStorage.getItem(OPEN_KEY) !== '0' } catch { return true } }
+// Collapsed by default (key renamed so earlier "open" preferences don't carry over).
+const OPEN_KEY = 'rol.accounts.entryProgress.expanded'
+const readOpen = () => { try { return localStorage.getItem(OPEN_KEY) === '1' } catch { return false } }
 const writeOpen = (v) => { try { localStorage.setItem(OPEN_KEY, v ? '1' : '0') } catch { /* storage blocked */ } }
 
 const pct = (done, due) => (due ? Math.round((done / due) * 100) : 0)
@@ -63,25 +64,24 @@ export default function EntryCompletionProgress({ selectedKey = null, onSelectMo
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* The Total Completion line is the whole collapsed view; a click opens the
+          month-by-month details below it. */}
       <button
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors"
+        className="w-full px-4 py-3 text-left hover:bg-slate-50 transition-colors"
       >
-        <span className="flex-shrink-0 w-9 h-9 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-          <CheckCircle2 size={18} aria-hidden="true" />
-        </span>
-        <span className="flex-1 min-w-0">
-          <span className="block text-sm font-bold text-slate-800">Entry completion · {year}</span>
-          <span className="block text-xs text-slate-500 truncate">
-            {allDue
-              ? `${allDone} of ${allDue} month entries completed${pendingTotal ? ` · ${pendingTotal} pending` : ''} (income + expense)`
-              : 'No months due yet'}
+        <span className="flex items-center justify-between gap-2 mb-2">
+          <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${overall >= 90 ? 'bg-emerald-100' : overall >= 60 ? 'bg-amber-100' : 'bg-rose-100'} ${textTone(overall)}`}>
+            Total Completion: {overall}%
+          </span>
+          <span className="flex items-center gap-2 min-w-0">
+            <span className="text-[11px] text-slate-500 truncate">{allDone} completed · {pendingTotal} not completed</span>
+            <ChevronDown size={18} aria-hidden="true" className={`flex-shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
           </span>
         </span>
-        {allDue > 0 && <span className={`flex-shrink-0 text-lg font-black ${textTone(overall)}`}>{overall}%</span>}
-        <ChevronDown size={18} aria-hidden="true" className={`flex-shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        <Bar value={overall} />
       </button>
 
       {/* grid-rows 0fr → 1fr: smooth height animation without measuring. */}
@@ -98,17 +98,6 @@ export default function EntryCompletionProgress({ selectedKey = null, onSelectMo
                 className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-transparent">
                 <ChevronRight size={16} />
               </button>
-            </div>
-
-            {/* One combined score for the year — income + expense together */}
-            <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2.5">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${overall >= 90 ? 'bg-emerald-100' : overall >= 60 ? 'bg-amber-100' : 'bg-rose-100'} ${textTone(overall)}`}>
-                  Total Completion: {overall}%
-                </span>
-                <span className="text-[11px] text-slate-500">{allDone} completed · {pendingTotal} not completed</span>
-              </div>
-              <Bar value={overall} />
             </div>
 
             {/* Month-by-month list, running down each column (Jan–Apr, May–Aug, …)

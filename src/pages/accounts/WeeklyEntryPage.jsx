@@ -74,6 +74,34 @@ function ReceiptButton({ entry, busy, locked, onToggle }) {
   )
 }
 
+// Who put the bill in: typed in by the Finance Assistant (flagged for confirmation,
+// or any Accounts bill — Accounts has no department Finance tab of its own) vs filed
+// by the department itself.
+function isManualEntry(entry) {
+  return !!entry.enteredByFinanceAssistant || normalizeDepartmentName(entry.department || entry.category) === 'Accounts'
+}
+
+// Both routes end in status 'approved', so tell them apart: the department's own
+// Approve (DeptExpenseTab → updateFinanceExpenseStatus) stamps approvedBy, while the
+// Finance Assistant's Add here (approveFinanceWeeklyEntry) doesn't.
+function AddedBadge({ entry }) {
+  const byDept = !!entry.approvedBy && !isManualEntry(entry)
+  return (
+    <span className="inline-flex items-center gap-1">
+      {isManualEntry(entry) && <ManualTag />}
+      {byDept ? (
+        <span className="text-xs font-medium text-sky-700 bg-sky-100 px-2 py-0.5 rounded-full whitespace-nowrap" title={`Approved by the department · ${entry.approvedBy}`}>Dept approved</span>
+      ) : (
+        <span className="text-xs font-medium text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full" title="Added to accounts by the Finance Assistant">Added</span>
+      )}
+    </span>
+  )
+}
+
+function ManualTag() {
+  return <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded" title="Entered by the Finance Assistant">Manual</span>
+}
+
 function DeptConfirmBadge({ entry }) {
   if (entry.deptConfirmation === 'pending') {
     return <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">Awaiting dept confirmation</span>
@@ -995,9 +1023,7 @@ export default function WeeklyEntryPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="flex items-center gap-2">
-                        {isApproved && (
-                          <span className="text-xs font-medium text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">Added</span>
-                        )}
+                        {isApproved ? <AddedBadge entry={entry} /> : isManualEntry(entry) && <ManualTag />}
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
                           {normalizeDepartmentName(entry.department || entry.category)}
                         </span>
@@ -1061,6 +1087,7 @@ export default function WeeklyEntryPage() {
                         <td className="px-4 py-3 text-slate-700">{normalizeDepartmentName(entry.department || entry.category)}</td>
                         <td className="px-4 py-3 text-slate-700">
                           {entry.item || '—'}
+                          {!isApproved && isManualEntry(entry) && <span className="ml-1.5 align-middle"><ManualTag /></span>}
                           {!isApproved && blockedByDept(entry) && <div className="mt-1"><DeptConfirmBadge entry={entry} /></div>}
                         </td>
                         <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
@@ -1072,7 +1099,7 @@ export default function WeeklyEntryPage() {
                         </td>
                         <td className="px-4 py-3 text-right">
                           {isApproved ? (
-                            <span className="text-xs font-medium text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">Added</span>
+                            <AddedBadge entry={entry} />
                           ) : entryLocked(entry) ? (
                             <span className="text-xs text-slate-400">🔒 Locked</span>
                           ) : deletingId === entry.id ? (

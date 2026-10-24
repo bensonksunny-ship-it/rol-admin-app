@@ -1,7 +1,10 @@
 // Certificate of Membership — A4 landscape PDF drawn with pdf-lib (vector, prints
-// sharp at any size). Details mirror the Membership ID card: name, membership no.,
-// member-since year, congregation / service, emergency contact. The ROLCC
-// cross-over-globe emblem is lifted from the official baptism certificate template
+// sharp at any size). Contemporary layout: a fine rounded frame with accent lines,
+// sans-serif headings with serif name / dates / signatures, badge-style member no.
+// and tags, and a drawn church seal between the two signature blocks. Details
+// mirror the Membership ID card: name, membership no., member-since year,
+// congregation / service, emergency contact. The ROLCC cross-over-globe emblem is
+// lifted from the official baptism certificate template
 // (public/assets/templates/Certificate_1 (1).pdf) so it is the genuine mark.
 // pdf-lib is imported on demand — it's large and only needed when generating.
 
@@ -14,170 +17,229 @@ export const CHURCH_CONTACT = 'Helpline: 90367 45258  |  www.rolcc.in'
 
 const hex = (rgb, h) => rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255)
 
-let templateBytes = null
-async function loadTemplate() {
-  if (!templateBytes) {
-    const res = await fetch(TEMPLATE_URL)
-    templateBytes = res.ok ? await res.arrayBuffer() : null
-  }
-  return templateBytes
-}
+// Senior Pastor's signature and the church's rubber-stamp seal, cleaned from photos
+// (src/assets/sign.jpg, seal.jpg) into transparent PNGs so no paper shows.
+const SIGN_URL = '/assets/certificate/sign.png'
+const SEAL_URL = '/assets/certificate/seal.png'
 
-// Guilloche band: interlaced sine waves following a rectangle's edge.
-function guillochePaths(x, y, w, h, { amp = 4, waves = 3, period = 18 } = {}) {
-  const paths = []
-  const edge = (x0, y0, x1, y1, phase) => {
-    const len = Math.hypot(x1 - x0, y1 - y0)
-    const ux = (x1 - x0) / len, uy = (y1 - y0) / len
-    const nx = -uy, ny = ux
-    const steps = Math.ceil(len / 2)
-    let d = ''
-    for (let i = 0; i <= steps; i++) {
-      const t = (i / steps) * len
-      const off = amp * Math.sin((t / period) * 2 * Math.PI + phase)
-      const px = x0 + ux * t + nx * off, py = y0 + uy * t + ny * off
-      d += `${i ? 'L' : 'M'}${px.toFixed(2)},${py.toFixed(2)} `
-    }
-    return d
+const fetched = {}
+async function loadBytes(url) {
+  if (!(url in fetched)) {
+    try {
+      const res = await fetch(url)
+      fetched[url] = res.ok ? await res.arrayBuffer() : null
+    } catch { fetched[url] = null }
   }
-  for (let k = 0; k < waves; k++) {
-    const ph = (k * 2 * Math.PI) / waves
-    paths.push(edge(x, y, x + w, y, ph), edge(x + w, y, x + w, y + h, ph), edge(x + w, y + h, x, y + h, ph), edge(x, y + h, x, y, ph))
-  }
-  return paths
+  return fetched[url]
+}
+const loadTemplate = () => loadBytes(TEMPLATE_URL)
+
+async function embedPng(doc, url) {
+  const bytes = await loadBytes(url)
+  if (!bytes) return null
+  try { return await doc.embedPng(bytes) } catch { return null }
 }
 
 /**
  * @typedef {{ name: string, membershipNumber?: string, memberSince?: string|number,
- *   congregation?: string, emergencyContact?: string, issueDate?: Date }} MembershipCertificate
+ *   congregation?: string, emergencyContact?: string, departments?: string[],
+ *   issueDate?: Date }} MembershipCertificate
  */
 export async function buildMembershipCertificatePdf(c) {
-  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
-  const DARK = hex(rgb, '#0d5c46'), TEAL = hex(rgb, '#168a68'), PALE = hex(rgb, '#f0f7f4')
-  const INK = hex(rgb, '#1f2d2a'), MUTED = hex(rgb, '#5b6b66')
+  const { PDFDocument, StandardFonts, rgb, degrees } = await import('pdf-lib')
+  const DARK = hex(rgb, '#0d5c46'), TEAL = hex(rgb, '#168a68'), MINT = hex(rgb, '#e6f2ee')
+  const GOLD = hex(rgb, '#b8893b'), INK = hex(rgb, '#1f2d2a'), MUTED = hex(rgb, '#6b7a75'), LINE = hex(rgb, '#d5e2dd')
+  const WHITE = rgb(1, 1, 1)
   const doc = await PDFDocument.create()
-  const W = 842, H = 595
+  const W = 842, H = 595 // A4 landscape
   const page = doc.addPage([W, H])
   const font = {
-    serifBoldItalic: await doc.embedFont(StandardFonts.TimesRomanBoldItalic),
     serif: await doc.embedFont(StandardFonts.TimesRoman),
     serifItalic: await doc.embedFont(StandardFonts.TimesRomanItalic),
+    serifBoldItalic: await doc.embedFont(StandardFonts.TimesRomanBoldItalic),
     sans: await doc.embedFont(StandardFonts.Helvetica),
     sansBold: await doc.embedFont(StandardFonts.HelveticaBold),
   }
 
-  // ── Frame: pale field, double rule, guilloche band between ───────────────
-  page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: rgb(1, 1, 1) })
-  page.drawRectangle({ x: 18, y: 18, width: W - 36, height: H - 36, borderColor: DARK, borderWidth: 2.2 })
-  guillochePaths(30, 30, W - 60, H - 60, { amp: 4.2, waves: 4, period: 16 }).forEach((d, i) =>
-    page.drawSvgPath(d, { x: 0, y: H, borderColor: i % 2 ? TEAL : DARK, borderWidth: 0.45, borderOpacity: 0.85 }))
-  page.drawRectangle({ x: 42, y: 42, width: W - 84, height: H - 84, color: PALE, borderColor: DARK, borderWidth: 1.2 })
-  page.drawRectangle({ x: 47, y: 47, width: W - 94, height: H - 94, borderColor: TEAL, borderWidth: 0.6 })
-
-  const center = (text, y, size, f, color, spacing = 0) => {
-    if (!spacing) {
-      const w = f.widthOfTextAtSize(text, size)
-      page.drawText(text, { x: (W - w) / 2, y, size, font: f, color })
-      return
-    }
-    const chars = [...text]
-    const total = chars.reduce((s, ch) => s + f.widthOfTextAtSize(ch, size), 0) + spacing * (chars.length - 1)
-    let x = (W - total) / 2
-    chars.forEach((ch) => { page.drawText(ch, { x, y, size, font: f, color }); x += f.widthOfTextAtSize(ch, size) + spacing })
+  const widthOf = (t, size, f, spacing = 0) => f.widthOfTextAtSize(t, size) + spacing * Math.max(0, [...t].length - 1)
+  const text = (t, x, y, size, f, color, spacing = 0) => {
+    if (!spacing) { page.drawText(t, { x, y, size, font: f, color }); return }
+    let cx = x
+    ;[...t].forEach((ch) => { page.drawText(ch, { x: cx, y, size, font: f, color }); cx += f.widthOfTextAtSize(ch, size) + spacing })
   }
-  const fit = (text, max, size, f) => { let s = size; while (s > 9 && f.widthOfTextAtSize(text, s) > max) s -= 0.5; return s }
+  const center = (t, y, size, f, color, spacing = 0, cx = W / 2) => text(t, cx - widthOf(t, size, f, spacing) / 2, y, size, f, color, spacing)
+  const fit = (t, max, size, f) => { let s = size; while (s > 9 && f.widthOfTextAtSize(t, s) > max) s -= 0.5; return s }
+  // Rounded rectangle; x/y is the bottom-left corner in PDF points (the SVG path
+  // itself is y-down from the top edge, as pdf-lib expects).
+  const roundRect = (x, y, w, h, r, opts) => {
+    const top = H - (y + h)
+    const d = `M${x + r},${top} H${x + w - r} A${r},${r} 0 0 1 ${x + w},${top + r} V${top + h - r} A${r},${r} 0 0 1 ${x + w - r},${top + h} H${x + r} A${r},${r} 0 0 1 ${x},${top + h - r} V${top + r} A${r},${r} 0 0 1 ${x + r},${top} Z`
+    page.drawSvgPath(d, { x: 0, y: H, ...opts })
+  }
+  // Pill badge with its bottom-left corner at x/y.
+  const pill = (label, x, y, { size = 8.5, fill = MINT, color = DARK, f = font.sansBold, spacing = 0.6, h = 18, padX = 10 } = {}) => {
+    const w = widthOf(label, size, f, spacing) + padX * 2
+    roundRect(x, y, w, h, h / 2, { color: fill })
+    text(label, x + padX, y + (h - size * 0.72) / 2, size, f, color, spacing)
+    return w
+  }
 
-  // ── Header: emblem + church name ─────────────────────────────────────────
-  let y = H - 70
+  // ── Frame: one fine rounded rule with short accent lines at two corners ──
+  page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: WHITE })
+  const M = 26
+  roundRect(M, M, W - 2 * M, H - 2 * M, 16, { borderColor: LINE, borderWidth: 1 })
+  page.drawRectangle({ x: M + 30, y: H - M - 1.5, width: 110, height: 3, color: TEAL })
+  page.drawRectangle({ x: M + 144, y: H - M - 1.5, width: 22, height: 3, color: GOLD })
+  page.drawRectangle({ x: W - M - 140, y: M - 1.5, width: 110, height: 3, color: TEAL })
+  page.drawRectangle({ x: W - M - 166, y: M - 1.5, width: 22, height: 3, color: GOLD })
+
+  // ── Header: emblem + church name on the left, membership no. badge right ─
+  const PAD = M + 34
+  const headTop = H - M - 30
+  let emblem = null
   const tpl = await loadTemplate()
   if (tpl) {
     try {
       const src = await PDFDocument.load(tpl)
-      const emblem = await doc.embedPage(src.getPages()[0], EMBLEM_BOX)
-      const eh = 62, ew = eh * (EMBLEM_BOX.right - EMBLEM_BOX.left) / (EMBLEM_BOX.top - EMBLEM_BOX.bottom)
-      // White badge with a teal rule — the emblem is cut from a white template page.
-      page.drawRectangle({ x: (W - ew) / 2 - 5, y: y - eh + 3, width: ew + 10, height: eh + 10, color: rgb(1, 1, 1), borderColor: TEAL, borderWidth: 0.8 })
-      page.drawPage(emblem, { x: (W - ew) / 2, y: y - eh + 8, width: ew, height: eh })
-      y -= eh + 16
+      emblem = await doc.embedPage(src.getPages()[0], EMBLEM_BOX)
     } catch { /* emblem is decorative — carry on without it */ }
   }
-  center('RIVER OF LIFE CHRISTIAN CHURCH', y, 12.5, font.sansBold, DARK, 3.2)
-  y -= 15
-  center('BANGALORE', y, 8.5, font.sans, TEAL, 2.6)
-
-  // ── Title + statement ────────────────────────────────────────────────────
-  y -= 46
-  center('Certificate of Membership', y, 38, font.serifBoldItalic, DARK)
-  y -= 30
-  center('THIS IS TO CERTIFY THAT', y, 9.5, font.sans, MUTED, 2)
-  y -= 38
-  const name = String(c.name || '').trim()
-  const nameSize = fit(name, 520, 30, font.serifBoldItalic)
-  center(name, y, nameSize, font.serifBoldItalic, INK)
-  page.drawLine({ start: { x: 200, y: y - 8 }, end: { x: W - 200, y: y - 8 }, thickness: 0.7, color: TEAL })
-  y -= 30
-  center('is a registered member of River of Life Christian Church, Bangalore, received into its fellowship', y, 12, font.serifItalic, INK)
-  y -= 16
-  center('and committed to walk in faith, love and service with this church family.', y, 12, font.serifItalic, INK)
-
-  // ── ID-card details: four boxes ──────────────────────────────────────────
-  y -= 52
-  const details = [
-    ['MEMBERSHIP NO.', c.membershipNumber],
-    ['MEMBER SINCE', c.memberSince ? String(c.memberSince) : ''],
-    ['CONGREGATION / SERVICE', c.congregation],
-    ['EMERGENCY CONTACT', c.emergencyContact],
-  ]
-  const boxW = 160, gap = 12, startX = (W - (boxW * 4 + gap * 3)) / 2
-  details.forEach(([label, value], i) => {
-    const bx = startX + i * (boxW + gap)
-    page.drawRectangle({ x: bx, y, width: boxW, height: 40, color: rgb(1, 1, 1), borderColor: TEAL, borderWidth: 0.8 })
-    page.drawRectangle({ x: bx, y: y + 37, width: boxW, height: 3, color: TEAL })
-    const lw = font.sans.widthOfTextAtSize(label, 7)
-    page.drawText(label, { x: bx + (boxW - lw) / 2, y: y + 25, size: 7, font: font.sans, color: MUTED })
-    const v = String(value || '').trim() || '—'
-    const vs = fit(v, boxW - 12, 12.5, font.sansBold)
-    const vw = font.sansBold.widthOfTextAtSize(v, vs)
-    page.drawText(v, { x: bx + (boxW - vw) / 2, y: y + 9, size: vs, font: font.sansBold, color: v === '—' ? MUTED : DARK })
-  })
-
-  // ── Signatures + seal ────────────────────────────────────────────────────
-  const sigY = 150
-  const sig = (cx, l1, l2) => {
-    page.drawLine({ start: { x: cx - 95, y: sigY }, end: { x: cx + 95, y: sigY }, thickness: 0.8, color: INK })
-    const w1 = font.sansBold.widthOfTextAtSize(l1, 10.5)
-    page.drawText(l1, { x: cx - w1 / 2, y: sigY - 15, size: 10.5, font: font.sansBold, color: DARK })
-    const w2 = font.sans.widthOfTextAtSize(l2, 9)
-    page.drawText(l2, { x: cx - w2 / 2, y: sigY - 27, size: 9, font: font.sans, color: MUTED })
+  const emblemW = (h) => h * (EMBLEM_BOX.right - EMBLEM_BOX.left) / (EMBLEM_BOX.top - EMBLEM_BOX.bottom)
+  let tx = PAD
+  if (emblem) {
+    const eh = 44, ew = emblemW(eh)
+    page.drawPage(emblem, { x: PAD, y: headTop - eh, width: ew, height: eh })
+    tx = PAD + ew + 12
+    page.drawLine({ start: { x: tx, y: headTop - 4 }, end: { x: tx, y: headTop - eh + 4 }, thickness: 0.8, color: LINE })
+    tx += 12
   }
-  sig(200, 'Authorised Signature', 'Church Administrator')
-  sig(W - 200, 'Rev. Benson K. Sunny', 'Senior Pastor')
-  // 100 pt dashed seal circle
-  const sealCy = sigY + 8
-  page.drawEllipse({ x: W / 2, y: sealCy, xScale: 50, yScale: 50, borderColor: TEAL, borderWidth: 1, borderDashArray: [4, 3] })
-  ;['Affix Official', 'Church Seal Here'].forEach((t, i) => {
-    const tw = font.sans.widthOfTextAtSize(t, 7.5)
-    page.drawText(t, { x: W / 2 - tw / 2, y: sealCy + 2 - i * 10, size: 7.5, font: font.sans, color: MUTED })
+  text('RIVER OF LIFE CHRISTIAN CHURCH', tx, headTop - 20, 12, font.sansBold, DARK, 1.6)
+  text('BANGALORE  ·  MEMBERSHIP REGISTRY', tx, headTop - 34, 7.5, font.sans, MUTED, 1.4)
+
+  const memNo = String(c.membershipNumber || '').trim()
+  const badgeLabel = `MEMBER NO.  ${memNo || '—'}`
+  const bw = widthOf(badgeLabel, 9, font.sansBold, 0.8) + 28
+  pill(badgeLabel, W - PAD - bw, headTop - 32, { size: 9, fill: DARK, color: WHITE, spacing: 0.8, h: 24, padX: 14 })
+
+  // ── Title + name ─────────────────────────────────────────────────────────
+  let y = H - 168
+  center('CERTIFICATE OF MEMBERSHIP', y, 11, font.sansBold, TEAL, 4)
+  y -= 34
+  center('This certifies that', y, 11, font.sans, MUTED)
+  y -= 50
+  const name = String(c.name || '').trim()
+  center(name, y, fit(name, 560, 42, font.serifBoldItalic), font.serifBoldItalic, INK)
+  y -= 18
+  page.drawRectangle({ x: W / 2 - 34, y, width: 50, height: 2.2, color: TEAL })
+  page.drawRectangle({ x: W / 2 + 20, y, width: 14, height: 2.2, color: GOLD })
+  y -= 28
+  center('has been received into the fellowship of River of Life Christian Church, Bangalore,', y, 10.5, font.sans, INK)
+  y -= 15
+  center('and is committed to walk in faith, love and service with this church family.', y, 10.5, font.sans, INK)
+
+  // ── Tags: congregation / service and any departments ─────────────────────
+  const tags = [c.congregation, ...(Array.isArray(c.departments) ? c.departments : [])]
+    .map((t) => String(t || '').trim().toUpperCase()).filter(Boolean).slice(0, 5)
+  y -= 34
+  if (tags.length) {
+    const gap = 8
+    const widths = tags.map((t) => widthOf(t, 7.5, font.sansBold, 0.8) + 20)
+    let px = (W - (widths.reduce((s, w) => s + w, 0) + gap * (tags.length - 1))) / 2
+    tags.forEach((t, i) => { pill(t, px, y, { size: 7.5, h: 17, spacing: 0.8 }); px += widths[i] + gap })
+  }
+
+  // ── Metadata: three columns split by hairlines ───────────────────────────
+  const issued = (c.issueDate || new Date()).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' })
+  const meta = [
+    ['MEMBER SINCE', c.memberSince ? String(c.memberSince) : '—', font.serif],
+    ['DATE OF ISSUE', issued, font.serif],
+    ['EMERGENCY CONTACT', String(c.emergencyContact || '').trim() || '—', font.sans],
+  ]
+  y -= 50
+  const colW = 170, metaX = (W - colW * 3) / 2
+  meta.forEach(([label, value, f], i) => {
+    const cx = metaX + colW * i + colW / 2
+    center(label, y + 20, 7, font.sansBold, MUTED, 1.4, cx)
+    center(value, y, fit(value, colW - 16, 14, f), f, value === '—' ? MUTED : INK, 0, cx)
+    if (i) page.drawLine({ start: { x: metaX + colW * i, y: y - 4 }, end: { x: metaX + colW * i, y: y + 28 }, thickness: 0.7, color: LINE })
   })
 
-  // ── Footer: issue date, address, helpline ────────────────────────────────
-  const issued = (c.issueDate || new Date()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-  center(`Issued on ${issued}`, 76, 8.5, font.sans, MUTED)
-  center(CHURCH_ADDRESS, 64, 8, font.sans, DARK)
-  center(CHURCH_CONTACT, 54, 8, font.sansBold, TEAL)
+  // ── Footer: signature blocks either side of the digital church seal ──────
+  const sigY = 104
+  const sig = (cx, signer, role) => {
+    page.drawLine({ start: { x: cx - 100, y: sigY }, end: { x: cx + 100, y: sigY }, thickness: 0.7, color: INK })
+    center(signer, sigY - 17, 13, font.serifItalic, INK, 0, cx)
+    center(role, sigY - 30, 7, font.sansBold, MUTED, 1.4, cx)
+  }
+  sig(PAD + 120, 'Church Administrator', 'AUTHORISED SIGNATORY')
+  sig(W - PAD - 120, 'Rev. Benson K. Sunny', 'SENIOR PASTOR  ·  OFFICIATING')
+
+  // Senior Pastor's signature, resting on his line.
+  const signImg = await embedPng(doc, SIGN_URL)
+  if (signImg) {
+    const h = 74, w = (signImg.width / signImg.height) * h
+    page.drawImage(signImg, { x: W - PAD - 120 - w / 2, y: sigY - 3, width: w, height: h })
+  }
+
+  // Seal: the church's stamp; a drawn seal stands in if the image can't load.
+  const sx = W / 2, sy = sigY - 2, R = 46
+  const sealImg = await embedPng(doc, SEAL_URL)
+  if (sealImg) {
+    const h = 104, w = (sealImg.width / sealImg.height) * h
+    page.drawImage(sealImg, { x: sx - w / 2, y: sy - h / 2, width: w, height: h, opacity: 0.92 })
+  } else {
+    drawnSeal()
+  }
+
+  function drawnSeal() {
+    page.drawEllipse({ x: sx, y: sy, xScale: R, yScale: R, color: WHITE, borderColor: DARK, borderWidth: 1.6 })
+    page.drawEllipse({ x: sx, y: sy, xScale: R - 13, yScale: R - 13, borderColor: TEAL, borderWidth: 0.6 })
+    const ring = 'RIVER OF LIFE CHRISTIAN CHURCH  •  BANGALORE  •  '
+    const rr = R - 9.5, rs = 6.2
+    // Spread the glyphs evenly so the text closes the full circle.
+    const stretch = (2 * Math.PI * rr) / widthOf(ring, rs, font.sansBold)
+    let arc = 0
+    ;[...ring].forEach((ch) => {
+      const gw = font.sansBold.widthOfTextAtSize(ch, rs)
+      const mid = (arc + (gw * stretch) / 2) / rr // angle clockwise from the top
+      const gx = sx + rr * Math.sin(mid), gy = sy + rr * Math.cos(mid)
+      // Glyph origin = its centre on the ring, moved back half a glyph along the
+      // tangent and down a little towards the centre so the letters sit on the ring.
+      page.drawText(ch, {
+        x: gx - (gw / 2) * Math.cos(mid) - rs * 0.35 * Math.sin(mid),
+        y: gy + (gw / 2) * Math.sin(mid) - rs * 0.35 * Math.cos(mid),
+        size: rs, font: font.sansBold, color: DARK, rotate: degrees((-mid * 180) / Math.PI),
+      })
+      arc += gw * stretch
+    })
+    if (emblem) {
+      const sh = 34, sw = emblemW(sh)
+      page.drawPage(emblem, { x: sx - sw / 2, y: sy - sh / 2, width: sw, height: sh })
+    } else {
+      center('ROLCC', sy - 4, 11, font.sansBold, DARK, 1.5, sx)
+    }
+  }
+
+  // ── Address strip ────────────────────────────────────────────────────────
+  center(`${CHURCH_ADDRESS}   |   ${CHURCH_CONTACT}`, M + 14, 7, font.sans, MUTED)
 
   doc.setTitle(`Certificate of Membership — ${name}`)
   doc.setAuthor('River of Life Christian Church')
   return doc.save()
 }
 
-/** Download as "<Name>_Membership_Certificate.pdf". */
-export async function downloadMembershipCertificate(c) {
-  const bytes = await buildMembershipCertificatePdf(c)
-  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }))
+/** "<Name>_Membership_Certificate.pdf" */
+export function membershipCertificateFileName(c) {
+  return `${String(c.name || 'Member').trim().replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'Member'}_Membership_Certificate.pdf`
+}
+
+/** Download as "<Name>_Membership_Certificate.pdf" — pass `bytes` if already built. */
+export async function downloadMembershipCertificate(c, bytes = null) {
+  const data = bytes || await buildMembershipCertificatePdf(c)
+  const url = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }))
   const a = document.createElement('a')
   a.href = url
-  a.download = `${String(c.name || 'Member').trim().replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'Member'}_Membership_Certificate.pdf`
+  a.download = membershipCertificateFileName(c)
   document.body.appendChild(a)
   a.click()
   a.remove()

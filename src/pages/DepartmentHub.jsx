@@ -184,7 +184,9 @@ import PcsAwayControl from '../components/caring/PcsAwayControl'
 import AppreciationSummaryModal from '../components/caring/AppreciationSummaryModal'
 import { downloadPastoralClosureLetter } from '../utils/pastoralClosureLetter'
 import { downloadBaptismCertificates, printBaptismCertificates, baptismRegNo, baptismCertificateEligibility, parentsLine } from '../utils/baptismCertificate'
-import { downloadMembershipCertificate, membershipCertificateData } from '../utils/membershipCertificate'
+import { membershipCertificateData } from '../utils/membershipCertificate'
+import { openMembershipCertificate } from '../utils/openMembershipCertificate'
+import { openMembershipIdCard } from '../utils/openMembershipIdCard'
 import { isRelocated, churchTillDate, RELOCATED_BADGE_CLS } from '../utils/relocation'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import EntryCompletionProgress from '../components/finance/EntryCompletionProgress'
@@ -3217,7 +3219,8 @@ export default function DepartmentHub() {
   }
 
   return (
-    <div>
+    // Accounts: content held to A3 page proportions, centred.
+    <div className={slug === 'accounts' ? 'max-w-[1190px] mx-auto' : undefined}>
       {/* ── Allotted-time notifications ── */}
       {boardAllottedNotifications.length > 0 && (
         <div className="fixed top-4 left-4 right-4 z-[70] sm:left-auto sm:right-4 sm:w-80 space-y-2 pointer-events-none">
@@ -8287,17 +8290,17 @@ export default function DepartmentHub() {
                               {/* Certificate of Membership — for members / approved applications */}
                               {(f.membershipStatus === 'member' || pcsMembershipApp?.status === 'approved') && (
                                 <div className="col-span-2 pt-2">
-                                  <button type="button" disabled={pcsCertBusy}
-                                    onClick={async () => {
-                                      setPcsCertBusy(true)
-                                      try {
-                                        await downloadMembershipCertificate(membershipCertificateData(
-                                          { name: f.name || entry.name, membershipNumber: f.membershipNumber, serviceAttended: f.serviceAttended }, pcsMembershipApp))
-                                      } catch (e) { console.error('Membership certificate', e); alert('Could not create the certificate. Please try again.') }
-                                      setPcsCertBusy(false)
-                                    }}
+                                  <button type="button"
+                                    onClick={() => openMembershipCertificate(membershipCertificateData(
+                                      { name: f.name || entry.name, membershipNumber: f.membershipNumber, serviceAttended: f.serviceAttended }, pcsMembershipApp))}
                                     className="w-full min-h-[40px] rounded-xl bg-[#0d5c46] text-white text-sm font-bold hover:bg-[#168a68] disabled:opacity-60">
-                                    {pcsCertBusy ? 'Preparing…' : 'Download Membership Certificate (PDF)'}
+                                    View Membership Certificate
+                                  </button>
+                                  <button type="button"
+                                    onClick={() => openMembershipIdCard(membershipCertificateData(
+                                      { name: f.name || entry.name, membershipNumber: f.membershipNumber, serviceAttended: f.serviceAttended }, pcsMembershipApp))}
+                                    className="mt-2 w-full min-h-[40px] rounded-xl border border-[#0d5c46] text-[#0d5c46] text-sm font-bold hover:bg-emerald-50">
+                                    View Membership ID Card
                                   </button>
                                 </div>
                               )}
