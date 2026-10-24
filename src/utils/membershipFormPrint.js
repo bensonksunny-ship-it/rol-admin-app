@@ -1,5 +1,5 @@
 import {
-  MEMBERSHIP_CHURCH_NAME, MEMBERSHIP_FORM_TITLE, MEMBERSHIP_FOOTER_NOTE,
+  MEMBERSHIP_CHURCH_NAME, MEMBERSHIP_FORM_TITLE, MEMBERSHIP_DEPOSIT_AMOUNT, depositReceiptNo,
   MEMBERSHIP_PREFILL_FIELDS, MEMBERSHIP_APPLICANT_FIELDS, MEMBERSHIP_DOCUMENTS, MEMBERSHIP_DECISIONS,
   membershipFieldValue, membershipFullName, membershipDocumentProvided, hasValue,
 } from '../constants/membershipForm'
@@ -18,8 +18,13 @@ const dmy = (v) => {
  * A4 print sheet for one membership application in the paper form's ruled
  * table layout — opened in a new window, then printed / saved as PDF. Before the
  * applicant submits it prints with only the PCS pre-fill, for a paper fallback.
+ *
+ * verification: the PCS entry's Stage 4 record (membershipPipeline.stages.verification)
+ * when the caller has it; its deposit details fill the Payment Receipt at the
+ * bottom. Without it (the applicant's own page) the receipt shows paid once the
+ * staff progress mirror marks Stage 4 done, with whatever details are known.
  */
-export function openMembershipFormPrint(app) {
+export function openMembershipFormPrint(app, { verification } = {}) {
   const val = (f) => {
     const v = membershipFieldValue(app, f.key)
     return f.type === 'date' ? dmy(v) : v
@@ -50,6 +55,40 @@ export function openMembershipFormPrint(app) {
   const docs = MEMBERSHIP_DOCUMENTS.map((d) =>
     `<span style="margin-right:16px">${membershipDocumentProvided(app, d) ? '☑' : '☐'} ${esc(d.label)}</span>`).join('')
   const decision = MEMBERSHIP_DECISIONS[app.status] || 'Awaiting applicant'
+
+  // Payment Receipt voucher (membership security deposit).
+  const dep = verification?.deposit || {}
+  const mirrorVer = app.pipelineProgress?.stages?.find((s) => s.key === 'verification')
+  const verifiedAt = verification?.verifiedAt || verification?.completedAt || mirrorVer?.completedAt || ''
+  const paid = verification ? !!verification.checklist?.securityDeposit : !!mirrorVer?.done
+  const amount = Number(dep.amount) || MEMBERSHIP_DEPOSIT_AMOUNT
+  const amountText = `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  const payDate = paid ? dmy(dep.date || verifiedAt) : ''
+  const reference = paid ? (dep.reference || dep.receiptNo || (verification ? depositReceiptNo(dep.date || verifiedAt) : '')) : ''
+  const rField = (label, value, { strong = false, mono = false } = {}) => `
+    <div style="flex:1;min-width:0">
+      <div style="font-size:7.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#64748b">${esc(label)}</div>
+      <div style="font-size:${strong ? 13 : 10.5}px;font-weight:${strong ? 800 : 600};color:#0f172a;margin-top:2px;min-height:14px;border-bottom:1px dotted #94a3b8;padding-bottom:1px;${mono ? "font-family:Consolas,'Courier New',monospace;letter-spacing:.03em;" : ''}white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(value) || '&nbsp;'}</div>
+    </div>`
+  const receipt = `
+    <div style="border:1.5px solid ${paid ? '#15803d' : '#b45309'};border-radius:6px;overflow:hidden">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 9px;background:${paid ? '#f0fdf4' : '#fffbeb'};border-bottom:1px solid ${paid ? '#bbf7d0' : '#fde68a'}">
+        <div style="font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#1e3a5f">Payment Receipt Voucher</div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:7.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#64748b">Receipt Status</span>
+          <span style="font-size:9px;font-weight:800;letter-spacing:.06em;padding:2px 8px;border-radius:999px;color:#fff;background:${paid ? '#16a34a' : '#d97706'}">${paid ? '✓ PAID &amp; VERIFIED' : 'PAYMENT PENDING'}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;padding:7px 9px 4px">
+        ${rField('Amount Paid', amountText, { strong: true })}
+        ${rField('Payment Date', payDate)}
+        ${rField('Payment Mode', paid ? dep.mode : '')}
+        ${rField('Transaction / Reference ID', reference, { mono: true })}
+      </div>
+      <div style="padding:3px 9px 6px;font-size:9.5px;font-style:italic;color:${paid ? '#166534' : '#92400e'}">
+        ${paid ? 'Payment received and verified for Membership Application processing.' : `Membership security deposit of ${esc(amountText)} to be paid at the church office.`}
+      </div>
+    </div>`
 
   const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Membership Form — ${esc(membershipFullName(app) || '')}</title>
   <style>
@@ -88,7 +127,7 @@ export function openMembershipFormPrint(app) {
     </div>
 
     <div style="margin-top:auto;padding-top:12px">
-      <p style="font-size:10px;font-weight:700;color:#7c2d12;border:1px dashed #c2410c;padding:5px 8px">${esc(MEMBERSHIP_FOOTER_NOTE)}</p>
+      ${receipt}
       <table style="margin-top:8px">
         <tr>
           <td style="border:1px solid #334155;padding:6px 8px;width:50%;vertical-align:top">

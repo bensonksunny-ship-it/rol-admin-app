@@ -263,7 +263,7 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
               )}
 
               <div className="flex flex-wrap gap-2 pt-1">
-                <button type="button" onClick={() => openMembershipFormPrint({ ...app, officeNotes: notes })} className="flex-1 min-h-[44px] rounded-xl bg-[#1e3a5f] text-white text-sm font-bold">
+                <button type="button" onClick={() => openMembershipFormPrint({ ...app, officeNotes: notes }, { verification: entry.membershipPipeline?.stages?.verification })} className="flex-1 min-h-[44px] rounded-xl bg-[#1e3a5f] text-white text-sm font-bold">
                   Print / Export PDF
                 </button>
                 <button type="button" onClick={withdraw} className="px-4 min-h-[44px] rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50">Withdraw</button>

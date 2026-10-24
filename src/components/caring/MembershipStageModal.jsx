@@ -378,7 +378,7 @@ export default function MembershipStageModal({
   const [interviewDate, setInterviewDate] = useState(String(entry.membershipPipeline?.interview?.scheduledAt || '').slice(0, 10) || todayIso())
   const [memberNo, setMemberNo] = useState(entry.membershipNumber || '')
   // Stage 4 item 4: security deposit receipt (shown on the Full Application Record).
-  const [deposit, setDeposit] = useState({ receiptNo: depositReceiptNo(), amount: String(MEMBERSHIP_DEPOSIT_AMOUNT), mode: 'Cash', date: todayIso(), receivedBy: by || '' })
+  const [deposit, setDeposit] = useState({ receiptNo: depositReceiptNo(), amount: String(MEMBERSHIP_DEPOSIT_AMOUNT), mode: 'Cash', reference: '', date: todayIso(), receivedBy: by || '' })
   const allChecked = VERIFICATION_CHECKLIST.every((c) => isChecked(c.key))
   const btn = 'w-full min-h-[44px] rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50'
   const inp = 'w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white'
@@ -504,14 +504,14 @@ export default function MembershipStageModal({
                     {/* Item 4: security deposit receipt details */}
                     {c.key === 'securityDeposit' && !flagged && (
                       <div className="px-3 pb-3 grid grid-cols-2 gap-2">
-                        {[['receiptNo', 'Receipt No.', 'text'], ['amount', 'Amount (₹)', 'number'], ['date', 'Date', 'date'], ['receivedBy', 'Received By', 'text']].map(([k, label, type]) => (
+                        {[['receiptNo', 'Receipt No.', 'text'], ['amount', 'Amount (₹)', 'number'], ['date', 'Date', 'date'], ['receivedBy', 'Received By', 'text'], ['reference', 'Transaction / Reference ID', 'text']].map(([k, label, type]) => (
                           <label key={k} className="block">
                             <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">{label}</span>
                             <input type={type} value={deposit[k]} onChange={(e) => setDeposit((d) => ({ ...d, [k]: e.target.value }))}
                               className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs bg-white" />
                           </label>
                         ))}
-                        <label className="block col-span-2">
+                        <label className="block">
                           <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Payment Mode</span>
                           <select value={deposit.mode} onChange={(e) => setDeposit((d) => ({ ...d, mode: e.target.value }))}
                             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs bg-white">
