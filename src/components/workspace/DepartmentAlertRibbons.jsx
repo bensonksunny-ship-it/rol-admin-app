@@ -48,7 +48,7 @@ export default function DepartmentAlertRibbons() {
   const names = myDepartmentNames(userProfile, isFounder).filter((n) => getDepartmentByName(n)?.slug)
   if (!names.length) return null
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 sm:grid-flow-row-dense items-start gap-2 empty:hidden">
+    <div className="flex flex-col gap-2 empty:hidden">
       {names.map((n) => <DepartmentAlertRibbon key={n} name={n} />)}
     </div>
   )

@@ -125,7 +125,7 @@ export default function TodoAlertRibbons() {
 
   if (!groups.length) return null
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 items-start gap-2">
+    <div className="flex flex-col gap-2">
       {groups.map(({ kind, alert }) => (
         <DepartmentNotificationRibbon
           key={kind.key}

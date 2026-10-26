@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import WorkspaceHeader from '../components/workspace/WorkspaceHeader'
-import ToDoListCard from '../components/workspace/ToDoListCard'
 import EdenGardenGrid from '../components/workspace/EdenGardenGrid'
 import FounderInsightsPanel from '../components/workspace/FounderInsightsPanel'
 import WorshipWorkspaceWidget from '../components/workspace/WorshipWorkspaceWidget'
@@ -96,6 +95,18 @@ export default function MyWorkspace() {
       <DeclarationRequestRibbon {...ids} />
     </>
   )
+  // Every notification / action ribbon, one below the other in a single column
+  // (each renders nothing when it has nothing). The To-Do card is no longer shown.
+  const ribbons = (
+    <div className="flex flex-col gap-2 empty:hidden [&>*]:my-0">
+      <DepartmentAlertRibbons />
+      {/* Accounts team only (renders nothing for anyone else). */}
+      {!isFounder && <AccountsExpenseApprovalRibbon />}
+      {/* Yellow To-Do ribbons (cell assignment inputs, PCS hand-offs, …). */}
+      <TodoAlertRibbons />
+      {addressedRibbons}
+    </div>
+  )
   const pipeline = showPipeline && (
     <MembershipPipelineWidget
       canCaring={canCaring}
@@ -136,15 +147,12 @@ export default function MyWorkspace() {
         // Eden Garden: metrics first, then every status / action ribbon in one stack
         // (Upcoming Worship → Membership Pipeline → other alerts), then departments.
         <>
-          <DepartmentAlertRibbons />
-          <TodoAlertRibbons />
+          {ribbons}
           <FounderInsightsPanel />
           <div className="space-y-3">
             <WorshipWorkspaceWidget />
             {pipeline}
             <ApprovalsCard />
-            <ToDoListCard />
-            {addressedRibbons}
             <BoardMeetingWorkspaceWidget />
           </div>
           <EdenGardenGrid />
@@ -153,15 +161,7 @@ export default function MyWorkspace() {
         <>
           {/* Quick-action button row directly under the welcome header. */}
           <QuickActionsWidget />
-          <DepartmentAlertRibbons />
-          {/* Accounts team only (renders nothing for anyone else). */}
-          <AccountsExpenseApprovalRibbon />
-          {/* Yellow To-Do ribbons (cell assignment inputs, PCS hand-offs, …). */}
-          <TodoAlertRibbons />
-          {/* Then things addressed to me: To-Do pill (only when tasks are open) and the
-              request / assignment ribbons (each renders nothing when it has nothing). */}
-          <ToDoListCard />
-          {addressedRibbons}
+          {ribbons}
           <WorshipWorkspaceWidget />
           <BoardMeetingWorkspaceWidget />
           {pipeline}

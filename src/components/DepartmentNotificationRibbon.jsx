@@ -112,12 +112,12 @@ export default function DepartmentNotificationRibbon({ alerts, storageKey, depar
 
   const visible = (alerts || []).filter((a) => !isSnoozed(a.id))
   if (!visible.length) return null
-  // Blue (primary) first at full width; amber after, two to a row.
+  // Blue (primary) first, then amber — one ribbon per row, stacked.
   const ordered = [...visible.filter((a) => isBlue(a, category)), ...visible.filter((a) => !isBlue(a, category))]
   return (
-    <div className={flat ? 'contents' : 'grid grid-cols-1 sm:grid-cols-2 sm:grid-flow-row-dense items-start gap-2'}>
+    <div className={flat ? 'contents' : 'flex flex-col gap-2'}>
       {ordered.map((a) => (
-        <div key={a.id} className={`min-w-0 ${isBlue(a, category) ? 'sm:col-span-2' : ''}`}>
+        <div key={a.id} className="min-w-0">
           <AlertRibbon {...rest} departmentName={departmentName} alerts={[a]} storageKey={`${base}.${a.id}`}
             category={a.category || category} onSnooze={snooze} />
         </div>
