@@ -23,7 +23,13 @@ export const POSITION_OPTIONS = [
   { value: 'Worship Leader', label: 'Worship Leader' },
   { value: 'Worship Member', label: 'Worship Member' },
   { value: 'Pre-Service Leader', label: 'Pre-Service Leader' },
+  // Offered only under Accounts (see `departments`). Opens the Sunday cash count
+  // page and nothing else — it is left out of departments[] below.
+  { value: 'Sunday Cash Counter', label: 'Sunday Cash Counter', departments: ['Accounts'] },
 ]
+
+/** Position value for the Sunday Cash Counter (Accounts). */
+export const CASH_COUNTER_POSITION = 'Sunday Cash Counter'
 
 /** Strips a display-formatted " - {Department}" suffix off a position value
  *  (e.g. "Director - Worship" → "Director"), so exact-match permission checks
@@ -74,7 +80,11 @@ export function deriveRoleFromPositions(positions) {
 /** Derive departments array from positions. */
 export function deriveDepartmentsFromPositions(positions) {
   if (!Array.isArray(positions) || positions.length === 0) return []
-  const set = new Set(positions.map((p) => p.department).filter(Boolean))
+  // A Sunday Cash Counter position doesn't make Accounts one of the person's
+  // departments (firestore.rules grants department access from departments[]).
+  const set = new Set(positions
+    .filter((p) => basePositionName(p?.position) !== CASH_COUNTER_POSITION)
+    .map((p) => p.department).filter(Boolean))
   return Array.from(set)
 }
 

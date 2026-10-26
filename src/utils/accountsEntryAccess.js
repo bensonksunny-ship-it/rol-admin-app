@@ -1,5 +1,5 @@
 import { getDepartmentRole } from './access'
-import { ROLES } from '../constants/roles'
+import { ROLES, CASH_COUNTER_POSITION, basePositionName } from '../constants/roles'
 
 const ACCOUNTS_DEPT = 'Accounts'
 
@@ -29,10 +29,14 @@ export function canAccessAccountsEntry(userProfile, hasPermission, isFounder) {
   return false
 }
 
-/** Sunday Cash Counter: the users/{uid}.cashCounter switch in User Management. Grants
- *  only the Sunday Cash Count page — no Accounts or other department access. */
+/** Sunday Cash Counter: an Accounts position of "Sunday Cash Counter" (User
+ *  Management → Positions), or the older users/{uid}.cashCounter switch. Grants only
+ *  the Sunday Cash Count page — no Accounts or other department access. */
 export function isSundayCashCounter(userProfile) {
-  return userProfile?.cashCounter === true
+  if (!userProfile) return false
+  if (userProfile.cashCounter === true) return true
+  const positions = Array.isArray(userProfile.positions) ? userProfile.positions : []
+  return positions.some(p => basePositionName(p?.position) === CASH_COUNTER_POSITION)
 }
 
-export const SUNDAY_CASH_COUNT_PATH = '/sunday-cash-count'
+export const SUNDAY_CASH_COUNT_PATH = '/department/accounts/cash-counter'

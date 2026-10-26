@@ -969,11 +969,15 @@ service cloud.firestore {
       return financeDataWritable(data, 'income_');
     }
 
-    // Sunday Cash Counter (users/{uid}.cashCounter == true, set in User Management):
+    // Sunday Cash Counter (an Accounts "Sunday Cash Counter" position, or the older
+    // users/{uid}.cashCounter switch):
     // submits the Sunday offering note count. Accounts confirms it (posting it as
     // income); once confirmed only Accounts / Founder can change it.
     function isCashCounter() {
-      return isSignedIn() && getUserData().get('cashCounter', false) == true;
+      return isSignedIn() && (
+        getUserData().get('cashCounter', false) == true ||
+        userPositions().hasAny([{'department': 'Accounts', 'position': 'Sunday Cash Counter'}])
+      );
     }
     match /offering_cash_counts/{dateId} {
       allow read: if isSignedIn();

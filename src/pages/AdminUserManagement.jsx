@@ -151,7 +151,6 @@ export default function AdminUserManagement() {
       cellId: u.cellId || '',
       roleOverride: [ROLES.FOUNDER, ROLES.ADMIN, ROLES.SENIOR_PASTOR, ROLES.WEEKLY_ENTRY].includes(u.role) ? u.role : '',
       globalRole: u.globalRole === 'FOUNDER' ? 'FOUNDER' : '',
-      cashCounter: u.cashCounter === true,
       status: u.status || 'active',
     })
     setError('')
@@ -254,6 +253,8 @@ export default function AdminUserManagement() {
         role,
         departments,
         department: departments[0] || '',
+        // Sunday Cash Counter is now an Accounts position; clear the older switch.
+        cashCounter: false,
         ...(editingId ? {} : { globalRole: formGlobalRole === 'FOUNDER' ? 'FOUNDER' : null }),
       }
       if (editingId) {
@@ -700,20 +701,6 @@ export default function AdminUserManagement() {
                       Use this only for Founder/Admin accounts or Finance Assistant (restricted) users. Leave as Auto for normal users.
                     </p>
                   </div>
-                  <div>
-                    <label className="flex items-start gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={!!form.cashCounter}
-                        onChange={(e) => setForm((f) => ({ ...f, cashCounter: e.target.checked }))}
-                        className="mt-0.5 accent-emerald-600"
-                      />
-                      <span>
-                        <span className="block text-sm font-semibold text-slate-700">Sunday Cash Counter</span>
-                        <span className="block text-xs text-slate-500">Can enter the Sunday offering cash count (notes per service) for Accounts to confirm. Gives no other access.</span>
-                      </span>
-                    </label>
-                  </div>
                   {isFounderGlobal && (
                     <div>
                       <label className={labelCls}>Global Role</label>
@@ -834,7 +821,7 @@ export default function AdminUserManagement() {
                           className="flex-1 min-w-[140px] px-3 py-2 rounded-lg border border-slate-200 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 transition-colors"
                         >
                           <option value="">— Position —</option>
-                          {POSITION_OPTIONS.map((opt) => (
+                          {POSITION_OPTIONS.filter((opt) => !opt.departments || opt.departments.includes(pos.department) || opt.value === pos.position).map((opt) => (
                             <option key={opt.value} value={opt.value}>
                               {opt.label}
                             </option>

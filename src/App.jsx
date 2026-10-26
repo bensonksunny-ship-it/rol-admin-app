@@ -106,12 +106,13 @@ function App() {
               <Route path="department/junior-c" element={<Navigate to="/department/river-kids" replace />} />
               <Route path="department/build-c" element={<Navigate to="/department/building-care" replace />} />
               <Route path="department/d-light/members" element={<DLightMembers />} />
+              <Route path="department/accounts/cash-counter" element={<SundayCashCountPage />} />
               <Route path="department/:slug" element={<DepartmentHub />}>
                 <Route path="entry/*" element={<EntryPage />} />
               </Route>
               <Route path="department/:slug/pastor" element={<DepartmentPastorView />} />
               <Route path="department/:slug/pastor/updates" element={<DepartmentPastorUpdates />} />
-              <Route path="sunday-cash-count" element={<SundayCashCountPage />} />
+              <Route path="sunday-cash-count" element={<Navigate to="/department/accounts/cash-counter" replace />} />
               <Route path="sunday-ministry-pastor" element={<SundayMinistryPastor />} />
               <Route path="senior-pastor" element={<SeniorPastorHub />} />
               <Route path="first-lady" element={<FirstLadyHub />} />
