@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { format, parseISO } from 'date-fns'
 import { Banknote, CheckCircle2, RotateCcw, X } from 'lucide-react'
-import { CASH_SERVICES, CASH_DENOMINATIONS, serviceTotal, countTotal } from '../../../utils/cashCount'
+import { CASH_SERVICES, CASH_DENOMINATIONS, serviceTotal, countTotal, otherCashLines, otherCashTotal } from '../../../utils/cashCount'
 import SundayCashCount from '../../../components/finance/SundayCashCount'
 import { matchesCategory, toDate } from './incomeCategorize'
 import { fmtAmount } from './gridUtils'
@@ -25,7 +25,7 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
       <div className="px-4 py-2.5 border-b border-slate-100 bg-emerald-50/70 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <Banknote size={15} className="text-emerald-600 shrink-0" />
-          <h3 className="text-sm font-semibold text-slate-700">Sunday cash counts</h3>
+          <h3 className="text-sm font-semibold text-slate-700">Sunday cash counts <span className="font-normal text-slate-400">(offering, tithe &amp; other cash)</span></h3>
           {pending > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">{pending} to confirm</span>}
         </div>
         <button type="button" onClick={() => setCountOpen(true)} className="text-[11px] font-semibold text-emerald-700 hover:underline shrink-0">Open count page</button>
@@ -35,6 +35,7 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
           <tr className="bg-slate-50 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
             <th className="px-4 py-2.5">Sunday</th>
             {CASH_SERVICES.map(s => <th key={s.key} className="px-4 py-2.5 text-right">{s.label.replace(' Service', '')} count</th>)}
+            <th className="px-4 py-2.5 text-right" title="Tithe, contribution and other cash lines">Other cash</th>
             <th className="px-4 py-2.5 text-right">Total</th>
             <th className="px-4 py-2.5 w-36" />
           </tr>
@@ -46,6 +47,7 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
             const differs = c && CASH_SERVICES.some(s => posted(iso, s.category) !== serviceTotal(c, s.key))
             const detail = c ? [
               ...CASH_SERVICES.map(s => `${s.label}: ${CASH_DENOMINATIONS.filter(d => c[s.key]?.notes?.[d]).map(d => `₹${d}×${c[s.key].notes[d]}`).join(', ') || '—'}`),
+              ...otherCashLines(c).map(l => `${l.category}: ${l.name || '—'} ₹${fmtAmount(l.amount)}`),
               `Counted by ${c.countedBy || '—'}`,
             ].filter(Boolean).join('\n') : ''
             return (
@@ -62,6 +64,11 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
                     </td>
                   )
                 })}
+                <td className="px-4 py-3 text-right tabular-nums">
+                  {c && otherCashLines(c).length ? (
+                    <span className="font-semibold text-slate-800">₹{fmtAmount(otherCashTotal(c))}<span className="block text-[10px] text-slate-400">{otherCashLines(c).length} {otherCashLines(c).length === 1 ? 'line' : 'lines'}</span></span>
+                  ) : <span className="text-slate-300">–</span>}
+                </td>
                 <td className="px-4 py-3 text-right font-bold tabular-nums text-slate-800">{c ? `₹${fmtAmount(countTotal(c))}` : ''}</td>
                 <td className="px-4 py-3 text-right">
                   {!c ? (

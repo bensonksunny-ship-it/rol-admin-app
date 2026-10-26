@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { Banknote, CheckCircle2, Lock } from 'lucide-react'
+import { Banknote, CheckCircle2, Lock, Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { subscribeOfferingCashCount, saveOfferingCashCount } from '../../services/firestore'
-import { CASH_DENOMINATIONS, CASH_SERVICES, emptyNotes, notesTotal, recentSundays } from '../../utils/cashCount'
+import { CASH_DENOMINATIONS, CASH_SERVICES, OTHER_CASH_GROUPS, emptyNotes, notesTotal, recentSundays } from '../../utils/cashCount'
 
 const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
 
@@ -53,13 +53,18 @@ function CashCountForm({ iso, myName, uid }) {
       english: { ...emptyNotes(), ...(c?.english?.notes || {}) },
       tamil: { ...emptyNotes(), ...(c?.tamil?.notes || {}) },
       countedBy: c?.countedBy || myName,
+      lines: (c?.lines || []).map((l) => ({ ...l, amount: String(l.amount ?? '') })),
     })
   }, () => setMsg({ type: 'error', text: 'Could not load this Sunday. Please refresh.' })), [iso, myName])
 
   const confirmed = saved?.status === 'confirmed'
   const setNote = (svc, d, v) => setForm((f) => ({ ...f, [svc]: { ...f[svc], [d]: v.replace(/[^\d]/g, '') } }))
   const totals = form ? Object.fromEntries(CASH_SERVICES.map((s) => [s.key, notesTotal(form[s.key])])) : {}
-  const grand = (totals.english || 0) + (totals.tamil || 0)
+  const otherTotal = form ? form.lines.reduce((s, l) => s + (Number(l.amount) || 0), 0) : 0
+  const grand = (totals.english || 0) + (totals.tamil || 0) + otherTotal
+  const setLine = (id, patch) => setForm((f) => ({ ...f, lines: f.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)) }))
+  const addLine = () => setForm((f) => ({ ...f, lines: [...f.lines, { id: `l${Date.now().toString(36)}${f.lines.length}`, category: f.lines.at(-1)?.category || 'Tithe - English', name: '', amount: '' }] }))
+  const removeLine = (id) => setForm((f) => ({ ...f, lines: f.lines.filter((l) => l.id !== id) }))
 
   async function submit() {
     setBusy(true); setMsg(null)
@@ -69,6 +74,9 @@ function CashCountForm({ iso, myName, uid }) {
         english: svc('english'),
         tamil: svc('tamil'),
         countedBy: form.countedBy.trim(),
+        lines: form.lines
+          .filter((l) => Number(l.amount) > 0)
+          .map((l) => ({ id: l.id, category: l.category, name: String(l.name || '').trim(), amount: Number(l.amount) })),
         submittedBy: myName,
         submittedByUid: uid,
       })
@@ -139,6 +147,63 @@ function CashCountForm({ iso, myName, uid }) {
             ))}
           </div>
 
+          {/* Other cash received: tithe envelopes, contributions, … one line each. */}
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 bg-emerald-50/70 border-b border-slate-100">
+              <h2 className="text-sm font-bold text-slate-800">Other cash received <span className="font-normal text-slate-500">(tithe, contribution, …)</span></h2>
+              <p className="text-base font-bold tabular-nums text-emerald-700">{inr(otherTotal)}</p>
+            </div>
+            {form.lines.length > 0 && (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 bg-slate-50">
+                    <th className="px-4 py-2 text-left w-48">Income</th>
+                    <th className="px-4 py-2 text-left">Name</th>
+                    <th className="px-4 py-2 text-left w-32">Amount (₹)</th>
+                    <th className="w-10" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {form.lines.map((l) => (
+                    <tr key={l.id}>
+                      <td className="px-4 py-1.5">
+                        <select value={l.category} disabled={confirmed} onChange={(e) => setLine(l.id, { category: e.target.value })} aria-label="Income"
+                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm disabled:bg-slate-50">
+                          {OTHER_CASH_GROUPS.map((g) => (
+                            <optgroup key={g.label} label={g.label}>
+                              {g.categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </optgroup>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="px-4 py-1.5">
+                        <input value={l.name} disabled={confirmed} onChange={(e) => setLine(l.id, { name: e.target.value })} placeholder="Giver's name" aria-label="Name"
+                          className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-50" />
+                      </td>
+                      <td className="px-4 py-1.5">
+                        <input inputMode="decimal" value={l.amount} disabled={confirmed} onChange={(e) => setLine(l.id, { amount: e.target.value.replace(/[^d.]/g, '') })} placeholder="0" aria-label="Amount"
+                          className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm tabular-nums disabled:bg-slate-50" />
+                      </td>
+                      <td className="px-2 py-1.5 text-center">
+                        {!confirmed && (
+                          <button type="button" onClick={() => removeLine(l.id)} aria-label="Remove line" className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50">
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {!confirmed && (
+              <button type="button" onClick={addLine}
+                className="w-full flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium text-slate-500 hover:text-emerald-700 hover:bg-emerald-50/50 border-t border-slate-100">
+                <Plus size={14} /> Add line
+              </button>
+            )}
+          </section>
+
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-semibold text-slate-600">Counted by
               <input value={form.countedBy} disabled={confirmed} onChange={(e) => setForm((f) => ({ ...f, countedBy: e.target.value }))} className={`${input} mt-1`} />
@@ -147,7 +212,7 @@ function CashCountForm({ iso, myName, uid }) {
 
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
             <div className="text-sm text-slate-600">
-              English <b className="tabular-nums">{inr(totals.english)}</b> · Tamil <b className="tabular-nums">{inr(totals.tamil)}</b> · <span className="text-slate-900 font-bold">Total <span className="tabular-nums">{inr(grand)}</span></span>
+              English <b className="tabular-nums">{inr(totals.english)}</b> · Tamil <b className="tabular-nums">{inr(totals.tamil)}</b> · Other <b className="tabular-nums">{inr(otherTotal)}</b> · <span className="text-slate-900 font-bold">Total <span className="tabular-nums">{inr(grand)}</span></span>
             </div>
             {!confirmed && (
               <button type="button" onClick={submit} disabled={busy}

@@ -21,6 +21,10 @@ export const OTHER_INCOME_CATEGORY_OPTIONS = ['Missions', 'Donations']
 
 // How an income entry was received (finance_income.paymentMode; '' = not recorded).
 export const PAYMENT_MODES = ['Cash', 'Online (UPI/Bank)', 'Cheque', 'Other']
+export const ONLINE_MODE = 'Online (UPI/Bank)'
+// Cash / Online split: only UPI / bank is online; cash, cheque, other and
+// entries with no mode recorded sit on the Cash side.
+export const isOnlineEntry = (e) => e?.paymentMode === ONLINE_MODE
 
 // Typed / pasted text → a PAYMENT_MODES value ('' for blank), or null if unreadable.
 export function parsePaymentMode(text) {

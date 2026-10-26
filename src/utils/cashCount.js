@@ -17,7 +17,20 @@ export function notesTotal(notes) {
 }
 
 export const serviceTotal = (count, key) => Number(count?.[key]?.total) || 0
-export const countTotal = (count) => CASH_SERVICES.reduce((s, sv) => s + serviceTotal(count, sv.key), 0)
+
+// Other cash handed in on the Sunday (tithe envelopes, contributions, …): one line
+// each { id, category, name, amount }, posted into that category's Income section.
+export const OTHER_CASH_GROUPS = [
+  { label: 'Tithe', categories: ['Tithe - English', 'Tithe - Tamil'] },
+  { label: 'Contribution', categories: ['Contribution'] },
+  { label: 'Support from ROLCC', categories: ['Support from ROLCC'] },
+  { label: 'Other Income', categories: ['Missions', 'Donations'] },
+  { label: 'RSM', categories: ['RSM', 'RSM Salary', 'RFF'] },
+]
+export const otherCashLines = (count) => (Array.isArray(count?.lines) ? count.lines : [])
+export const otherCashTotal = (count) => otherCashLines(count).reduce((s, l) => s + (Number(l.amount) || 0), 0)
+
+export const countTotal = (count) => CASH_SERVICES.reduce((s, sv) => s + serviceTotal(count, sv.key), 0) + otherCashTotal(count)
 
 /** Every Sunday of the month containing `monthDate`, as yyyy-MM-dd. */
 export function sundaysOfMonth(monthDate) {

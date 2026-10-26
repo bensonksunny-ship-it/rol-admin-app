@@ -355,7 +355,7 @@ export default function CategoryListTable({
                           ariaLabel={cellLabel}
                           value={row.values.paymentMode}
                           options={['', ...PAYMENT_MODES]}
-                          labels={{ '': row.entry ? '— Select —' : defaultPaymentMode }}
+                          labels={{ '': row.entry ? '— Select —' : defaultPaymentMode ? `${defaultPaymentMode} (default)` : '' }}
                           onCommit={v => commitCell(row, 'paymentMode', v)}
                         />
                       </td>

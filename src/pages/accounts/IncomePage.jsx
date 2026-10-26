@@ -7,7 +7,7 @@ import { getFinanceIncome, applyFinanceIncomeOps, subscribeOfferingCashCounts, c
 import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
 import { unlockDocId } from '../../utils/financeEntryLock'
 import FinanceMonthLockBanner from '../../components/finance/FinanceMonthLockBanner'
-import { categorizeEntries, matchesCategory, OTHER_INCOME_CATEGORY_OPTIONS, RSM_CATEGORY_OPTIONS, toDate, offeringPaymentMode } from './income/incomeCategorize'
+import { categorizeEntries, matchesCategory, OTHER_INCOME_CATEGORY_OPTIONS, RSM_CATEGORY_OPTIONS, toDate, offeringPaymentMode, ONLINE_MODE, isOnlineEntry } from './income/incomeCategorize'
 import IncomeSummaryTable from './income/IncomeSummaryTable'
 import OfferingMatrixTable from './income/OfferingMatrixTable'
 import CategoryListTable from './income/CategoryListTable'
@@ -15,7 +15,7 @@ import PasteReviewDialog from './income/PasteReviewDialog'
 import { IncomeSectionCard, IncomeSectionModal } from './income/IncomeSectionCard'
 import CashCountPanel from './income/CashCountPanel'
 import { cellOps, mergeOps, fmtAmount } from './income/gridUtils'
-import { CASH_SERVICES, serviceTotal, sundaysOfMonth } from '../../utils/cashCount'
+import { CASH_SERVICES, serviceTotal, sundaysOfMonth, otherCashLines } from '../../utils/cashCount'
 
 // The list-style Income sections, in page order. `categories[0]` is what new
 // rows and pasted rows are filed under; multi-category sections get a Category column.
@@ -246,10 +246,27 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
       if (now && now !== counted) changes.push(`${s.category}: ₹${fmtAmount(now)} → ₹${fmtAmount(counted)}`)
       mergeOps(ops, cellOps(cell, iso, s.category, counted))
     })
+    // Other cash lines (tithe envelopes, …): one Cash entry each, tagged with
+    // cashCountLine so re-confirming after a correction updates instead of duplicating.
+    const lineKey = l => `${iso}/${l.id}`
+    const lines = otherCashLines(count)
+    const keys = new Set(lines.map(lineKey))
+    const tagged = entriesRef.current.filter(e => String(e.cashCountLine || '').startsWith(`${iso}/`))
+    lines.forEach(l => {
+      const existing = tagged.find(e => e.cashCountLine === lineKey(l))
+      const fields = { category: l.category, giverName: l.name || '', amount: Number(l.amount) || 0 }
+      if (!existing) {
+        mergeOps(ops, { creates: [{ date: iso, ...fields, towards: '', paymentMode: 'Cash', cashCountLine: lineKey(l) }] })
+        return
+      }
+      const data = Object.fromEntries(Object.entries(fields).filter(([k, v]) => entryField(existing, k) !== v))
+      if (Object.keys(data).length) mergeOps(ops, { updates: [{ id: existing.id, data }] })
+    })
+    mergeOps(ops, { deletes: tagged.filter(e => !keys.has(e.cashCountLine)).map(e => e.id) })
     if (changes.length && !window.confirm(`This replaces amounts already entered for ${day}:\n\n${changes.join('\n')}\n\nPost the cash count?`)) return
     setCashBusy(iso)
     try {
-      const ok = await applyOps('offering', ops, { label: `Offering: cash count for ${day} posted — Ctrl+Z to undo` })
+      const ok = await applyOps('offering', ops, { label: `Cash count for ${day} posted — Ctrl+Z to undo` })
       if (ok) await confirmOfferingCashCount(iso, userProfile?.name || user?.email || '')
     } catch (err) {
       console.error('confirmCashCount', err)
@@ -462,18 +479,24 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
                 </section>
               </div>
             )
-            : LIST_SECTIONS.filter(s => s.key === openSection).map(s => (
-              <CategoryListTable
-                key={`${s.key}-${monthKey}`}
-                title={s.title}
-                accent={s.accent}
-                entries={categorized[s.key]}
-                categoryOptions={s.categories}
-                customCategory={!!s.customCategory}
-                towardsColumn={!!s.towards}
-                {...gridProps(s.key)}
-              />
-            ))}
+            : LIST_SECTIONS.filter(s => s.key === openSection).map(s => {
+              // Cash (cash, cheque, other — and entries with no mode yet) above Online.
+              const online = categorized[s.key].filter(isOnlineEntry)
+              const cash = categorized[s.key].filter(e => !isOnlineEntry(e))
+              const shared = { accent: s.accent, categoryOptions: s.categories, customCategory: !!s.customCategory, towardsColumn: !!s.towards, ...gridProps(s.key) }
+              return (
+                <div key={s.key} className="space-y-6">
+                  <section className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Cash · Cheque · Other</h4>
+                    <CategoryListTable key={`${s.key}-cash-${monthKey}`} title={`${s.title} — Cash`} entries={cash} defaultPaymentMode="Cash" {...shared} />
+                  </section>
+                  <section className="space-y-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Online (UPI / Bank)</h4>
+                    <CategoryListTable key={`${s.key}-online-${monthKey}`} title={`${s.title} — Online`} entries={online} defaultPaymentMode={ONLINE_MODE} {...shared} />
+                  </section>
+                </div>
+              )
+            })}
         </IncomeSectionModal>
       )}
     </div>
