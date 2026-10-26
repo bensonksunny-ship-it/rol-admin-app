@@ -47,9 +47,20 @@ export function totalAttendanceFromCellReport(r) {
  * document *existing* for a cell/week is not the same thing as that cell having
  * actually submitted a report. Any compliance/tracking check that does `Boolean(hit)`
  * on a report lookup is liable to this false positive; check this instead.
+ *
+ * Attendance taps on the Cell Report page also write straight to the doc, so content
+ * alone only means "draft". From the week of CELL_REPORT_SUBMIT_STAMP_SINCE on, a
+ * report counts only once the leader formally saves it (Save / End Cell Meeting /
+ * ending the live meeting / the edit sheet stamp `submittedAt`). Older reports, from
+ * before that stamp existed, keep the content rule.
  */
+export const CELL_REPORT_SUBMIT_STAMP_SINCE = '2026-10-25'
+
 export function isRealCellReportSubmission(r) {
   if (!r) return false
+  if (r.submittedAt || r.meetingFinalizedAt) return true
+  const date = String(r.reportDate || r.meetingDateISO || '').slice(0, 10)
+  if (!date || date >= CELL_REPORT_SUBMIT_STAMP_SINCE) return false
   if (totalAttendanceFromCellReport(r) > 0) return true
   if (r.startTime && r.endTime) {
     const m = computeDurationMinutes(r.startTime, r.endTime)

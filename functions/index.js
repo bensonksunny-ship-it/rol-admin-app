@@ -623,6 +623,8 @@ exports.archiveCurrentWeekCellReportsToHistory = onSchedule(
         totalAttendance,
         meetingDurationMinutes,
         programList,
+        // The leader's formal save — the app counts a week as submitted only with it.
+        submittedAt: reportData.submittedAt || reportData.meetingFinalizedAt || null,
         archivedAt: admin.firestore.FieldValue.serverTimestamp(),
       })
 

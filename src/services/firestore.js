@@ -3057,6 +3057,7 @@ export async function getCellReportByCellAndDate(cellId, reportDate, altCellId) 
       endTime: data.endTime || '',
       attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
       meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
+      submittedAt: data.submittedAt ? toDate(data.submittedAt) : null,
       createdBy: data.createdBy || '',
       createdAt: toDate(data.createdAt),
     }
@@ -3105,6 +3106,7 @@ export async function getCellReportsByCell(cellId) {
       endTime: data.endTime || '',
       attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
       meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
+      submittedAt: data.submittedAt ? toDate(data.submittedAt) : null,
       createdBy: data.createdBy || '',
       createdAt: toDate(data.createdAt),
     }
@@ -3136,6 +3138,7 @@ export async function getLatestCellReports(limitCount = 30) {
       endTime: data.endTime || '',
       attendanceFinalizedAt: data.attendanceFinalizedAt ? toDate(data.attendanceFinalizedAt) : null,
       meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
+      submittedAt: data.submittedAt ? toDate(data.submittedAt) : null,
       createdBy: data.createdBy || '',
       createdAt: toDate(data.createdAt),
     }
@@ -3160,6 +3163,8 @@ export function subscribeLatestCellReports(limitCount, onChange, onError) {
         reportDate: data.reportDate || '',
         startTime: data.startTime || '',
         endTime: data.endTime || '',
+        meetingFinalizedAt: data.meetingFinalizedAt ? toDate(data.meetingFinalizedAt) : null,
+        submittedAt: data.submittedAt ? toDate(data.submittedAt) : null,
       }
     }))
   }, (err) => {
@@ -3243,6 +3248,9 @@ export async function updateCellReport(reportId, data) {
     endTime: data.endTime !== undefined ? String(data.endTime || '') : undefined,
     attendanceFinalizedAt: data.attendanceFinalized === true ? serverTimestamp() : undefined,
     meetingFinalizedAt: data.meetingFinalized === true ? serverTimestamp() : undefined,
+    // The leader's formal Save / End Meeting — what makes the week "Submitted"
+    // (see isRealCellReportSubmission). Attendance taps alone only draft.
+    submittedAt: data.submitted === true ? serverTimestamp() : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
   if (Object.keys(clean).length) await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), clean)
@@ -5597,6 +5605,8 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
     children: childNames.length,
     childrenList: childNames,
     awayNames: Array.isArray(awayNames) ? awayNames.filter(Boolean) : [],
+    // Ending the live meeting is a formal submission.
+    submittedAt: serverTimestamp(),
   })
 }
 
@@ -5651,13 +5661,15 @@ export async function updateCellReportFull(row, { attendees, segmentTimings, she
   }
   const reportId = report.id
 
-  // 2. Update counts + meeting timing on cell_reports doc
+  // 2. Update counts + meeting timing on cell_reports doc (saving the full report
+  //    is a formal submission)
   await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), {
     membersAttended: attendees.length,
     visitors: Number(visitors) || 0,
     children: Number(children) || 0,
     startTime: startTime || '',
     endTime: endTime || '',
+    submittedAt: serverTimestamp(),
   })
 
   // 3. Reconcile attendees subcollection

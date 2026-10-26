@@ -14,6 +14,7 @@ import {
   deleteCellReportFull,
 } from '../services/firestore'
 import { isCellLeaderInPositions } from '../utils/cellReportPermissions'
+import { CELL_REPORT_SUBMIT_STAMP_SINCE } from '../utils/cellWeek'
 import { getDepartmentRole } from '../utils/access'
 import { formatDisplayDate, formatDMYTime, computeDurationMinutes, formatMeetingTimeRange, formatTime12h, addMinutesToTime } from '../utils/date'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -112,7 +113,13 @@ function getInitials(name) {
 // cell_report_history without checking for real content, so a doc existing is not
 // the same thing as a leader having actually submitted a report. Treat a row as a
 // real submission only if it carries some actual recorded content.
+// Same rule as isRealCellReportSubmission: from CELL_REPORT_SUBMIT_STAMP_SINCE on, only
+// a formal save (submittedAt) counts — attendance taps alone are a draft. Archives
+// written before the archive job copied submittedAt (no such key) keep the content rule.
 function isRealSubmission(row) {
+  if (row.submittedAt || row.meetingFinalizedAt) return true
+  const stampKnown = !row._archived || 'submittedAt' in row
+  if (stampKnown && String(row.meetingDateISO || '').slice(0, 10) >= CELL_REPORT_SUBMIT_STAMP_SINCE) return false
   return (
     (Number(row.totalAttendance) || 0) > 0 ||
     (effectiveDurationMinutes(row) || 0) > 0
@@ -483,6 +490,7 @@ export default function CellHistory({ embedded = false }) {
                 createdAt: r.createdAt || null,
                 attendanceFinalizedAt: r.attendanceFinalizedAt || null,
                 meetingFinalizedAt: r.meetingFinalizedAt || null,
+                submittedAt: r.submittedAt || null,
                 _archived: false,
               }
             })

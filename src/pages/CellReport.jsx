@@ -34,6 +34,7 @@ import {
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole } from '../utils/access'
 import { canEditCellReport } from '../utils/cellReportPermissions'
+import { isRealCellReportSubmission } from '../utils/cellWeek'
 import { calcTenureLabel } from '../utils/cellMemberCategory'
 import { computeDurationMinutes, formatMeetingTimeRange } from '../utils/date'
 import BackButton from '../components/BackButton'
@@ -494,7 +495,7 @@ export default function CellReport() {
             report: reportForWeek,
             expectedDate,
             total,
-            submitted: Boolean(reportForWeek),
+            submitted: isRealCellReportSubmission(reportForWeek),
           },
         ]
       })
@@ -720,6 +721,7 @@ export default function CellReport() {
     setSaving(true)
     try {
       await updateCellReport(report.id, {
+        submitted: true,
         visitors: Number(report.visitors) || 0,
         children: Number(report.children) || 0,
       })
@@ -1276,6 +1278,7 @@ export default function CellReport() {
                                                   try {
                                                     setSaving(true)
                                                     await updateCellReport(report.id, {
+                                                      submitted: true,
                                                       membersAttended: attendees.length,
                                                       visitors: (report.visitorsList || []).length,
                                                       children: (report.childrenList || []).length,
@@ -1363,7 +1366,7 @@ export default function CellReport() {
                                                 <div className="px-4 py-3 border-t border-slate-100 flex items-center gap-3">
                                                   <span className="text-sm font-medium text-emerald-700">✓ All programs recorded</span>
                                                   {canEditTimer && (
-                                                    <button type="button" onClick={async () => { if (!report) return; try { setSaving(true); await updateCellReport(report.id, { meetingFinalized: true, membersAttended: attendees.length, visitors: (report.visitorsList || []).length, children: (report.childrenList || []).length, startTime: report.startTime || '', endTime: report.endTime || '' }); await refreshReportAndAttendees(); setCellReportUpdatedMsg('Cell report is updated'); window.setTimeout(() => setCellReportUpdatedMsg(''), 2500) } catch (e) { alert('Failed to end meeting') } finally { setSaving(false) } }} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700">End Cell Meeting</button>
+                                                    <button type="button" onClick={async () => { if (!report) return; try { setSaving(true); await updateCellReport(report.id, { meetingFinalized: true, submitted: true, membersAttended: attendees.length, visitors: (report.visitorsList || []).length, children: (report.childrenList || []).length, startTime: report.startTime || '', endTime: report.endTime || '' }); await refreshReportAndAttendees(); setCellReportUpdatedMsg('Cell report is updated'); window.setTimeout(() => setCellReportUpdatedMsg(''), 2500) } catch (e) { alert('Failed to end meeting') } finally { setSaving(false) } }} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700">End Cell Meeting</button>
                                                   )}
                                                 </div>
                                               )}
@@ -1438,7 +1441,7 @@ export default function CellReport() {
                 <span className="font-medium">Report Date:</span> <span className="font-mono">{reportDate || '—'}</span>
               </span>
               {(() => {
-                const submitted = Boolean(report)
+                const submitted = isRealCellReportSubmission(report)
                 const todayISO = format(new Date(), 'yyyy-MM-dd')
                 const isOverdue = !submitted && reportDate && reportDate < todayISO
                 const statusLabel = submitted ? 'Submitted' : isOverdue ? 'Overdue' : 'Pending'
@@ -1514,7 +1517,7 @@ export default function CellReport() {
                           </td>
                           <td className="px-3 py-2">
                             {(() => {
-                              const submitted = Boolean(report)
+                              const submitted = isRealCellReportSubmission(report)
                               const todayISO = format(new Date(), 'yyyy-MM-dd')
                               const isOverdue = !submitted && reportDate && reportDate < todayISO
                               const statusLabel = submitted ? 'Submitted' : isOverdue ? 'Overdue' : 'Pending'
@@ -1797,6 +1800,7 @@ export default function CellReport() {
                                               try {
                                                 setSaving(true)
                                                 await updateCellReport(report.id, {
+                                                  submitted: true,
                                                   membersAttended: attendees.length,
                                                   visitors: (report.visitorsList || []).length,
                                                   children: (report.childrenList || []).length,
@@ -1976,7 +1980,7 @@ export default function CellReport() {
                               try {
                                 setSaving(true)
                                 await updateCellReport(report.id, {
-                                  meetingFinalized: true,
+                                  meetingFinalized: true, submitted: true,
                                   membersAttended: attendees.length,
                                   visitors: (report.visitorsList || []).length,
                                   children: (report.childrenList || []).length,
