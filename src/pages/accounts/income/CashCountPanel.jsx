@@ -1,8 +1,9 @@
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { format, parseISO } from 'date-fns'
-import { Banknote, CheckCircle2, RotateCcw } from 'lucide-react'
+import { Banknote, CheckCircle2, RotateCcw, X } from 'lucide-react'
 import { CASH_SERVICES, CASH_DENOMINATIONS, serviceTotal, countTotal } from '../../../utils/cashCount'
-import { SUNDAY_CASH_COUNT_PATH } from '../../../utils/accountsEntryAccess'
+import SundayCashCount from '../../../components/finance/SundayCashCount'
 import { matchesCategory, toDate } from './incomeCategorize'
 import { fmtAmount } from './gridUtils'
 
@@ -11,6 +12,7 @@ import { fmtAmount } from './gridUtils'
 // date. "Confirm" posts the count as English / Tamil Offering income
 // (IncomePage.confirmCashCount); a confirmed count can be reopened for correction.
 export default function CashCountPanel({ counts, sundays, entries, busyIso, onConfirm, onReopen }) {
+  const [countOpen, setCountOpen] = useState(false)
   const byIso = new Map(counts.map(c => [c.date, c]))
   const isos = [...new Set([...sundays, ...counts.map(c => c.date)])].sort()
   const posted = (iso, category) => entries
@@ -26,7 +28,7 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
           <h3 className="text-sm font-semibold text-slate-700">Sunday cash counts</h3>
           {pending > 0 && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">{pending} to confirm</span>}
         </div>
-        <Link to={SUNDAY_CASH_COUNT_PATH} className="text-[11px] font-semibold text-emerald-700 hover:underline shrink-0">Open count page</Link>
+        <button type="button" onClick={() => setCountOpen(true)} className="text-[11px] font-semibold text-emerald-700 hover:underline shrink-0">Open count page</button>
       </div>
       <table className="w-full text-xs">
         <thead>
@@ -87,6 +89,34 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
           })}
         </tbody>
       </table>
+      {countOpen && <CashCountWindow sundays={sundays} onClose={() => setCountOpen(false)} />}
     </div>
+  )
+}
+
+// The Sunday Cash Count screen in a window over the Offering popup, offering this
+// month's Sundays (most recent past one selected). Esc / ✕ / outside click closes it.
+function CashCountWindow({ sundays, onClose }) {
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const choices = [...sundays].sort().reverse()
+  const initialIso = choices.find(s => s <= today) || choices[choices.length - 1]
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); onClose() } }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+  return createPortal(
+    <div data-cash-count-window className="fixed inset-0 z-[950] flex bg-slate-900/50 p-0 sm:p-3" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div role="dialog" aria-modal="true" aria-label="Sunday Cash Count"
+        className="relative w-full max-w-4xl mx-auto h-full overflow-auto sm:rounded-2xl bg-slate-50 shadow-2xl p-4 sm:p-6">
+        <button type="button" onClick={onClose} aria-label="Close"
+          className="absolute top-3 right-3 w-9 h-9 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-200">
+          <X size={18} />
+        </button>
+        {/* Right padding keeps the Sunday picker clear of the close button. */}
+        <div className="pr-10"><SundayCashCount sundays={choices} initialIso={initialIso} /></div>
+      </div>
+    </div>,
+    document.body
   )
 }
