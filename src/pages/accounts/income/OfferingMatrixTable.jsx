@@ -44,6 +44,9 @@ function mergeOps(into, ops) {
 // Offering as a flat Date × English / Tamil / Online grid — one row per date
 // (every Sunday of the month, plus any other date that has offerings). Every
 // cell is editable in place and saves when left (IncomePage.applyOps).
+// Roomy cells: the table opens in a full-page popup with space to spare.
+const CELL_PAD = 'px-4 py-3'
+
 export default function OfferingMatrixTable({ entries, activeMonth, saveState, onApply, onPastePlan, onError }) {
   const [extras, setExtras] = useState([]) // [{ key, iso }] — "Add row" rows; kept at the end this session
   const [live, setLive] = useState(null) // { iso, category, amount } — the cell being typed in
@@ -246,10 +249,10 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
         <table className="w-full text-xs border-collapse table-fixed min-w-[32rem]">
           <thead>
             <tr className="bg-slate-50 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-              <th className="px-2 py-1.5 border-b border-slate-200 w-32">Date</th>
-              {COLUMNS.map(col => <th key={col.key} className="px-2 py-1.5 border-b border-slate-200 text-right">{col.label}</th>)}
-              <th className="px-2 py-1.5 border-b border-slate-200 text-right">Row Total</th>
-              <th className="w-7 border-b border-slate-200" aria-label="Actions" />
+              <th className="px-4 py-3 border-b border-slate-200 w-40">Date</th>
+              {COLUMNS.map(col => <th key={col.key} className="px-4 py-3 border-b border-slate-200 text-right">{col.label}</th>)}
+              <th className="px-4 py-3 border-b border-slate-200 text-right">Row Total</th>
+              <th className="w-10 border-b border-slate-200" aria-label="Actions" />
             </tr>
           </thead>
           <tbody>
@@ -268,6 +271,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
                       // date with offerings stays put. Only a newly added row, before
                       // anything is entered on it, takes a typed date.
                       readOnly={!row.extra || hasEntries}
+                      padClass={CELL_PAD}
                       onCommit={text => commitDate(row, text)}
                     />
                   </td>
@@ -285,6 +289,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
                           value={amount ? String(amount) : ''}
                           display={amount ? fmtAmount(amount) : ''}
                           placeholder="–"
+                          padClass={CELL_PAD}
                           className="font-medium"
                           onLiveChange={text => setLive(text == null ? null : {
                             iso: row.iso,
@@ -296,7 +301,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
                       </td>
                     )
                   })}
-                  <td className="px-2 py-1.5 text-right font-semibold tabular-nums text-slate-700 border-r border-slate-100">
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-700 border-r border-slate-100">
                     {row.iso ? `₹${fmtAmount(rowTotal(row.iso))}` : ''}
                   </td>
                   <td className="p-0 text-center">
@@ -306,7 +311,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
                         tabIndex={-1}
                         onClick={() => deleteRow(row)}
                         aria-label={`Delete Offering row ${r + 1}`}
-                        className="p-1 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
+                        className="p-1.5 rounded text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
                       >
                         <Trash2 size={13} />
                       </button>
@@ -318,11 +323,11 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
           </tbody>
           <tfoot>
             <tr className={styles.header}>
-              <td className="px-2 py-1.5 font-semibold text-slate-600 border-t-2 border-slate-200">Total</td>
+              <td className="px-4 py-3 font-semibold text-slate-600 border-t-2 border-slate-200">Total</td>
               {columnTotals.map((t, i) => (
-                <td key={COLUMNS[i].key} className={`px-2 py-1.5 text-right font-bold tabular-nums border-t-2 border-slate-200 ${styles.text}`}>₹{fmtAmount(t)}</td>
+                <td key={COLUMNS[i].key} className={`px-4 py-3 text-right font-bold tabular-nums border-t-2 border-slate-200 ${styles.text}`}>₹{fmtAmount(t)}</td>
               ))}
-              <td className={`px-2 py-1.5 text-right font-bold tabular-nums border-t-2 border-slate-200 ${styles.text}`}>₹{fmtAmount(grandTotal)}</td>
+              <td className={`px-4 py-3 text-right font-bold tabular-nums border-t-2 border-slate-200 ${styles.text}`}>₹{fmtAmount(grandTotal)}</td>
               <td className="border-t-2 border-slate-200" />
             </tr>
           </tfoot>
