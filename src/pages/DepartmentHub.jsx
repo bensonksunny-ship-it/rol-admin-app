@@ -7137,18 +7137,30 @@ export default function DepartmentHub() {
             // skipped rather than counted as absent.
             // `sinceISO` (optional) stops the count at Sundays before that date — e.g.
             // before the person first visited, when they couldn't have been absent.
+            // Every name and ID one PCS entry can appear under on a Sunday sheet. The
+            // sheet's cell lists hold the cell ROSTER name (e.g. "Priya"), which often
+            // differs from the PCS name ("Priya Thomas") — matching the PCS name alone
+            // made a cell member who came every week look absent every week.
+            const sundayKeysFor = (entry) => {
+              const cm = findPcsCellMember(entry, allCellMembers)
+              const names = [...new Set([entry?.name, cm?.name]
+                .map(n => String(n || '').trim().toLowerCase()).filter(Boolean))]
+              const ids = [entry?.visitorId, cm?.visitorId].filter(Boolean).map(v => `v:${v}`)
+              return { names, ids }
+            }
+            const presentOnWeek = (keys, wk) =>
+              keys.ids.some(k => wk.ids?.has(k)) || keys.names.some(n => wk.names.has(n))
+
             const getConsecutiveAbsentSundays = (entry, sinceISO = '') => {
-              const norm = String(entry?.name || '').trim().toLowerCase()
-              const idKey = entry?.visitorId ? `v:${entry.visitorId}` : null
-              if ((!norm && !idKey) || sundayAttendanceWeeks.length === 0) return 0
+              const keys = sundayKeysFor(entry)
+              if ((!keys.names.length && !keys.ids.length) || sundayAttendanceWeeks.length === 0) return 0
               let count = 0
               for (const wk of sundayAttendanceWeeks) {
                 if (sinceISO && wk.date && wk.date < sinceISO) break
-                const present = (idKey && wk.ids?.has(idKey)) || (norm && wk.names.has(norm))
-                if (present) break
+                if (presentOnWeek(keys, wk)) break
                 // Away that Sunday (marked on the sheet, or inside a PCS Away period) —
                 // the week is skipped: the streak freezes rather than grows or resets.
-                if ((norm && wk.awayNames?.has(norm)) || isProfileAwayOn(entry, wk.date)) continue
+                if (keys.names.some(n => wk.awayNames?.has(n)) || isProfileAwayOn(entry, wk.date)) continue
                 count++
               }
               return count
@@ -7237,9 +7249,8 @@ export default function DepartmentHub() {
             // name) and their last cell meeting present (their cell's last 12 reports).
             // null when neither has a record, so the Away form falls back to today.
             const suggestAwayStart = (entry) => {
-              const norm = String(entry?.name || '').trim().toLowerCase()
-              const idKey = entry?.visitorId ? `v:${entry.visitorId}` : null
-              const lastSunday = sundayAttendanceWeeks.find(wk => (idKey && wk.ids?.has(idKey)) || (norm && wk.names.has(norm)))?.date || ''
+              const sundayKeys = sundayKeysFor(entry)
+              const lastSunday = sundayAttendanceWeeks.find(wk => presentOnWeek(sundayKeys, wk))?.date || ''
               const cm = findPcsCellMember(entry, allCellMembers)
               const names = [entry?.name, cm?.name].map(n => String(n || '').trim().toLowerCase()).filter(Boolean)
               const lastCell = ((cm && pcsCellReportsByCellId.get(cm.cellId)) || [])
