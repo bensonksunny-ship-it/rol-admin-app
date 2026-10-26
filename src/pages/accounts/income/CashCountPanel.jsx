@@ -66,6 +66,9 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
                 <td className="px-4 py-3 text-right">
                   {!c ? (
                     <span className="text-[11px] text-slate-400">Not counted yet</span>
+                  ) : !countTotal(c) && !confirmed ? (
+                    // A ₹0 count has nothing to post.
+                    <span className="text-[11px] text-slate-400">Nothing counted</span>
                   ) : confirmed ? (
                     <span className="inline-flex items-center gap-1.5">
                       <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700" title={c.confirmedBy ? `Confirmed by ${c.confirmedBy}` : 'Confirmed'}>
