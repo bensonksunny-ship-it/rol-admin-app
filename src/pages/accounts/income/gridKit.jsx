@@ -71,8 +71,9 @@ export function GridCell({
 }
 
 // Same keyboard contract for a <select> cell (multi-category sections).
-export function GridSelect({ r, c, value, options, onCommit, disabled = false, ariaLabel, padClass = 'px-2 py-1.5' }) {
-  const opts = !value || options.includes(value) ? options : [value, ...options]
+// labels: optional { value: text } for options shown differently (e.g. '' → '—').
+export function GridSelect({ r, c, value, options, labels = {}, onCommit, disabled = false, ariaLabel, padClass = 'px-2 py-1.5' }) {
+  const opts = options.includes(value) || (!value && !options.includes('')) ? options : [value, ...options]
   return (
     <select
       data-r={r}
@@ -83,7 +84,7 @@ export function GridSelect({ r, c, value, options, onCommit, disabled = false, a
       onChange={e => onCommit(e.target.value)}
       className={`${gridInputClass} ${padClass} cursor-pointer`}
     >
-      {opts.map(o => <option key={o} value={o}>{o}</option>)}
+      {opts.map(o => <option key={o} value={o}>{labels[o] ?? o}</option>)}
     </select>
   )
 }

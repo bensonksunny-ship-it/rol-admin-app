@@ -1688,7 +1688,7 @@ export async function applyFinanceIncomeOps({ creates = [], updates = [], delete
           payload.date = Timestamp.fromDate(new Date(y, m - 1, d))
         }
         if (w.data.amount != null) payload.amount = Number(w.data.amount) || 0
-        ;['giverName', 'towards', 'category'].forEach((k) => {
+        ;['giverName', 'towards', 'category', 'paymentMode'].forEach((k) => {
           if (w.data[k] != null) payload[k] = String(w.data[k]).trim()
         })
         batch.update(doc(db, 'finance_income', w.id), payload)

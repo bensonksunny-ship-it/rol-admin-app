@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { Trash2 } from 'lucide-react'
-import { ACCENT_STYLES, toDate, isOtherIncomeCategory } from './incomeCategorize'
+import { ACCENT_STYLES, toDate, isOtherIncomeCategory, PAYMENT_MODES, parsePaymentMode } from './incomeCategorize'
 import { parseIncomePaste } from './incomePaste'
 import { GridCell, GridSelect, SaveStatus } from './gridKit'
 import { handleGridKeyDown, readGridPaste, parseCellDate, parseCellAmount, isoInMonth, isoToDisplay, fmtAmount } from './gridUtils'
@@ -21,7 +21,7 @@ function dupKey(iso, category, amount, name) {
 }
 
 // One Income section (Tithe, Contribution, RSM, …) in its card layout: Date |
-// [Category] | Name | [Towards] | Amount, with blank rows underneath. Every cell
+// [Category] | Name | [Towards] | Amount | Mode, with blank rows underneath. Every cell
 // is editable in place and saves when left (IncomePage.applyOps).
 //
 // Paste (Ctrl+V): click anywhere in the card — or a blank row — and paste rows
@@ -49,9 +49,12 @@ export default function CategoryListTable({
     { key: 'giverName', label: 'Name' },
     towardsColumn && { key: 'towards', label: 'Towards' },
     { key: 'amount', label: 'Amount', width: 'w-32', align: 'right' },
+    // Last, so an Excel block pasted as Name | Amount still lines up as before.
+    { key: 'paymentMode', label: 'Payment Mode', width: 'w-40' },
   ].filter(Boolean)
+  const amountCol = cols.findIndex(c => c.key === 'amount')
 
-  const blankValues = { date: '', category: categoryOptions[0], giverName: '', towards: '', amount: '' }
+  const blankValues = { date: '', category: categoryOptions[0], giverName: '', towards: '', amount: '', paymentMode: '' }
   const nextRowId = useRef(BLANK_ROWS)
   // Rows under the entries that aren't saved yet: blank ones plus any typed into
   // but still without an amount. A row keeps its key from blank → typed → saved
@@ -59,7 +62,7 @@ export default function CategoryListTable({
   const [drafts, setDrafts] = useState(() => Array.from({ length: BLANK_ROWS }, (_, i) => ({ ...blankValues, key: `draft-${i}` })))
   const [live, setLive] = useState(null) // { key, amount } — the amount cell being typed in
 
-  const isBlank = v => !v.date && !v.giverName && !v.towards && v.amount === ''
+  const isBlank = v => !v.date && !v.giverName && !v.towards && v.amount === '' && !v.paymentMode
   // Keeps BLANK_ROWS empty rows at the bottom.
   function topUp(list) {
     let trailing = 0
@@ -80,6 +83,7 @@ export default function CategoryListTable({
         giverName: e.giverName || '',
         towards: e.towards || '',
         amount: String(Number(e.amount) || 0),
+        paymentMode: e.paymentMode || '',
       },
     })),
     ...drafts.map(d => ({ key: d.key, entry: null, blank: isBlank(d), values: d })),
@@ -128,6 +132,10 @@ export default function CategoryListTable({
       if (customCategory && t && isOtherIncomeCategory(t)) return { value: t }
       return { error: `"${t}" isn't a ${title} category.` }
     }
+    if (key === 'paymentMode') {
+      const mode = parsePaymentMode(text)
+      return mode == null ? { error: `"${text.trim()}" isn't a payment mode — use ${PAYMENT_MODES.join(', ')}.` } : { value: mode }
+    }
     return { value: text.trim() }
   }
 
@@ -139,6 +147,7 @@ export default function CategoryListTable({
       giverName: String(values.giverName || '').trim(),
       towards: towardsColumn ? String(values.towards || '').trim() : '',
       amount: Number(values.amount) || 0,
+      paymentMode: values.paymentMode || '',
     }
   }
 
@@ -332,6 +341,22 @@ export default function CategoryListTable({
               <tr key={row.key} className="group bg-white hover:bg-slate-50 transition-colors">
                 {cols.map((col, c) => {
                   const cellLabel = `${title} row ${r + 1} ${col.label}`
+                  if (col.key === 'paymentMode') {
+                    return (
+                      <td key={col.key} className="p-0">
+                        <GridSelect
+                          r={r}
+                          c={c}
+                          padClass={CELL_PAD}
+                          ariaLabel={cellLabel}
+                          value={row.values.paymentMode}
+                          options={['', ...PAYMENT_MODES]}
+                          labels={{ '': row.blank ? '' : '— Select —' }}
+                          onCommit={v => commitCell(row, 'paymentMode', v)}
+                        />
+                      </td>
+                    )
+                  }
                   if (col.key === 'category') {
                     return (
                       <td key={col.key} className="p-0">
@@ -390,9 +415,9 @@ export default function CategoryListTable({
           </tbody>
           <tfoot>
             <tr className={`border-t-2 border-slate-200 ${styles.header}`}>
-              <td className="px-4 py-2.5 font-semibold text-slate-600" colSpan={cols.length - 1}>Total</td>
+              <td className="px-4 py-2.5 font-semibold text-slate-600" colSpan={amountCol}>Total</td>
               <td className={`px-4 py-2.5 text-right font-bold tabular-nums ${styles.text}`}>₹{fmtAmount(total)}</td>
-              <td />
+              <td colSpan={cols.length - amountCol} />
             </tr>
           </tfoot>
         </table>

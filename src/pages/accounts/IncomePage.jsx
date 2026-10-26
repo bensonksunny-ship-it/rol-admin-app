@@ -7,11 +7,12 @@ import { getFinanceIncome, applyFinanceIncomeOps } from '../../services/firestor
 import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
 import { unlockDocId } from '../../utils/financeEntryLock'
 import FinanceMonthLockBanner from '../../components/finance/FinanceMonthLockBanner'
-import { categorizeEntries, matchesCategory, OTHER_INCOME_CATEGORY_OPTIONS, RSM_CATEGORY_OPTIONS, toDate } from './income/incomeCategorize'
+import { categorizeEntries, matchesCategory, OTHER_INCOME_CATEGORY_OPTIONS, RSM_CATEGORY_OPTIONS, toDate, offeringPaymentMode } from './income/incomeCategorize'
 import IncomeSummaryTable from './income/IncomeSummaryTable'
 import OfferingMatrixTable from './income/OfferingMatrixTable'
 import CategoryListTable from './income/CategoryListTable'
 import PasteReviewDialog from './income/PasteReviewDialog'
+import { IncomeSectionCard, IncomeSectionModal } from './income/IncomeSectionCard'
 
 // The list-style Income sections, in page order. `categories[0]` is what new
 // rows and pasted rows are filed under; multi-category sections get a Category column.
@@ -23,6 +24,15 @@ const LIST_SECTIONS = [
   { key: 'otherIncome', title: 'Other Income', accent: 'rose', categories: OTHER_INCOME_CATEGORY_OPTIONS, towards: true, customCategory: true },
   { key: 'rsm', title: 'RSM', accent: 'cyan', categories: RSM_CATEGORY_OPTIONS },
 ]
+
+const sumOf = list => list.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+
+// Card breakdown by payment mode — only once some entries record one.
+function modeBreakdown(list) {
+  const by = new Map()
+  list.forEach(e => { if (e.paymentMode) by.set(e.paymentMode, (by.get(e.paymentMode) || 0) + (Number(e.amount) || 0)) })
+  return [...by].map(([label, amount]) => ({ label: label.replace(' (UPI/Bank)', ''), amount }))
+}
 
 const SECTION_TITLES = { offering: 'Offering', ...Object.fromEntries(LIST_SECTIONS.map(s => [s.key, s.title])) }
 
@@ -67,6 +77,8 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
   // apparently already entered) plus lines that couldn't be read.
   // { section, ops, rows: [], invalid: [] }
   const [pasteReview, setPasteReview] = useState(null)
+  // The section whose editing table is open in the popup ('offering' or a LIST_SECTIONS key).
+  const [openSection, setOpenSection] = useState(null)
 
   const entriesRef = useRef(entries)
   entriesRef.current = entries
@@ -145,6 +157,7 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
     const stamp = Date.now()
     const temps = (ops.creates || []).map((c, i) => {
       const { _key, ...payload } = c
+      if (section === 'offering' && !payload.paymentMode) payload.paymentMode = offeringPaymentMode(payload.category)
       return { key: _key || `tmp-${stamp}-${i}`, payload }
     })
 
@@ -347,23 +360,52 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
 
       <IncomeSummaryTable entries={entries} />
 
-      {/* Keyed by month so grid-local state (unsaved new rows, row order) starts fresh. */}
-      <OfferingMatrixTable key={`offering-${monthKey}`} entries={offeringEntries} {...gridProps('offering')} />
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* View-only summary cards; clicking one opens its table in a popup for entry. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <IncomeSectionCard
+          title="Offering"
+          accent="emerald"
+          entries={offeringEntries}
+          breakdown={[
+            { label: 'English', amount: sumOf(categorized.englishOffering) },
+            { label: 'Tamil', amount: sumOf(categorized.tamilOffering) },
+            { label: 'Online', amount: sumOf(categorized.onlineOffering) },
+          ]}
+          saveState={gridProps('offering').saveState}
+          onOpen={() => setOpenSection('offering')}
+        />
         {LIST_SECTIONS.map(s => (
-          <CategoryListTable
-            key={`${s.key}-${monthKey}`}
+          <IncomeSectionCard
+            key={s.key}
             title={s.title}
             accent={s.accent}
             entries={categorized[s.key]}
-            categoryOptions={s.categories}
-            customCategory={!!s.customCategory}
-            towardsColumn={!!s.towards}
-            {...gridProps(s.key)}
+            breakdown={modeBreakdown(categorized[s.key])}
+            saveState={gridProps(s.key).saveState}
+            onOpen={() => setOpenSection(s.key)}
           />
         ))}
       </div>
+
+      {openSection && (
+        <IncomeSectionModal title={SECTION_TITLES[openSection]} monthLabel={format(activeMonth, 'MMMM yyyy')} onClose={() => setOpenSection(null)}>
+          {/* Keyed by month so grid-local state (unsaved new rows, row order) starts fresh. */}
+          {openSection === 'offering'
+            ? <OfferingMatrixTable key={`offering-${monthKey}`} entries={offeringEntries} {...gridProps('offering')} />
+            : LIST_SECTIONS.filter(s => s.key === openSection).map(s => (
+              <CategoryListTable
+                key={`${s.key}-${monthKey}`}
+                title={s.title}
+                accent={s.accent}
+                entries={categorized[s.key]}
+                categoryOptions={s.categories}
+                customCategory={!!s.customCategory}
+                towardsColumn={!!s.towards}
+                {...gridProps(s.key)}
+              />
+            ))}
+        </IncomeSectionModal>
+      )}
     </div>
   )
 }

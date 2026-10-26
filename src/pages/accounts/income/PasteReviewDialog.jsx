@@ -47,7 +47,7 @@ export default function PasteReviewDialog({ title, activeMonth, rows, invalid, o
   const describe = r => [r.name, r.category ? r.category.replace(' Offering', '') : ''].filter(Boolean).join(' · ')
 
   return createPortal(
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4">
+    <div data-paste-review className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/40 px-4">
       <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-5 space-y-3 max-h-[85vh] flex flex-col">
         <p className="text-sm font-semibold text-amber-700">⚠ {title}: some pasted rows need a look</p>
 

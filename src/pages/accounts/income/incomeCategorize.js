@@ -19,6 +19,26 @@ export const OFFERING_CATEGORY_OPTIONS = ['Online Offering', 'English Offering',
 export const RSM_CATEGORY_OPTIONS = ['RSM', 'RSM Salary', 'RFF']
 export const OTHER_INCOME_CATEGORY_OPTIONS = ['Missions', 'Donations']
 
+// How an income entry was received (finance_income.paymentMode; '' = not recorded).
+export const PAYMENT_MODES = ['Cash', 'Online (UPI/Bank)', 'Cheque', 'Other']
+
+// Typed / pasted text → a PAYMENT_MODES value ('' for blank), or null if unreadable.
+export function parsePaymentMode(text) {
+  const t = String(text ?? '').trim().toLowerCase()
+  if (!t || t === '—' || t === '-') return ''
+  const exact = PAYMENT_MODES.find(m => m.toLowerCase() === t)
+  if (exact) return exact
+  if (/^cash/.test(t)) return 'Cash'
+  if (/online|upi|bank|neft|imps|rtgs|gpay|phonepe|paytm|transfer|card/.test(t)) return 'Online (UPI/Bank)'
+  if (/^(cheque|check|chq|dd)\b/.test(t)) return 'Cheque'
+  if (/^other/.test(t)) return 'Other'
+  return null
+}
+
+// Offering cells carry no mode of their own: the Online column is online, the
+// English / Tamil service collections are cash.
+export const offeringPaymentMode = (category) => (category === 'Online Offering' ? 'Online (UPI/Bank)' : 'Cash')
+
 // Per-category color accent, shared by IncomeSummaryTable, OfferingMatrixTable,
 // and CategoryListTable so a category reads as the same color everywhere it
 // appears on the page. Full class strings (not interpolated) so Tailwind's
