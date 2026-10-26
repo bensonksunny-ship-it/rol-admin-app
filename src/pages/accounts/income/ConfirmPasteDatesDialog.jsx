@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { addDays, endOfMonth, format, parseISO } from 'date-fns'
 import { CalendarDays } from 'lucide-react'
 import { isoInMonth, fmtAmount } from './gridUtils'
+import DateInput from '../../../components/DateInput'
 
 const FREQUENCIES = [
   { key: 'weekly', label: 'Weekly', days: 7 },
@@ -82,7 +83,7 @@ export default function ConfirmPasteDatesDialog({ activeMonth, columns, sundays,
           <span className="text-[11px] text-slate-400 px-1 self-center">or</span>
           <label className="text-[11px] text-slate-500">
             Start
-            <input type="date" value={start} onChange={e => setStart(e.target.value)}
+            <DateInput value={start} onChange={e => setStart(e.target.value)}
               className="block mt-0.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs" />
           </label>
           <label className="text-[11px] text-slate-500">
@@ -122,8 +123,7 @@ export default function ConfirmPasteDatesDialog({ activeMonth, columns, sundays,
                         aria-label="Include this line" className="accent-emerald-600" />
                     </td>
                     <td className="px-2 py-1">
-                      <input
-                        type="date"
+                      <DateInput
                         min={minDate}
                         max={maxDate}
                         value={r.iso}

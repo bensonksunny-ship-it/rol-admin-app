@@ -12,8 +12,8 @@ import {
   getWorshipTeamMembers,
   addWorshipTeamMember,
   updateWorshipTeamMember,
-  addPerson,
 } from '../../services/firestore'
+import DateInput from '../../components/DateInput'
 
 const DEPARTMENT = 'Worship'
 
@@ -76,7 +76,7 @@ function Field({ label, hint, children }) {
 }
 
 function TextInput(props) {
-  return <input {...props} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" />
+  return <DateInput {...props} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" />
 }
 
 function TextArea(props) {
@@ -1212,7 +1212,8 @@ function linkedDirectoryIds(app) {
  * "Approve & Add to Worship Team": pick the roles they will serve in (pre-ticked
  * from their Musical & Technical Profile). No directory lookup happens here: an
  * application already linked to a People Directory record shows it locked, and
- * one that isn't gets matched or created when Approve is clicked (handleApprove).
+ * one that isn't gets matched when Approve is clicked (handleApprove) — or, with no
+ * match, approval is blocked until they're registered through D-Light Visitor Entry.
  */
 function ApproveToTeamModal({ app, onClose, onConfirm }) {
   const [positions, setPositions] = useState(() => (app.primaryInstruments || []).filter((p) => INSTRUMENT_OPTIONS.includes(p)))
@@ -1282,7 +1283,7 @@ function ApproveToTeamModal({ app, onClose, onConfirm }) {
 
           <label className="block">
             <span className="block text-xs font-semibold text-slate-600 mb-1">Member since</span>
-            <input type="date" value={memberSince} onChange={(e) => setMemberSince(e.target.value)} className="h-10 px-3 rounded-lg border border-slate-300 text-sm" />
+            <DateInput value={memberSince} onChange={(e) => setMemberSince(e.target.value)} className="h-10 px-3 rounded-lg border border-slate-300 text-sm" />
           </label>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
@@ -1606,7 +1607,6 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
   const [viewing, setViewing] = useState(null)
   const [screeningApp, setScreeningApp] = useState(null)
   const [approvingApp, setApprovingApp] = useState(null)
-  const createdPersonIds = useRef({})
   const [approvedNote, setApprovedNote] = useState('')
 
   useEffect(() => { load() }, [])
@@ -1656,9 +1656,9 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
   // shows on the Worship page's blue notification ribbon ("New worship team
   // member added") for the department's directors.
   // People Directory link, resolved here rather than when the modal opens: the
-  // application's own linked id wins; otherwise match by phone, then exact name;
-  // otherwise (no match, or the lookup failed) create the record from the
-  // application's details so the team member is always linked to someone.
+  // application's own linked id wins; otherwise match by phone, then exact name.
+  // No match means they aren't in the directory yet — visitor-first rule: they must
+  // be registered through D-Light Visitor Entry before they can join the team.
   async function resolveDirectoryLink(app) {
     const linked = linkedDirectoryIds(app)
     if (linked.personId || linked.visitorId) return { ...linked, name: app.fullName.trim() }
@@ -1670,7 +1670,7 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
         return { personId: match.personId || '', visitorId: match._visitorIds?.[0] || '', name: directoryEntryName(match) || app.fullName.trim() }
       }
     } catch (e) {
-      console.warn('People Directory lookup failed; creating a new record instead', e)
+      console.warn('People Directory lookup failed', e)
     }
     return null
   }
@@ -1679,26 +1679,12 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
     const app = approvingApp
     const by = userProfile?.email || userProfile?.name || ''
     const person = await resolveDirectoryLink(app)
-    // Reuse a record this session already created for the app, so a retry after a
-    // later step failed doesn't add the same person twice.
-    let createdPersonId = person ? '' : (createdPersonIds.current[app.id] || '')
-    if (!person && !createdPersonId) {
-      createdPersonId = await addPerson({
-        name: app.fullName.trim(),
-        phone: app.phone || '',
-        email: app.email || '',
-        dob: app.dob || '',
-        currentPlace: app.currentPlace || '',
-        nativity: app.comingFrom || '',
-        ministries: ['Worship'],
-        createdSource: 'worship_application',
-      }, by)
-      if (!createdPersonId) throw new Error('Could not create their People Directory record.')
-      createdPersonIds.current[app.id] = createdPersonId
+    if (!person) {
+      throw new Error(`${app.fullName.trim()} isn't in the People Directory yet. Register them through D-Light Visitor Entry first, then approve.`)
     }
-    const name = person?.name || app.fullName.trim()
-    const visitorId = person?.visitorId || ''
-    const personId = person?.personId || createdPersonId
+    const name = person.name || app.fullName.trim()
+    const visitorId = person.visitorId || ''
+    const personId = person.personId || ''
     const team = await getWorshipTeamMembers(DEPARTMENT)
     const existing = team.find((m) => (personId && m.personId === personId) || (visitorId && m.visitorId === visitorId) || lower(m.name) === lower(name))
     let teamMemberId

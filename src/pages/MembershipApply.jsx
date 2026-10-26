@@ -20,6 +20,7 @@ import LegalNameInputGroup from '../components/LegalNameInputGroup'
 import FamilyDetailsSection from '../components/FamilyDetailsSection'
 import { initialFamilyState, familyPayload } from '../utils/familyDetails'
 import { LEGAL_NAME_KEYS, legalFullName, legalNamePayload, isLegalNameComplete, splitName } from '../utils/legalName'
+import DateInput from '../components/DateInput'
 
 const fmtDate = (d) => {
   if (!d) return ''
@@ -288,7 +289,7 @@ export default function MembershipApply() {
       )
     }
     if (f.multiline) return <textarea rows={3} value={answers[f.key] || ''} onChange={(e) => setAnswer(f.key, e.target.value)} className={`${cls} resize-none`} />
-    return <input type={f.type || 'text'} value={answers[f.key] || ''} onChange={(e) => setAnswer(f.key, e.target.value)} className={cls} />
+    return <DateInput type={f.type || 'text'} value={answers[f.key] || ''} onChange={(e) => setAnswer(f.key, e.target.value)} className={cls} />
   }
 
   const sectionTitle = (text, color = 'text-blue-700 border-blue-700') => (

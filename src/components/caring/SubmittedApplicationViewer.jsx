@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom'
 import { APPLICATION_TYPES, applicationStatus, eventForApplication } from '../../utils/pastoralApplications'
+import { isoToDMY } from '../../utils/date'
 
 const fmtStamp = (d) => {
   const dt = d instanceof Date ? d : d ? new Date(d) : null
@@ -31,7 +32,7 @@ export default function SubmittedApplicationViewer({ type, app, events, onClose,
             <span className={`font-bold px-2.5 py-0.5 rounded-full border ${status.cls}`}>{status.label}</span>
             {app.formId && <span className="font-bold text-slate-700 border border-slate-300 rounded-md px-2 py-0.5">{app.formId}</span>}
             <span className="text-slate-500">Submitted {fmtStamp(app.submittedAt) || '—'}</span>
-            {ev && <span className="text-slate-500">· Event: {ev.batchCode || ev.title || ev.type} ({ev.date})</span>}
+            {ev && <span className="text-slate-500">· Event: {ev.batchCode || ev.title || ev.type} ({isoToDMY(ev.date)})</span>}
           </div>
 
           {app.photoDataUrl && <img src={app.photoDataUrl} alt="Applicant" className="w-24 h-28 object-cover rounded-lg border border-slate-200" />}

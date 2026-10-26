@@ -33,6 +33,7 @@ import {
 import { formatDisplayDate, formatTime12h, addMinutesToTime, formatCountdown } from '../../utils/date'
 import { DEPARTMENT_LIST } from '../../constants/departments'
 import BoardPointsModal from '../../components/BoardPointsModal'
+import DateInput from '../../components/DateInput'
 
 // RFF is deliberately kept off the church-wide department roster (see
 // docs/superpowers/specs/2026-08-26-rff-department-design.md) — Sec-Core
@@ -240,11 +241,11 @@ function MemberForm({ value, onChange, onSubmit, onCancel, submitLabel }) {
       {/* Row 3: From + To */}
       <div className="grid grid-cols-2 gap-3">
         <Field label="From">
-          <input type="date" value={value.from || ''} onChange={e => onChange({ ...value, from: e.target.value })}
+          <DateInput value={value.from || ''} onChange={e => onChange({ ...value, from: e.target.value })}
             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
         </Field>
         <Field label="To" sub="(blank = current)">
-          <input type="date" value={value.to || ''} onChange={e => onChange({ ...value, to: e.target.value })}
+          <DateInput value={value.to || ''} onChange={e => onChange({ ...value, to: e.target.value })}
             className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300" />
         </Field>
       </div>
@@ -1043,8 +1044,7 @@ function ScheduleMeetingModal({ userProfile, initialDate = null, onClose }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">Date</label>
-                <input
-                  type="date"
+                <DateInput
                   value={form.date}
                   onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
@@ -1421,11 +1421,11 @@ function SundayLeaderHistoryModal({ entries, pool, initialLeader = '', onClose }
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">From</label>
-                  <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm" />
+                  <DateInput value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">To</label>
-                  <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm" />
+                  <DateInput value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-sm" />
                 </div>
               </div>
 

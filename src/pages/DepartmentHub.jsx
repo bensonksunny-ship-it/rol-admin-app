@@ -178,7 +178,7 @@ import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
 import { isPreServiceLeaderInPositions } from '../utils/sundayMinistryAccess'
 import { differenceInDays, differenceInCalendarDays, differenceInYears, differenceInMonths, format, startOfMonth, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
-import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate, formatTimestampFull, formatRelativeTime, formatShortDate, calculateTenure } from '../utils/date'
+import { formatDMY, parseDateToYYYYMMDD, formatDisplayDate, formatTimestampFull, formatRelativeTime, formatShortDate, calculateTenure, isoToDMY } from '../utils/date'
 import { ENGAGEMENT_TYPES, normalizeEngagementType, engagementLabel, isCellOnly, isSundayOnly, findPcsCellMember, computeCellHealth, countConsecutiveCellAbsences, REMOVAL_ABSENCE_THRESHOLD, CELL_HEALTH_REPORT_COUNT, CELL_HEALTH_BADGE_CLS } from '../utils/pcsEngagement'
 import { isCurrentlyAway, isProfileAwayOn, awaySummary, awayReturnHistoryLabel, AWAY_BADGE_CLS } from '../utils/awayStatus'
 import PcsAwayControl from '../components/caring/PcsAwayControl'
@@ -221,6 +221,7 @@ import UpcomingSunday from './UpcomingSunday'
 import { DirectorBoardPage, SundayLeaderTab, SecCoreAnalyticsHub } from './seccore/SecCoreSummary'
 import SundayPrepTracker from '../components/SundayPrepTracker'
 import BackButton from '../components/BackButton'
+import DateInput from '../components/DateInput'
 
 async function mergeTasksEntriesTeam(canonicalName) {
   const alt = LEGACY_DEPARTMENT_NAMES[canonicalName] || []
@@ -2725,8 +2726,7 @@ export default function DepartmentHub() {
         {unknown ? (
           formerDatePromptId === m.id ? (
             <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
-              <input
-                type="date"
+              <DateInput
                 value={formerDateDraft}
                 onChange={(e) => setFormerDateDraft(e.target.value)}
                 className="text-xs px-1.5 py-1 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-200"
@@ -4336,7 +4336,7 @@ export default function DepartmentHub() {
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-slate-800 text-sm truncate">{p.visitorName}</p>
                           {p.phone && <p className="text-xs text-slate-500">{p.phone}</p>}
-                          <p className="text-xs text-slate-400 mt-0.5">{p.cellName || p.cellId} · {p.reportDate}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{p.cellName || p.cellId} · {isoToDMY(p.reportDate)}</p>
                         </div>
                         <div className="flex gap-2 flex-shrink-0">
                           <button
@@ -4480,8 +4480,7 @@ export default function DepartmentHub() {
               {canEditDelightVisitors && (
                 <div className="px-5 py-3 border-b border-slate-100 bg-indigo-50/30 flex flex-wrap items-center gap-2">
                   <label className="text-xs font-medium text-slate-600">Sunday Worship attendance for</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={visitorAttendanceDate}
                     onChange={(e) => {
                       const val = e.target.value
@@ -4504,7 +4503,7 @@ export default function DepartmentHub() {
                   />
                   {visitorAttendanceDateWarning && (
                     <p className="text-xs text-amber-600 font-medium w-full">
-                      ⚠ Sunday Ministry attendance only exists per-Sunday — snapped to the nearest Sunday ({visitorAttendanceDate}).
+                      ⚠ Sunday Ministry attendance only exists per-Sunday — snapped to the nearest Sunday ({isoToDMY(visitorAttendanceDate)}).
                     </p>
                   )}
                 </div>
@@ -4856,7 +4855,7 @@ export default function DepartmentHub() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">DOB</label>
-                    <input type="date" value={caringMemberForm.dob} onChange={(e) => setCaringMemberForm((f) => ({ ...f, dob: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                    <DateInput value={caringMemberForm.dob} onChange={(e) => setCaringMemberForm((f) => ({ ...f, dob: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
@@ -4881,7 +4880,7 @@ export default function DepartmentHub() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">First Sunday</label>
-                      <input type="date" value={caringMemberForm.firstSunday} onChange={(e) => setCaringMemberForm((f) => ({ ...f, firstSunday: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                      <DateInput value={caringMemberForm.firstSunday} onChange={(e) => setCaringMemberForm((f) => ({ ...f, firstSunday: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Cell Name</label>
@@ -5373,8 +5372,7 @@ export default function DepartmentHub() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Week start (Sunday)</label>
-                          <input
-                            type="date"
+                          <DateInput
                             value={btbForm.fromDate}
                             onChange={(e) => {
                               const v = e.target.value
@@ -5390,7 +5388,7 @@ export default function DepartmentHub() {
                         </div>
                         <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Week end (Sunday)</label>
-                          <input type="date" value={btbForm.toDate} readOnly className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50" />
+                          <DateInput value={btbForm.toDate} readOnly className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-slate-50" />
                         </div>
                       </div>
                       <div>
@@ -5542,8 +5540,7 @@ export default function DepartmentHub() {
                         </div>
                         <div>
                           <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide mb-1">Meeting Date</label>
-                          <input
-                            type="date"
+                          <DateInput
                             value={boardPointForm.meetingDate}
                             onChange={e => setBoardPointForm(f => ({ ...f, meetingDate: e.target.value }))}
                             className="w-full px-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
@@ -5831,8 +5828,7 @@ export default function DepartmentHub() {
                       {format(new Date(d), 'dd/MM/yyyy')}
                     </button>
                   ))}
-                  <input
-                    type="date"
+                  <DateInput
                     value={delightAssignDate}
                     onChange={(e) => {
                       const val = e.target.value
@@ -6295,8 +6291,7 @@ export default function DepartmentHub() {
                               {format(new Date(d), 'dd/MM/yyyy')}
                             </button>
                           ))}
-                          <input
-                            type="date"
+                          <DateInput
                             value={mediaAssignDate}
                             onChange={(e) => { if (e.target.value) setMediaAssignDate(mediaSnapToSunday(e.target.value)) }}
                             className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"
@@ -7493,7 +7488,7 @@ export default function DepartmentHub() {
               const fld = (label, key, type = 'text', placeholder = '') => (
                 <div className="space-y-0.5">
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">{label}</p>
-                  <input type={type} placeholder={placeholder} value={f[key] || ''} onChange={e => setF(p => ({ ...p, [key]: e.target.value }))} className={inp} />
+                  <DateInput type={type} placeholder={placeholder} value={f[key] || ''} onChange={e => setF(p => ({ ...p, [key]: e.target.value }))} className={inp} />
                 </div>
               )
               const ctx = pcsExpandedContext
@@ -8635,7 +8630,7 @@ export default function DepartmentHub() {
                         </div>
                         <div className="space-y-0.5">
                           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">First Visit Date</p>
-                          <input type="date" value={f.attendedDate || ''} onChange={e => { const val = e.target.value; const yr = val ? new Date(val).getFullYear() : null; setF(p => ({ ...p, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) })) }} className={inp} />
+                          <DateInput value={f.attendedDate || ''} onChange={e => { const val = e.target.value; const yr = val ? new Date(val).getFullYear() : null; setF(p => ({ ...p, attendedDate: val, ...(yr && yr >= VISITOR_START_YEAR ? { year: yr } : {}) })) }} className={inp} />
                         </div>
                         <div className="space-y-0.5">
                           <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Year</p>
@@ -8899,7 +8894,7 @@ export default function DepartmentHub() {
                                 </div>
                                 <div>
                                   <label className={lbl} htmlFor={`child-dob-${child.id}`}>Date of birth</label>
-                                  <input id={`child-dob-${child.id}`} type="date" value={child.dob || ''} onChange={e => updateChildRow(child.id, { dob: e.target.value })} className={fi} />
+                                  <DateInput id={`child-dob-${child.id}`} value={child.dob || ''} onChange={e => updateChildRow(child.id, { dob: e.target.value })} className={fi} />
                                 </div>
                                 <div>
                                   <label className={lbl} htmlFor={`child-gender-${child.id}`}>Gender</label>
@@ -9301,8 +9296,12 @@ export default function DepartmentHub() {
                             let resolvedPersonId = personId
                             if (resolvedPersonId) {
                               await updatePerson(resolvedPersonId, personData, userProfile?.email || '')
+                            } else if (entry.visitorId) {
+                              resolvedPersonId = await addPerson({ ...personData, visitorId: entry.visitorId }, userProfile?.email || '')
                             } else {
-                              resolvedPersonId = await addPerson(personData, userProfile?.email || '')
+                              // Legacy PCS entry with no D-Light visitor record: the visitor-first
+                              // rule forbids creating a People record for it, so only PCS is saved.
+                              resolvedPersonId = ''
                             }
 
                             await updatePCSEntry(entry.id, { name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear, ministries: ministries || [], personId: resolvedPersonId, engagementType, displayName: displayName || '', howKnownRefId: howKnownRefId || '' })
@@ -9715,7 +9714,7 @@ export default function DepartmentHub() {
                   name: v.name || rec.name, phone: v.phone || rec.phone, email: v.email || '',
                   dob: v.dob || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '',
                   firstVisitDate: v.attendedDate, serviceAttended: v.serviceAttended || '',
-                  howKnown: v.howKnown || '', stage: 'pcs',
+                  howKnown: v.howKnown || '', stage: 'pcs', visitorId: v.id,
                 }, userProfile?.email || '')
                 const realId = await addPCSEntry({ visitorId: v.id, personId, name: v.name || rec.name, phone: v.phone || rec.phone, attendedDate: v.attendedDate, year: v.year || new Date().getFullYear(), addedBy: userProfile?.email || 'unknown' })
                 if (realId) setPcsEntries(prev => prev.some(e => e.id === realId) ? prev.filter(e => e.id !== tempId) : prev.map(e => e.id === tempId ? { ...e, id: realId, personId } : e))
@@ -9961,7 +9960,7 @@ export default function DepartmentHub() {
                         name: v.name, phone: v.phone, email: v.email || '',
                         dob: v.dob || '', nativity: v.nativity || '', currentPlace: v.currentPlace || '',
                         firstVisitDate: v.attendedDate, serviceAttended: v.serviceAttended || '',
-                        howKnown: v.howKnown || '', stage: 'pcs',
+                        howKnown: v.howKnown || '', stage: 'pcs', visitorId: v.id,
                       }, userProfile?.email || '')
                         .then(personId =>
                           addPCSEntry({ visitorId: v.id, personId, name: v.name, phone: v.phone, attendedDate: v.attendedDate, year: v.year, addedBy: userProfile?.email || 'unknown' })
@@ -11768,8 +11767,7 @@ export default function DepartmentHub() {
                         <label className="block text-sm font-semibold text-slate-700 mb-2">
                           Member Since
                         </label>
-                        <input
-                          type="date"
+                        <DateInput
                           value={memberForm.memberSince}
                           onChange={(e) => setMemberForm((f) => ({ ...f, memberSince: e.target.value }))}
                           className="w-full py-2.5 px-3 rounded-lg border border-slate-200 bg-slate-50 text-base text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300 transition-colors"
@@ -11917,7 +11915,7 @@ export default function DepartmentHub() {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-slate-600 mb-1">Date of Birth</label>
-                        <input type="date" value={rkChildForm.dob} onChange={e => setRkChildForm(p => ({ ...p, dob: e.target.value }))}
+                        <DateInput value={rkChildForm.dob} onChange={e => setRkChildForm(p => ({ ...p, dob: e.target.value }))}
                           className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                       </div>
                       <div>
@@ -11962,20 +11960,20 @@ export default function DepartmentHub() {
                         return (
                           <div className="col-span-2">
                             <label className="block text-xs font-medium text-slate-600 mb-1">Joined Date</label>
-                            <input type="date" value={rkChildForm.joinedDate} onChange={e => setRkChildForm(p => ({ ...p, joinedDate: e.target.value }))}
+                            <DateInput value={rkChildForm.joinedDate} onChange={e => setRkChildForm(p => ({ ...p, joinedDate: e.target.value }))}
                               className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                             {(fatherDate || motherDate) && (
                               <div className="flex flex-wrap gap-1.5 mt-1.5">
                                 {fatherDate && (
                                   <button type="button" onClick={() => setRkChildForm(p => ({ ...p, joinedDate: fatherDate }))}
                                     className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-medium">
-                                    👨 Father joined {fatherDate}
+                                    👨 Father joined {isoToDMY(fatherDate)}
                                   </button>
                                 )}
                                 {motherDate && (
                                   <button type="button" onClick={() => setRkChildForm(p => ({ ...p, joinedDate: motherDate }))}
                                     className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-medium">
-                                    👩 Mother joined {motherDate}
+                                    👩 Mother joined {isoToDMY(motherDate)}
                                   </button>
                                 )}
                               </div>
@@ -12110,7 +12108,7 @@ export default function DepartmentHub() {
                                   {c.dob && (
                                     <div className="flex items-center gap-2 text-xs text-slate-500">
                                       <span className="font-medium text-slate-400">DOB</span>
-                                      <span>{c.dob}</span>
+                                      <span>{isoToDMY(c.dob)}</span>
                                     </div>
                                   )}
                                   {(c.fatherName || c.motherName) && (
@@ -12153,7 +12151,7 @@ export default function DepartmentHub() {
                                     {(() => {
                                       const effectiveDate = c.joinedVia === 'born' ? c.dob : c.joinedDate
                                       return effectiveDate
-                                        ? <span className="text-[10px] text-slate-400">Joined: {effectiveDate}</span>
+                                        ? <span className="text-[10px] text-slate-400">Joined: {isoToDMY(effectiveDate)}</span>
                                         : null
                                     })()}
                                   </div>
@@ -12185,7 +12183,7 @@ export default function DepartmentHub() {
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Date of Birth</label>
-                        <input type="date" value={rkEditChild.dob || ''} onChange={e => setRkEditChild(p => ({ ...p, dob: e.target.value }))}
+                        <DateInput value={rkEditChild.dob || ''} onChange={e => setRkEditChild(p => ({ ...p, dob: e.target.value }))}
                           className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                       </div>
                       <div>
@@ -12230,20 +12228,20 @@ export default function DepartmentHub() {
                         return (
                           <div>
                             <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Joined Date</label>
-                            <input type="date" value={rkEditChild.joinedDate || ''} onChange={e => setRkEditChild(p => ({ ...p, joinedDate: e.target.value }))}
+                            <DateInput value={rkEditChild.joinedDate || ''} onChange={e => setRkEditChild(p => ({ ...p, joinedDate: e.target.value }))}
                               className="w-full px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                             {(fatherDate || motherDate) && (
                               <div className="flex flex-wrap gap-1.5 mt-1.5">
                                 {fatherDate && (
                                   <button type="button" onClick={() => setRkEditChild(p => ({ ...p, joinedDate: fatherDate }))}
                                     className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-medium">
-                                    👨 Father joined {fatherDate}
+                                    👨 Father joined {isoToDMY(fatherDate)}
                                   </button>
                                 )}
                                 {motherDate && (
                                   <button type="button" onClick={() => setRkEditChild(p => ({ ...p, joinedDate: motherDate }))}
                                     className="text-[11px] px-2 py-1 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 font-medium">
-                                    👩 Mother joined {motherDate}
+                                    👩 Mother joined {isoToDMY(motherDate)}
                                   </button>
                                 )}
                               </div>
@@ -12377,8 +12375,7 @@ export default function DepartmentHub() {
                       >
                         ‹
                       </button>
-                      <input
-                        type="date"
+                      <DateInput
                         value={rkDate}
                         // All three groups (Sunday + Saturday services) now share one date
                         // picker, so it's a plain free-pick date — no weekday snapping.
@@ -14000,7 +13997,7 @@ export default function DepartmentHub() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Launch Date</label>
-                    <input type="date" value={newCellGroupForm.launchDate} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, launchDate: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                    <DateInput value={newCellGroupForm.launchDate} onChange={(e) => setNewCellGroupForm((f) => ({ ...f, launchDate: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Status</label>
@@ -14068,7 +14065,7 @@ export default function DepartmentHub() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Launch Date</label>
-                    <input type="date" value={cellGroupEditForm.launchDate} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, launchDate: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                    <DateInput value={cellGroupEditForm.launchDate} onChange={(e) => setCellGroupEditForm((f) => ({ ...f, launchDate: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Status</label>
@@ -14622,7 +14619,7 @@ export default function DepartmentHub() {
                               ].map(({ label, key, type = 'text' }) => (
                                 <div key={key}>
                                   <label className="block text-xs font-medium text-emerald-700 dark:text-emerald-300 mb-1">{label}</label>
-                                  <input
+                                  <DateInput
                                     type={type}
                                     value={cellMemberLinkedVisitorForm[key] || ''}
                                     onChange={e => setCellMemberLinkedVisitorForm(f => ({ ...f, [key]: e.target.value }))}
@@ -14638,11 +14635,11 @@ export default function DepartmentHub() {
 
                       <div>
                         <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Birthday</label>
-                        <input type="date" value={cellMemberForm.birthday} onChange={(e) => setCellMemberForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                        <DateInput value={cellMemberForm.birthday} onChange={(e) => setCellMemberForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Anniversary (optional)</label>
-                        <input type="date" value={cellMemberForm.anniversary} onChange={(e) => setCellMemberForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                        <DateInput value={cellMemberForm.anniversary} onChange={(e) => setCellMemberForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Phone Number</label>
@@ -14654,7 +14651,7 @@ export default function DepartmentHub() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Since (first visit / started attending)</label>
-                        <input type="date" value={cellMemberForm.since} onChange={(e) => setCellMemberForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                        <DateInput value={cellMemberForm.since} onChange={(e) => setCellMemberForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">Status</label>
@@ -14674,7 +14671,7 @@ export default function DepartmentHub() {
                           <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                               <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1">Baptism Date</label>
-                              <input type="date" value={cellMemberForm.baptismDate} onChange={e => setCellMemberForm(f => ({ ...f, baptismDate: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500" />
+                              <DateInput value={cellMemberForm.baptismDate} onChange={e => setCellMemberForm(f => ({ ...f, baptismDate: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500" />
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1">Baptism Place</label>
@@ -14682,7 +14679,7 @@ export default function DepartmentHub() {
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1">Marriage Date</label>
-                              <input type="date" value={cellMemberForm.marriageDate} onChange={e => setCellMemberForm(f => ({ ...f, marriageDate: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500" />
+                              <DateInput value={cellMemberForm.marriageDate} onChange={e => setCellMemberForm(f => ({ ...f, marriageDate: e.target.value }))} className="w-full px-2.5 py-1.5 rounded-lg border border-violet-200 dark:border-violet-800 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500" />
                             </div>
                             <div>
                               <label className="block text-xs font-medium text-violet-700 dark:text-violet-300 mb-1">Spouse Name</label>
@@ -14886,7 +14883,7 @@ export default function DepartmentHub() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-900 dark:text-white mb-1">Expected Date</label>
-                    <input type="date" value={budgetForm.expectedDate} onChange={(e) => setBudgetForm((f) => ({ ...f, expectedDate: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+                    <DateInput value={budgetForm.expectedDate} onChange={(e) => setBudgetForm((f) => ({ ...f, expectedDate: e.target.value }))} className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
                   </div>
                   <div className="flex gap-2 pt-2">
                     <button type="submit" className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm">{editingBudgetId ? 'Update' : 'Add row'}</button>
@@ -14951,8 +14948,7 @@ export default function DepartmentHub() {
                     <label className="block text-sm font-medium text-slate-900 dark:text-white mb-1">
                       Date
                     </label>
-                    <input
-                      type="date"
+                    <DateInput
                       value={updateForm.date}
                       onChange={(e) =>
                         setUpdateForm((f) => ({ ...f, date: e.target.value }))
@@ -15145,7 +15141,7 @@ export default function DepartmentHub() {
           return (
             <div key={field.key}>
               {labelEl}
-              <input type={field.type} placeholder={field.placeholder || ''} value={ff[field.key] || ''} onChange={e => setFf(p => ({ ...p, [field.key]: e.target.value }))} className={inputCls} />
+              <DateInput type={field.type} placeholder={field.placeholder || ''} value={ff[field.key] || ''} onChange={e => setFf(p => ({ ...p, [field.key]: e.target.value }))} className={inputCls} />
             </div>
           )
         }
@@ -15433,7 +15429,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
   const field = (label, key, type = 'text') => (
     <div>
       <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{label}</label>
-      <input
+      <DateInput
         type={type}
         value={form[key]}
         onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
@@ -15539,8 +15535,7 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 {field('Date of Birth', 'dob', 'date')}
                 <div>
                   <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Date Attended</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={form.attendedDate}
                     onChange={e => {
                       const val = e.target.value
@@ -15772,7 +15767,7 @@ function CellMemberLinkModal({ member, cellId, onLink, onClose }) {
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       {v.phone && <span className="text-xs text-slate-400">{v.phone}</span>}
                       {v.year && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">{v.year}</span>}
-                      {v.attendedDate && <span className="text-xs text-slate-400">{v.attendedDate}</span>}
+                      {v.attendedDate && <span className="text-xs text-slate-400">{isoToDMY(v.attendedDate)}</span>}
                     </div>
                   </div>
                   {isCurrentLink
@@ -15906,7 +15901,7 @@ function PCSPickerModal({ addedIds, onAdd, onClose }) {
                       {v.year && (
                         <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">{v.year}</span>
                       )}
-                      {v.attendedDate && <span className="text-xs text-slate-400">{v.attendedDate}</span>}
+                      {v.attendedDate && <span className="text-xs text-slate-400">{isoToDMY(v.attendedDate)}</span>}
                     </div>
                   </div>
                   {added

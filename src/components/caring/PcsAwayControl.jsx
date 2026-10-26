@@ -3,6 +3,7 @@ import { setPCSAwayStatus, completeMinistryRolesForRelocation } from '../../serv
 import { buildAwayPatch, buildReturnPatch, awaySummary, todayISO, AWAY_BADGE_CLS } from '../../utils/awayStatus'
 import { formatDisplayDate } from '../../utils/date'
 import { buildRelocatedPatch, buildUnrelocatePatch, churchTillDate, DEFAULT_STANDING, RELOCATED_BADGE_CLS } from '../../utils/relocation'
+import DateInput from '../DateInput'
 
 /**
  * PCS availability: Active | Away (travel / vacation). Saves straight to the
@@ -133,8 +134,7 @@ export default function PcsAwayControl({ entry, updatedBy, onSaved, canEdit = tr
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <label className="block">
               <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Last Attendance Date</span>
-              <input
-                type="date"
+              <DateInput
                 value={lastDate}
                 onChange={(e) => { setLastDate(e.target.value); if (!tillTouched) setTillDate(e.target.value) }}
                 className={inp}
@@ -149,8 +149,7 @@ export default function PcsAwayControl({ entry, updatedBy, onSaved, canEdit = tr
             <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
               Part of Church Till Date <span className="text-red-500">*</span>
             </span>
-            <input
-              type="date"
+            <DateInput
               required
               value={tillDate}
               onChange={(e) => { setTillDate(e.target.value); setTillTouched(true) }}
@@ -201,11 +200,11 @@ export default function PcsAwayControl({ entry, updatedBy, onSaved, canEdit = tr
           <div className="grid grid-cols-2 gap-2">
             <label className="block">
               <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">From</span>
-              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inp} />
+              <DateInput value={from} onChange={(e) => setFrom(e.target.value)} className={inp} />
             </label>
             <label className="block">
               <span className="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Until (optional)</span>
-              <input type="date" value={until} min={from || undefined} onChange={(e) => setUntil(e.target.value)} className={inp} />
+              <DateInput value={until} min={from || undefined} onChange={(e) => setUntil(e.target.value)} className={inp} />
             </label>
           </div>
           {suggestedFrom ? (

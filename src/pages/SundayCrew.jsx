@@ -15,6 +15,7 @@ import {
   setSundayCrewScheduleByDate,
 } from '../services/firestore'
 import BackButton from '../components/BackButton'
+import DateInput from '../components/DateInput'
 
 function nextSunday() {
   const today = new Date()
@@ -757,8 +758,7 @@ function CrewTab({ canEdit, userProfile }) {
                 {format(new Date(d), 'dd/MM/yyyy')}
               </button>
             ))}
-            <input
-              type="date"
+            <DateInput
               value={assignDate}
               onChange={(e) => { if (e.target.value) setAssignDate(snapToSunday(e.target.value)) }}
               className="px-2 py-1 text-sm rounded-lg border border-slate-300 text-slate-600"

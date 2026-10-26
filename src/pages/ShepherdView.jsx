@@ -1,3 +1,4 @@
+import { isoToDMY } from '../utils/date'
 import { getMemberDisplayName } from '../utils/displayName'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -43,6 +44,7 @@ import { EMPTY_MEMBER_FORM, memberToForm, calcAttendanceDuration } from '../util
 import { ROLES } from '../constants/roles'
 import { useViewAs } from '../context/ViewAsContext'
 import { format } from 'date-fns'
+import DateInput from '../components/DateInput'
 
 function fmt(d) {
   if (!d) return null
@@ -1060,7 +1062,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
             ))}
           </div>
           {sundayDate && (
-            <p className="text-xs text-slate-400 px-1">Sunday pulse: {sundayDate}</p>
+            <p className="text-xs text-slate-400 px-1">Sunday pulse: {isoToDMY(sundayDate)}</p>
           )}
         </div>
       )}
@@ -1263,7 +1265,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                     )}
                     {member.since && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-slate-50 text-slate-500">
-                        Since {member.since}
+                        Since {isoToDMY(member.since)}
                       </span>
                     )}
                   </div>
@@ -2339,7 +2341,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
               <span className="text-lg flex-shrink-0">🔔</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-amber-900">
-                  Cell report reminder{r.expectedDate ? ` — due ${r.expectedDate}` : ''}
+                  Cell report reminder{r.expectedDate ? ` — due ${isoToDMY(r.expectedDate)}` : ''}
                 </p>
                 <p className="text-xs text-amber-700 mt-0.5">
                   {r.sentByName ? `From ${r.sentByName}: ` : ''}Your cell's weekly report hasn't been submitted yet. Please file it as soon as possible.
@@ -2510,18 +2512,18 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
                   <div className="grid grid-cols-2 gap-2.5">
                     <div>
                       <label className="text-xs text-slate-500 font-semibold mb-1 block">Birthday</label>
-                      <input type="date" value={addForm.birthday} onChange={e => setAddForm(f => ({ ...f, birthday: e.target.value }))}
+                      <DateInput value={addForm.birthday} onChange={e => setAddForm(f => ({ ...f, birthday: e.target.value }))}
                         className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                     </div>
                     <div>
                       <label className="text-xs text-slate-500 font-semibold mb-1 block">Anniversary</label>
-                      <input type="date" value={addForm.anniversary} onChange={e => setAddForm(f => ({ ...f, anniversary: e.target.value }))}
+                      <DateInput value={addForm.anniversary} onChange={e => setAddForm(f => ({ ...f, anniversary: e.target.value }))}
                         className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                     </div>
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 font-semibold mb-1 block">Member Since</label>
-                    <input type="date" value={addForm.since} onChange={e => setAddForm(f => ({ ...f, since: e.target.value }))}
+                    <DateInput value={addForm.since} onChange={e => setAddForm(f => ({ ...f, since: e.target.value }))}
                       className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
                   </div>
                   <textarea value={addForm.notes} onChange={e => setAddForm(f => ({ ...f, notes: e.target.value }))} placeholder="Notes (optional)" rows={2}
@@ -2697,7 +2699,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className={lbl}>Date of Birth</label>
-                    <input type="date" value={ff.dob} onChange={e => setFf(p => ({...p, dob: e.target.value}))} className={inp} />
+                    <DateInput value={ff.dob} onChange={e => setFf(p => ({...p, dob: e.target.value}))} className={inp} />
                   </div>
                   <div>
                     <label className={lbl}>Nativity</label>
@@ -2722,7 +2724,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className={lbl}>Baptism Date</label>
-                      <input type="date" value={ff.baptismDate} onChange={e => setFf(p => ({...p, baptismDate: e.target.value}))} className={inp} />
+                      <DateInput value={ff.baptismDate} onChange={e => setFf(p => ({...p, baptismDate: e.target.value}))} className={inp} />
                     </div>
                     <div>
                       <label className={lbl}>Baptism Place</label>
@@ -2761,7 +2763,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className={lbl}>Marriage Date</label>
-                      <input type="date" value={ff.marriageDate} onChange={e => setFf(p => ({...p, marriageDate: e.target.value}))} className={inp} />
+                      <DateInput value={ff.marriageDate} onChange={e => setFf(p => ({...p, marriageDate: e.target.value}))} className={inp} />
                     </div>
                     <div>
                       <label className={lbl}>Spouse Name</label>

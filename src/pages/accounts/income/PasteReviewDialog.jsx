@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { format, endOfMonth } from 'date-fns'
 import { isoInMonth, isoToDisplay } from './gridUtils'
+import DateInput from '../../../components/DateInput'
 
 // Likely intended date for a pasted date that falls outside the month being
 // entered: day and month swapped (05/10 typed as 10/05), else the same day in
@@ -69,8 +70,7 @@ export default function PasteReviewDialog({ title, activeMonth, rows, invalid, o
                         <span className="block text-[11px] text-amber-600">Pasted as {isoToDisplay(r.iso)}</span>
                       </span>
                       <span className="tabular-nums font-medium text-slate-800">₹{Number(r.amount || 0).toLocaleString('en-IN')}</span>
-                      <input
-                        type="date"
+                      <DateInput
                         min={minDate}
                         max={maxDate}
                         value={c.date}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { format } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { createFinanceExpense, getFinanceExpenseByDept, deleteFinanceExpense } from '../../services/firestore'
+import DateInput from '../../components/DateInput'
 
 function today() {
   return format(new Date(), 'yyyy-MM-dd')
@@ -98,8 +99,7 @@ export default function WorshipExpenseTab({ department }) {
               {/* Date */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Date</label>
-                <input
-                  type="date"
+                <DateInput
                   value={form.date}
                   onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
                   className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"

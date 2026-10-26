@@ -10,6 +10,7 @@ import LegalNameInputGroup from '../components/LegalNameInputGroup'
 import FamilyDetailsSection from '../components/FamilyDetailsSection'
 import { initialFamilyState, familyPayload } from '../utils/familyDetails'
 import { legalNamePayload, isLegalNameComplete } from '../utils/legalName'
+import DateInput from '../components/DateInput'
 
 const fmtDate = (d) => {
   if (!d) return ''
@@ -110,7 +111,7 @@ export default function DedicationApply() {
         </select>
       )
     }
-    return <input type={f.type || 'text'} value={answers[f.key] || ''} onChange={(e) => setAnswer(f.key, e.target.value)} className={cls} />
+    return <DateInput type={f.type || 'text'} value={answers[f.key] || ''} onChange={(e) => setAnswer(f.key, e.target.value)} className={cls} />
   }
   const title = (text) => <h2 className="text-[11px] font-extrabold uppercase tracking-[0.15em] text-blue-700 border-b-2 border-blue-700 pb-1">{text}</h2>
 

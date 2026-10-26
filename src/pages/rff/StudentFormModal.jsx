@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
+import DateInput from '../../components/DateInput'
 
 // Add/Edit Student modal, shared by RFFHub.jsx and RFFProgramPage.jsx.
 // See docs/superpowers/specs/2026-08-26-rff-department-design.md.
@@ -89,8 +90,7 @@ export default function StudentFormModal({ initial, programs, onCancel, onSave }
 
           <label className="text-xs font-medium text-slate-500">
             Admission Date
-            <input
-              type="date"
+            <DateInput
               value={form.admissionDate}
               onChange={(e) => set('admissionDate', e.target.value)}
               className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"
@@ -121,8 +121,7 @@ export default function StudentFormModal({ initial, programs, onCancel, onSave }
           {form.feePaid && (
             <label className="col-span-2 text-xs font-medium text-slate-500">
               Fee Paid Date
-              <input
-                type="date"
+              <DateInput
                 value={form.feePaidDate}
                 onChange={(e) => set('feePaidDate', e.target.value)}
                 className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { setPCSDeaconOffice } from '../../services/firestore'
 import { DEACON_STATUSES, deaconStatusOf, deaconSummary, deaconBadgeText } from '../../utils/deaconOffice'
+import DateInput from '../DateInput'
 
 const todayISO = () => {
   const d = new Date()
@@ -111,13 +112,13 @@ export default function DeaconOfficeCard({ entry, canManage, managerName, onSave
             <div className={`grid gap-2 ${form.status === 'Former' ? 'grid-cols-2' : 'grid-cols-1'}`}>
               <label className="block">
                 <span className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">Appointed Date</span>
-                <input type="date" value={form.appointedDate} max={todayISO()} onChange={(e) => setForm((f) => ({ ...f, appointedDate: e.target.value }))} className={inp} />
+                <DateInput value={form.appointedDate} max={todayISO()} onChange={(e) => setForm((f) => ({ ...f, appointedDate: e.target.value }))} className={inp} />
               </label>
               {/* End Date only applies to a Former Deacon */}
               {form.status === 'Former' && (
                 <label className="block">
                   <span className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-0.5">End Date</span>
-                  <input type="date" value={form.endDate} min={form.appointedDate || undefined} max={todayISO()}
+                  <DateInput value={form.endDate} min={form.appointedDate || undefined} max={todayISO()}
                     onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} className={inp} />
                 </label>
               )}

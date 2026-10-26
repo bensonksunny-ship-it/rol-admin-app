@@ -1,3 +1,4 @@
+import { isoToDMY } from '../../utils/date'
 import { useState, useEffect } from 'react'
 import { Plus } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
@@ -12,6 +13,7 @@ import {
 } from '../../services/firestore'
 import FinanceModal from '../../components/finance/FinanceModal'
 import StatusBadge from '../../components/finance/StatusBadge'
+import DateInput from '../../components/DateInput'
 
 const BUDGET_TYPES = ['Recurring', 'One-time', 'Capital']
 const EMPTY_FORM = {
@@ -258,7 +260,7 @@ export default function BudgetPage({ department } = {}) {
                     </span>
                   )}
                   {item.expectedDate && (
-                    <span className="text-[10px] text-slate-400">{item.expectedDate}</span>
+                    <span className="text-[10px] text-slate-400">{isoToDMY(item.expectedDate)}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-3 mt-2.5 flex-wrap">
@@ -404,8 +406,7 @@ export default function BudgetPage({ department } = {}) {
 
             <div className="flex flex-col gap-1">
               <label className="text-xs font-medium text-slate-500">Expected Date</label>
-              <input
-                type="date"
+              <DateInput
                 value={form.expectedDate}
                 onChange={e => setForm(f => ({ ...f, expectedDate: e.target.value }))}
                 className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"

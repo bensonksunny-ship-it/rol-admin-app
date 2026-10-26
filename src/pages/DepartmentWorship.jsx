@@ -35,7 +35,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, ReferenceLine, Cell } from 'recharts'
 import { format, subMonths, subDays, addDays, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
-import { formatDMY } from '../utils/date'
+import { formatDMY, isoToDMY } from '../utils/date'
 import { isWorshipLeader, hasWorshipRoleAccess, getAllowedWorshipTabs } from '../utils/worshipAccess'
 import { getDepartmentRole } from '../utils/access'
 import useSeniorPastor from '../hooks/useSeniorPastor'
@@ -50,6 +50,7 @@ import SongDesigner from './worship/SongDesigner'
 import SongViewer from './worship/SongViewer'
 import WorshipApplications from './worship/WorshipApplications'
 import BackButton from '../components/BackButton'
+import DateInput from '../components/DateInput'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -2419,8 +2420,7 @@ export default function DepartmentWorship() {
                 {format(new Date(d), 'dd/MM/yyyy')}
               </button>
             ))}
-            <input
-              type="date"
+            <DateInput
               value={selectedDate}
               // Service dates are Sunday-only — min anchored to a known Sunday with
               // step=7 makes Chromium's calendar UI grey out every non-Sunday day;
@@ -2708,8 +2708,7 @@ export default function DepartmentWorship() {
                         {format(new Date(d), 'dd/MM/yyyy')}
                       </button>
                     ))}
-                    <input
-                      type="date"
+                    <DateInput
                       value={selectedDate}
                       // Service dates are Sunday-only — see the matching input above.
                       min="2024-01-07"
@@ -3222,8 +3221,7 @@ export default function DepartmentWorship() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Member since</label>
-                <input
-                  type="date"
+                <DateInput
                   value={editMember.memberSince || ''}
                   onChange={(e) => setEditMember((m) => ({ ...m, memberSince: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300"
@@ -3232,8 +3230,7 @@ export default function DepartmentWorship() {
               {editMember.isFormer && (
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Former since</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={editMember.formerSince || ''}
                     onChange={(e) => setEditMember((m) => ({ ...m, formerSince: e.target.value }))}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300"
@@ -3991,7 +3988,7 @@ export default function DepartmentWorship() {
                 >
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">Date <span className="text-red-400">*</span></label>
-                    <input type="date" required value={rehearsalForm.date} onChange={e => setRehearsalForm(f => ({ ...f, date: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
+                    <DateInput required value={rehearsalForm.date} onChange={e => setRehearsalForm(f => ({ ...f, date: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm" />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">Time</label>
@@ -4368,7 +4365,7 @@ function WorshipLinkModal({ member, onLink, onClose }) {
                     <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                       {v.phone && <span className="text-xs text-slate-400">{v.phone}</span>}
                       {v.year && <span className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">{v.year}</span>}
-                      {v.attendedDate && <span className="text-xs text-slate-400">{v.attendedDate}</span>}
+                      {v.attendedDate && <span className="text-xs text-slate-400">{isoToDMY(v.attendedDate)}</span>}
                     </div>
                   </div>
                   {isCurrent

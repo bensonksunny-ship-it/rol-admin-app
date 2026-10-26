@@ -1,3 +1,4 @@
+import { isoToDMY } from '../utils/date'
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import {
   LineChart,
@@ -215,7 +216,7 @@ export function MissingCellReportsTable({ rows, tenWeekByCellId = new Map(), loa
                 return (
                   <tr key={row.cellId} className="hover:bg-slate-50 transition-colors align-top">
                     <td className="px-5 py-3 font-medium text-slate-800">{row.cellName}</td>
-                    <td className="px-4 py-3 text-slate-500 tabular-nums">{row.expectedDate}</td>
+                    <td className="px-4 py-3 text-slate-500 tabular-nums">{isoToDMY(row.expectedDate)}</td>
                     <td className="px-4 py-3">
                       <StatusPill row={row} isDismissed={isDismissed} />
                     </td>

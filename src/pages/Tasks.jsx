@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { DEPARTMENTS, TASK_STATUS, TASK_PRIORITY } from '../constants/roles'
 import { format } from 'date-fns'
 import { formatDMY } from '../utils/date'
+import DateInput from '../components/DateInput'
 
 export default function Tasks() {
   const { hasPermission } = useAuth()
@@ -293,8 +294,7 @@ export default function Tasks() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Deadline</label>
-                  <input
-                    type="date"
+                  <DateInput
                     value={form.deadline}
                     onChange={(e) => setForm((f) => ({ ...f, deadline: e.target.value }))}
                     className="w-full px-3 py-2 rounded-lg border border-slate-300"

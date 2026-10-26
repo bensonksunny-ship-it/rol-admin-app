@@ -10,6 +10,7 @@ import {
   subscribeToSpOfficePrograms,
   setSpOfficeProgramList,
 } from '../../services/firestore'
+import DateInput from '../../components/DateInput'
 
 // Starter set of regular programs — used only until someone first edits the list via
 // "Manage programs", after which sp_office_settings/programs.list is the whole list.
@@ -490,8 +491,7 @@ export default function DailySchedule({ canEdit, userProfile }) {
               Today
             </button>
           )}
-          <input
-            type="date"
+          <DateInput
             value={dateStr}
             onChange={(e) => e.target.value && setDateStr(e.target.value)}
             className="ml-1 text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-600"

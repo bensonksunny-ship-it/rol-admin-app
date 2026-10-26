@@ -221,3 +221,10 @@ export function formatMeetingTimeRange(startTime, endTime) {
   return `${formatTime12h(startTime)} – ${formatTime12h(endTime)}${durationLabel ? ` (${durationLabel})` : ''}`
 }
 
+
+/** A stored yyyy-MM-dd (or ISO date-time) string shown as DD/MM/YYYY; anything else
+ *  (already-formatted text, '—', labels) is returned unchanged. */
+export function isoToDMY(value) {
+  const m = String(value ?? '').match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/)
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : value
+}

@@ -1,3 +1,4 @@
+import { isoToDMY } from '../utils/date'
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { format, addWeeks, subWeeks } from 'date-fns'
@@ -39,6 +40,7 @@ import LiveElapsedTimer from '../components/LiveElapsedTimer'
 import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import BackButton from '../components/BackButton'
+import DateInput from '../components/DateInput'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'nonCell', title: 'Non Cell' },
@@ -116,8 +118,9 @@ function fmtFirstVisit(dateStr) {
   return format(d, 'dd/MM/yyyy')
 }
 
-function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', onSuggestionClick = null, people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, linkDirectory = null, onLink, linkedNames = null, duplicateNorms = null, className = '' }) {
+function NameListSection({ title, names, canEdit, onAddValue, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', onSuggestionClick = null, people = null, searchPlaceholder = 'Search people directory…', linkDirectory = null, onLink, linkedNames = null, duplicateNorms = null, allowGuest = false, className = '' }) {
   const [query, setQuery] = useState('')
+  const [guestName, setGuestName] = useState('')
   const [linkingIdx, setLinkingIdx] = useState(null)
   const [linkQuery, setLinkQuery] = useState('')
   const { isSeniorPastorName, title: SENIOR_PASTOR_TITLE, fullTitle: SENIOR_PASTOR_FULL_TITLE } = useSeniorPastor()
@@ -213,12 +216,9 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
             <div className="flex items-center gap-2">
               {canEdit ? (
                 <>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => onEdit(idx, e.target.value)}
-                    className={`flex-1 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-300'}`}
-                  />
+                  {/* Read-only: names come from the directory (visitor-first rule), so
+                      they can't be retyped into a new spelling of the same person. */}
+                  <span className={`flex-1 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{name || '—'}</span>
                   {isSeniorPastor && (
                     <span
                       className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-800 text-xs font-bold whitespace-nowrap"
@@ -241,7 +241,7 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
                       onClick={() => { setLinkingIdx(linkingIdx === idx ? null : idx); setLinkQuery('') }}
                       className="text-indigo-600 hover:underline text-sm font-medium whitespace-nowrap"
                     >
-                      {isLinked ? 'Re-link' : 'Link'}
+                      {isLinked ? 'Re-link' : 'Identify'}
                     </button>
                   )}
                   <button type="button" onClick={() => onRemove(idx)} className="text-red-600 hover:underline text-sm">
@@ -297,11 +297,39 @@ function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onR
           </li>
           )
         })}
-        {canEdit && showManualAdd && (
+        {canEdit && allowGuest && (
+          // A one-off guest: the typed name is saved on this Sunday's report only —
+          // it never becomes a People Directory record (visitor-first rule).
           <li>
-            <button type="button" onClick={onAdd} className="text-indigo-600 hover:underline text-sm font-medium">
-              {people ? '+ Add name manually' : '+ Add person'}
-            </button>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                const n = guestName.trim()
+                if (!n || nameSet.has(n.toLowerCase())) return
+                onAddValue?.(n)
+                setGuestName('')
+              }}
+              className="flex items-center gap-2"
+            >
+              <input
+                type="text"
+                value={guestName}
+                onChange={(e) => setGuestName(e.target.value)}
+                placeholder="Name as given (unidentified)"
+                className="flex-1 px-2 py-1.5 rounded border border-dashed border-slate-300 text-sm"
+              />
+              <button type="submit" disabled={!guestName.trim()} className="text-indigo-600 hover:underline text-sm font-medium whitespace-nowrap disabled:opacity-40">
+                + Add
+              </button>
+            </form>
+            <p className="mt-1 text-[11px] text-slate-400">
+              Only for people who can't be identified — not a newcomer, D-Light visitor or known attendee. Saved in this report only (a headcount, not matched to anyone). If you later find who it is, tap Identify.
+            </p>
+          </li>
+        )}
+        {canEdit && !allowGuest && (
+          <li className="text-[11px] text-slate-400">
+            Not in the list? New people must first be registered through D-Light Visitor Entry.
           </li>
         )}
       </ul>
@@ -397,7 +425,7 @@ function PastoralRosterModal({ roster, directory, saving, onAdd, onRemove, onClo
   )
 }
 
-function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, onEdit, onRemove, duplicateNorms = null, suggestions = [], loadingSuggestions = false, className = '' }) {
+function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, onRemove, duplicateNorms = null, suggestions = [], loadingSuggestions = false, className = '' }) {
   const [query, setQuery] = useState('')
   const nameSet = useMemo(() => new Set((names || []).map(n => n.trim().toLowerCase())), [names])
   const results = useMemo(() => {
@@ -486,12 +514,7 @@ function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, o
           <li key={idx} className="flex items-center gap-2">
             {canEdit ? (
               <>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => onEdit(idx, e.target.value)}
-                  className={`flex-1 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-300'}`}
-                />
+                <span className={`flex-1 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{name || '—'}</span>
                 {isDupe && <span className="text-xs font-bold text-red-600 whitespace-nowrap">Duplicate</span>}
                 <button type="button" onClick={() => onRemove(idx)} className="text-red-600 hover:underline text-sm">
                   Remove
@@ -725,7 +748,7 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     const s = new Set()
     const addArr = (arr) => (arr || []).forEach(n => { const k = nn(n); if (k) s.add(k) })
     addArr(report?.pastoralAttendees)
-    addArr(report?.others)
+    // Not Others: those are unidentified names, never a specific person.
     addArr(report?.nonCell)
     addArr(report?.riverKids)
     addArr(report?.newComers)
@@ -762,13 +785,14 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     return searchPool.filter(p => nn(p.name).includes(lower)).slice(0, 8)
   }
 
-  // Auto-detect section: River Kids registry → riverKids, cell member → cell, else → others
+  // Auto-detect section: River Kids registry → riverKids, cell member → cell, else → Non Cell.
+  // (Others is only for names that couldn't be identified — this is always a known person.)
   const detectSection = (personName) => {
     const key = nn(personName)
     if (rkKidsNorms?.has(key)) return { section: 'riverKids', cellId: '' }
     const entry = cellMemberMap.get(key)
     if (entry) return { section: 'cell', cellId: entry.cellId }
-    return { section: 'others', cellId: '' }
+    return { section: 'nonCell', cellId: '' }
   }
 
   const resolveAlreadyPresent = (currentLines, startIdx, existingNorms) => {
@@ -852,7 +876,10 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
     handleConfirmWithSection(person, det.section, det.cellId)
   }
 
-  const handleConfirmWithSection = async (person, sec, cid) => {
+  const handleConfirmWithSection = async (person, sectionKey, cid) => {
+    // A person picked from the directory has been identified, so they never go in
+    // Others (the unidentified list) — an identified non-cell attendee is Non Cell.
+    const sec = sectionKey === 'others' && person?.id ? 'nonCell' : sectionKey
     if (saving || (sec === 'cell' && !cid)) return
     setSaving(true)
     const name = person.name.trim()
@@ -976,7 +1003,7 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
             <div className="space-y-5">
               <div className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 flex items-center gap-2">
                 <span className="text-xs text-slate-400 font-medium">Date</span>
-                <span className="text-sm font-bold text-slate-800">{selectedDate}</span>
+                <span className="text-sm font-bold text-slate-800">{isoToDMY(selectedDate)}</span>
               </div>
 
               <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3">
@@ -1131,12 +1158,17 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
                 )}
               </div>
 
+              {/* An unmatched name may only go in Others — the unidentified list, saved on
+                  this report alone, never as a directory person (visitor-first rule). */}
               <button type="button"
-                onClick={() => handleConfirmWithSection({ name: current.raw }, lineSection, lineCellId)}
-                disabled={saving || (lineSection === 'cell' && !lineCellId)}
+                onClick={() => handleConfirmWithSection({ name: current.raw }, 'others', '')}
+                disabled={saving}
                 className="w-full py-3 rounded-2xl bg-slate-700 text-white font-bold text-sm disabled:opacity-40 active:bg-slate-800 transition-colors">
-                Add "{current.raw}" as-is →
+                Couldn't identify — add "{current.raw}" to Others →
               </button>
+              <p className="text-[11px] text-slate-400 text-center">
+                This Sunday only, as a headcount — not added to the People Directory or matched to anyone.
+              </p>
 
               <button type="button" onClick={handleSkip} disabled={saving}
                 className="w-full py-3 rounded-2xl border border-slate-200 text-slate-500 font-semibold text-sm hover:bg-slate-50 disabled:opacity-40 transition-colors">
@@ -1151,7 +1183,7 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
               <div className="text-6xl">✅</div>
               <div>
                 <p className="font-bold text-slate-800 text-xl mb-1">Import Complete!</p>
-                <p className="text-sm text-slate-400">{selectedDate}</p>
+                <p className="text-sm text-slate-400">{isoToDMY(selectedDate)}</p>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-3">
@@ -1568,10 +1600,9 @@ export default function SundayReport({ embedded = false }) {
       if (t) set.add(t)
     })
     addAll(report?.nonCell)
-    addAll(report?.others)
     Object.values(report?.sundayCellAttendance || {}).forEach(addAll)
     return set
-  }, [report?.nonCell, report?.others, report?.sundayCellAttendance])
+  }, [report?.nonCell, report?.sundayCellAttendance])
 
   // New Comers suggestion chips — this week's D-Light visitors, minus anyone already
   // marked present elsewhere on the report (e.g. added via a D-Light Recommendation
@@ -1836,7 +1867,9 @@ export default function SundayReport({ embedded = false }) {
     // not just the cell picker, which already handles it on tap.
     const presentNames = [
       ...Object.values(report.sundayCellAttendance || {}).flat(),
-      ...(report.others || []), ...(report.nonCell || []), ...(report.pastoralAttendees || []),
+      // Others = unidentified names; only ones an older report linked to a profile count.
+      ...(report.others || []).filter((n) => report.othersLinked?.[String(n).trim().toLowerCase()]),
+      ...(report.nonCell || []), ...(report.pastoralAttendees || []),
       ...(report.newComers || []), ...(report.secondWeekAttendeesNames || []),
       ...(report.thirdWeekAttendeesNames || []), ...(report.fourthWeekAttendeesNames || []),
     ].filter(Boolean).map((name) => ({ name }))
@@ -1963,12 +1996,6 @@ export default function SundayReport({ embedded = false }) {
     updateReport({ sundayCellAttendance: sca, sundayCellAway: awayMap })
   }
 
-  const updateCellList = (key, idx, value) => {
-    const list = [...(report?.[key] || [])]
-    list[idx] = value
-    updateReport({ [key]: list })
-  }
-  const addCellName = (key) => updateReport({ [key]: [...(report?.[key] || []), ''] })
   const addCellNameValue = (key, value) => updateReport({ [key]: [...(report?.[key] || []), value] })
   const removeCellName = (key, idx) => updateReport({ [key]: (report?.[key] || []).filter((_, i) => i !== idx) })
 
@@ -2009,6 +2036,21 @@ export default function SundayReport({ embedded = false }) {
     worshipTeamMembersAll.forEach((t) => add(t, 'team'))
     return pool
   }, [peopleDirectory, delightVisitorsAll, allCellMembers, pcsEntriesAll, deptTeamMembersAll, worshipTeamMembersAll])
+
+  // New Comers are first-timers, so their search is D-Light Visitor Entry records only —
+  // someone not registered there yet must go through Visitor Entry first.
+  const newComersSearchPool = useMemo(() => {
+    const seen = new Set()
+    const pool = []
+    delightVisitorsAll.forEach((v) => {
+      const name = (v.name || '').trim()
+      const key = name.toLowerCase()
+      if (!key || seen.has(key)) return
+      seen.add(key)
+      pool.push({ id: v.id, name, phone: v.phone || '', date: v.attendedDate || '' })
+    })
+    return pool
+  }, [delightVisitorsAll])
 
   // Same two sources for Non Cell, but deduplicated by phone (fallback to id) — Non Cell
   // shows a flat pick-a-name list rather than a "link an existing entry" flow, so the same
@@ -2214,13 +2256,12 @@ export default function SundayReport({ embedded = false }) {
       sca[matchedMember.cellId] = list
       updateReport({ others, sundayCellAttendance: sca })
     } else {
-      // Not in any cell — stay in Others, but replace the typed name with the
-      // canonical directory/visitor name and mark this entry as linked.
-      const others = [...(report?.others || [])]
-      others[idx] = name
-      const othersLinked = { ...(report?.othersLinked || {}) }
-      othersLinked[name.toLowerCase()] = { source: person.source, id: person.id }
-      updateReport({ others, othersLinked })
+      // Identified but not in any cell — that's a Non Cell attendee, not Others
+      // (Others holds only names nobody could identify).
+      const others = (report?.others || []).filter((_, i) => i !== idx)
+      const nonCell = [...(report?.nonCell || [])]
+      if (!nonCell.some((n) => String(n).trim().toLowerCase() === name.toLowerCase())) nonCell.push(name)
+      updateReport({ others, nonCell })
     }
 
     recordPersonSundayAttendance({
@@ -2317,7 +2358,7 @@ export default function SundayReport({ embedded = false }) {
 
     // ── Sheet 1: Summary ──────────────────────────────────────────────
     const rows = []
-    rows.push([`Sunday Report — ${selectedDate}`])
+    rows.push([`Sunday Report — ${isoToDMY(selectedDate)}`])
     rows.push([])
 
     if (sortedProgram.length > 0) {
@@ -2462,8 +2503,7 @@ export default function SundayReport({ embedded = false }) {
           >
             ←
           </button>
-          <input
-            type="date"
+          <DateInput
             value={selectedDate}
             onChange={(e) => setSelectedDate(e.target.value)}
             className="px-3 py-2 rounded-lg border border-slate-200 text-sm text-slate-700 bg-white"
@@ -2546,9 +2586,7 @@ export default function SundayReport({ embedded = false }) {
                   title={PASTORAL_KEY.title}
                   names={report?.[PASTORAL_KEY.key] || []}
                   canEdit={pastoralEdit}
-                  onAdd={() => addCellName(PASTORAL_KEY.key)}
                   onAddValue={(value) => addCellNameValue(PASTORAL_KEY.key, value)}
-                  onEdit={(idx, value) => updateCellList(PASTORAL_KEY.key, idx, value)}
                   onRemove={(idx) => removeCellName(PASTORAL_KEY.key, idx)}
                   people={othersLinkDirectory}
                   searchPlaceholder="Search the member database…"
@@ -2728,7 +2766,6 @@ export default function SundayReport({ embedded = false }) {
                         people={nonCellSearchPool}
                         cellMemberNames={cellMemberNames}
                         onAddValue={addNonCellPerson}
-                        onEdit={(idx, value) => updateCellList(key, idx, value)}
                         onRemove={(idx) => removeCellName(key, idx)}
                         duplicateNorms={duplicateNorms}
                         suggestions={nonCellSuggestions}
@@ -2748,13 +2785,12 @@ export default function SundayReport({ embedded = false }) {
                         title={title}
                         names={report?.[key] || []}
                         canEdit={manualEdit}
-                        onAdd={() => addCellName(key)}
                         onAddValue={(value) => addCellNameValue(key, value)}
-                        onEdit={(idx, value) => updateCellList(key, idx, value)}
                         onRemove={(idx) => removeCellName(key, idx)}
                         linkDirectory={key === 'others' ? othersLinkDirectory : null}
                         onLink={key === 'others' ? linkOthersNameToCell : undefined}
                         linkedNames={key === 'others' ? othersLinkedNames : undefined}
+                        allowGuest={key === 'others'}
                         duplicateNorms={duplicateNorms}
                         className="border-0 shadow-none bg-transparent p-0"
                       />
@@ -2780,10 +2816,10 @@ export default function SundayReport({ embedded = false }) {
                   title="New Comers"
                   names={report?.newComers || []}
                   canEdit={canEditEffective && !completedSections.newComers}
-                  onAdd={() => addCellName('newComers')}
                   onAddValue={(value) => addCellNameValue('newComers', value)}
-                  onEdit={(idx, value) => updateCellList('newComers', idx, value)}
                   onRemove={(idx) => removeCellName('newComers', idx)}
+                  people={newComersSearchPool}
+                  searchPlaceholder="Search D-Light visitors…"
                   suggestions={dlightSuggestionsVisible}
                   loadingSuggestions={loadingDlight}
                   suggestionsLabel="From D-Light visitors this week — tap to add"

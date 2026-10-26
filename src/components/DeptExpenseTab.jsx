@@ -9,6 +9,7 @@ import { isMonthClosedForEntry, entryDeadlineLabel, monthKeyLabel } from '../uti
 import useFinanceMonthLocks from '../hooks/useFinanceMonthLocks'
 import FinanceModal from './finance/FinanceModal'
 import StatusBadge from './finance/StatusBadge'
+import DateInput from './DateInput'
 
 function today() {
   return format(new Date(), 'yyyy-MM-dd')
@@ -726,8 +727,7 @@ export default function DeptExpenseTab({ department }) {
       <FinanceModal open={modalOpen} onClose={() => setModalOpen(false)} title="Add Expense">
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <input
-              type="date"
+            <DateInput
               value={form.date}
               onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
               required

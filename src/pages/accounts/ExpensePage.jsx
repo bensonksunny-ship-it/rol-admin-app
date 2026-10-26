@@ -1,3 +1,4 @@
+import { isoToDMY } from '../../utils/date'
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Navigate } from 'react-router-dom'
@@ -1218,7 +1219,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                                     {isOtherMonth ? '!' : '✓'}
                                   </span>
                                 </td>
-                                <td className={`px-3 py-2.5 whitespace-nowrap font-medium ${isOtherMonth ? 'text-red-700' : 'text-slate-700'}`}>{row.date}</td>
+                                <td className={`px-3 py-2.5 whitespace-nowrap font-medium ${isOtherMonth ? 'text-red-700' : 'text-slate-700'}`}>{isoToDMY(row.date)}</td>
                                 <td className={`px-3 py-2.5 truncate ${isOtherMonth ? 'text-red-700' : 'text-slate-700'}`} title={row.item}>{row.item || '—'}</td>
                                 <td className="px-3 py-2.5">
                                   {row.billNo

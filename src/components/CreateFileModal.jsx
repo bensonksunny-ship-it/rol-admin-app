@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
+import DateInput from './DateInput'
 
 const REMARKS_OPTIONS = ['Active', 'Project Completed', 'Project Withheld', 'Archived']
 
@@ -69,8 +70,7 @@ export default function CreateFileModal({ initial, onCancel, onSave }) {
 
           <label className="block text-xs font-medium text-slate-500">
             Closing Date
-            <input
-              type="date"
+            <DateInput
               value={form.closingDate || ''}
               onChange={(e) => set('closingDate', e.target.value)}
               className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"

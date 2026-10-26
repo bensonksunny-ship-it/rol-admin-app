@@ -12,6 +12,7 @@ import LegalNameInputGroup from '../components/LegalNameInputGroup'
 import FamilyDetailsSection from '../components/FamilyDetailsSection'
 import { LEGAL_NAME_KEYS, legalFullName, legalNamePayload, isLegalNameComplete, splitName } from '../utils/legalName'
 import { initialFamilyState, familyPayload } from '../utils/familyDetails'
+import DateInput from '../components/DateInput'
 
 const fmtDate = (d) => {
   if (!d) return ''
@@ -132,7 +133,7 @@ export default function MarriageApply() {
       )
     }
     if (f.multiline) return <textarea rows={3} value={answers[f.key] || ''} onChange={(e) => setAnswer(f.key, e.target.value)} className={`${cls} resize-none`} />
-    return <input type={f.type || 'text'} placeholder={f.placeholder || ''} value={answers[f.key] || ''} onChange={(e) => setAnswer(f.key, e.target.value)} className={cls} />
+    return <DateInput type={f.type || 'text'} placeholder={f.placeholder || ''} value={answers[f.key] || ''} onChange={(e) => setAnswer(f.key, e.target.value)} className={cls} />
   }
   const fieldGrid = (fields) => (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { addProjectFileActivity } from '../services/firestore'
 import FitToWidth from './FitToWidth'
+import DateInput from './DateInput'
 
 const HEADER_BLUE = '#2b5b84'
 const SL_RED = '#E53E3E'
@@ -168,8 +169,7 @@ export default function ProjectFileTemplate({ file, onClose, autoPrint = false }
           </label>
           <label className="text-xs font-medium text-slate-500">
             Date
-            <input
-              type="date"
+            <DateInput
               value={activityDate}
               onChange={(e) => setActivityDate(e.target.value)}
               className="mt-1 px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"

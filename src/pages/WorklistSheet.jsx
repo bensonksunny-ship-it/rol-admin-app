@@ -12,6 +12,7 @@ import {
   resetWorklistSheetRows,
   WORKLIST_ROWS_PER_SHEET,
 } from '../services/firestore'
+import DateInput from '../components/DateInput'
 
 // appearance-none strips the browser's native dropdown chevron — the plain-sheet look
 // stays plain even while this cell is open, not just before it's clicked. It's still a
@@ -74,7 +75,7 @@ function EditableCell({ value, type, onCommit, placeholder, autoEdit, onAutoEdit
   }
 
   return (
-    <input
+    <DateInput
       autoFocus
       type={type}
       value={draft}

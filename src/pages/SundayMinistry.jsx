@@ -29,6 +29,7 @@ import {
 import { useAuth } from '../context/AuthContext'
 import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from 'date-fns'
 import { formatDMY } from '../utils/date'
+import DateInput from '../components/DateInput'
 
 const CHECKLIST_DEPTS = ['Worship', 'D Light', 'Building Care', 'Media', 'Administration', 'River Kids']
 
@@ -311,8 +312,7 @@ export default function SundayMinistry() {
             <form onSubmit={handleSubmit} className="p-5 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Date *</label>
-                <input
-                  type="date"
+                <DateInput
                   value={form.date}
                   onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300"
@@ -478,8 +478,7 @@ function CellAttendanceTab({ userProfile, canEnter }) {
       <div className="sticky top-0 z-30 bg-slate-50 pt-1 pb-3 space-y-2">
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-sm font-medium text-slate-600">Sunday Date</label>
-          <input
-            type="date"
+          <DateInput
             value={selectedDate}
             onChange={(e) => handleDateChange(e.target.value)}
             className="px-3 py-1.5 rounded-xl border border-slate-300 text-sm"
@@ -687,8 +686,7 @@ function ChecklistsTab({ canEditFull, userProfile }) {
         <>
           <div className="flex flex-wrap items-center gap-3">
             <label className="text-sm font-medium text-slate-600">Sunday Date</label>
-            <input
-              type="date"
+            <DateInput
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
               className="px-3 py-1.5 rounded-xl border border-slate-300 text-sm"

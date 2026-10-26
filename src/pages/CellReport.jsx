@@ -36,8 +36,9 @@ import { getDepartmentRole } from '../utils/access'
 import { canEditCellReport } from '../utils/cellReportPermissions'
 import { isRealCellReportSubmission } from '../utils/cellWeek'
 import { calcTenureLabel } from '../utils/cellMemberCategory'
-import { computeDurationMinutes, formatMeetingTimeRange } from '../utils/date'
+import { computeDurationMinutes, formatMeetingTimeRange, isoToDMY } from '../utils/date'
 import BackButton from '../components/BackButton'
+import DateInput from '../components/DateInput'
 
 const CELL_DEPARTMENT = 'Cell'
 const MAX_VISIBLE_TILES = 18
@@ -195,7 +196,9 @@ export default function CellReport() {
   const [proposalPhone, setProposalPhone] = useState('')
   const [proposalSubmitting, setProposalSubmitting] = useState(false)
   const [leaderAddMemberOpen, setLeaderAddMemberOpen] = useState(false)
-  const [leaderAddMemberForm, setLeaderAddMemberForm] = useState({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
+  const [leaderAddSearch, setLeaderAddSearch] = useState('')
+  const [cellVisitorList, setCellVisitorList] = useState([])
+  const [leaderAddMemberForm, setLeaderAddMemberForm] = useState({ name: '', visitorId: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
   const [editCellSearch, setEditCellSearch] = useState('')
   const [editCellSortAsc, setEditCellSortAsc] = useState(true)
   const [editCellEditModal, setEditCellEditModal] = useState(null)
@@ -427,6 +430,7 @@ export default function CellReport() {
       getDelightVisitors().catch(() => []),
     ]).then(([members, visitors]) => {
       setCellVisitorMap(new Map(visitors.map(v => [v.id, v.name])))
+      setCellVisitorList(visitors)
       setCellMembers(members)
     }).finally(() => setLoadingCellMembers(false))
   }, [effectiveCellId])
@@ -785,7 +789,7 @@ export default function CellReport() {
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-4">
           <div className="text-sm text-slate-700">
-            <span className="font-medium">Report Date:</span> <span className="font-mono">{reportDate || '—'}</span>
+            <span className="font-medium">Report Date:</span> <span className="font-mono">{isoToDMY(reportDate || '—')}</span>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
@@ -942,8 +946,7 @@ export default function CellReport() {
               </div>
               <label className="text-sm text-slate-700">
                 Week (Sunday)
-                <input
-                  type="date"
+                <DateInput
                   value={weekStartISO}
                   onChange={(e) => {
                     const d = parseISO(e.target.value)
@@ -999,7 +1002,7 @@ export default function CellReport() {
                             >
                               <td className="px-3 py-2 font-medium text-slate-800">{c.cellName || '—'}</td>
                               <td className="px-3 py-2 text-slate-600">{c.leader || '—'}</td>
-                              <td className="px-3 py-2 text-slate-600 font-mono">{expectedDate || '—'}</td>
+                              <td className="px-3 py-2 text-slate-600 font-mono">{isoToDMY(expectedDate || '—')}</td>
                               <td className="px-3 py-2 text-slate-800 font-semibold">{row.total ?? 0}</td>
                               <td className="px-3 py-2">
                                 <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs border ${statusClass}`}>
@@ -1437,7 +1440,7 @@ export default function CellReport() {
             <p className="text-slate-700 text-sm mt-0.5"><strong>Meeting Day:</strong> {cell?.meetingDay || '—'}</p>
             <div className="flex flex-wrap items-center gap-2 mt-2">
               <span className="text-sm text-slate-700">
-                <span className="font-medium">Report Date:</span> <span className="font-mono">{reportDate || '—'}</span>
+                <span className="font-medium">Report Date:</span> <span className="font-mono">{isoToDMY(reportDate || '—')}</span>
               </span>
               {(() => {
                 const submitted = isRealCellReportSubmission(report)
@@ -1460,8 +1463,7 @@ export default function CellReport() {
             <div className="mt-3">
               <label className="text-sm text-slate-700">
                 Week (Sunday)
-                <input
-                  type="date"
+                <DateInput
                   value={weekStartISO}
                   onChange={(e) => {
                     const d = parseISO(e.target.value)
@@ -1510,7 +1512,7 @@ export default function CellReport() {
                         >
                           <td className="px-3 py-2 font-medium text-slate-800">{cell?.cellName || '—'}</td>
                           <td className="px-3 py-2 text-slate-600">{cell?.leader || '—'}</td>
-                          <td className="px-3 py-2 text-slate-600 font-mono">{reportDate || '—'}</td>
+                          <td className="px-3 py-2 text-slate-600 font-mono">{isoToDMY(reportDate || '—')}</td>
                           <td className="px-3 py-2 text-slate-800 font-semibold">
                             {attendees.length + (report?.visitorsList || []).length + (report?.childrenList || []).length}
                           </td>
@@ -1870,7 +1872,7 @@ export default function CellReport() {
             {leaderTab === 'timer' && (
               <div className="space-y-4">
                 <div className="text-sm text-slate-700">
-                  <span className="font-medium">Meeting date:</span> <span className="font-mono">{reportDate || '—'}</span>
+                  <span className="font-medium">Meeting date:</span> <span className="font-mono">{isoToDMY(reportDate || '—')}</span>
                 </div>
                 <p className="text-sm text-slate-500">Tap START when each program begins. Use the edit buttons to correct a time after the fact.</p>
 
@@ -2160,7 +2162,7 @@ export default function CellReport() {
                 <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                   <h3 className="font-semibold text-slate-800 mb-2">Meeting Report (read-only)</h3>
                   <p className="text-sm text-slate-600">
-                    Date: <span className="font-mono">{reportDate || '—'}</span>
+                    Date: <span className="font-mono">{isoToDMY(reportDate || '—')}</span>
                   </p>
                 </div>
                 <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
@@ -2233,7 +2235,7 @@ export default function CellReport() {
                   <div className="flex flex-wrap items-center gap-2">
                     <input type="text" value={editCellSearch} onChange={(e) => setEditCellSearch(e.target.value)} placeholder="Search member" className="px-3 py-2 rounded-lg border border-slate-300 min-w-[180px]" />
                     <button type="button" onClick={() => setEditCellSortAsc((v) => !v)} className="px-3 min-h-[44px] py-2 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Sort by name {editCellSortAsc ? 'A→Z' : 'Z→A'}</button>
-                    <button type="button" onClick={() => { setLeaderAddMemberOpen(true); setLeaderAddMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' }); }} className="px-3 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Add Member</button>
+                    <button type="button" onClick={() => { setLeaderAddMemberOpen(true); setLeaderAddSearch(''); setLeaderAddMemberForm({ name: '', visitorId: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' }); }} className="px-3 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Add Member</button>
                   </div>
                   <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
                     <h3 className="font-semibold text-slate-800 mb-2">Active Members</h3>
@@ -2361,11 +2363,11 @@ export default function CellReport() {
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Birthday</label>
-                            <input type="date" value={editCellForm.birthday} onChange={(e) => setEditCellForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                            <DateInput value={editCellForm.birthday} onChange={(e) => setEditCellForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Anniversary</label>
-                            <input type="date" value={editCellForm.anniversary} onChange={(e) => setEditCellForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                            <DateInput value={editCellForm.anniversary} onChange={(e) => setEditCellForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
@@ -2377,7 +2379,7 @@ export default function CellReport() {
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">First Sunday</label>
-                            <input type="date" value={editCellForm.since} onChange={(e) => setEditCellForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" title="First Sunday the person started attending the church" />
+                            <DateInput value={editCellForm.since} onChange={(e) => setEditCellForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" title="First Sunday the person started attending the church" />
                           </div>
                           <div className="flex gap-2 pt-2">
                             <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Submit for approval</button>
@@ -2403,17 +2405,20 @@ export default function CellReport() {
                       if (!canEditCurrentReport) return
                       const name = (leaderAddMemberForm.name || '').trim()
                       if (!name || !myCellId) return
+                      // Visitor-first rule: only someone already registered through D-Light
+                      // Visitor Entry can be proposed — never a typed name.
+                      if (!leaderAddMemberForm.visitorId) { alert("Pick this person from the People's Directory. New people must first be registered through D-Light Visitor Entry."); return }
                       try {
                         await addCellMemberPendingChange({
                           changeType: 'add',
                           cellId: myCellId,
                           cellName: cell?.cellName || '',
                           memberId: null,
-                          memberData: { name: leaderAddMemberForm.name, birthday: leaderAddMemberForm.birthday, anniversary: leaderAddMemberForm.anniversary, phone: leaderAddMemberForm.phone, locality: leaderAddMemberForm.locality, since: leaderAddMemberForm.since, status: leaderAddMemberForm.status || 'active' },
+                          memberData: { name: leaderAddMemberForm.name, visitorId: leaderAddMemberForm.visitorId, birthday: leaderAddMemberForm.birthday, anniversary: leaderAddMemberForm.anniversary, phone: leaderAddMemberForm.phone, locality: leaderAddMemberForm.locality, since: leaderAddMemberForm.since, status: leaderAddMemberForm.status || 'active' },
                           requestedBy: userProfile?.email || userProfile?.displayName || 'Leader',
                         })
                         setLeaderAddMemberOpen(false)
-                        setLeaderAddMemberForm({ name: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
+                        setLeaderAddMemberForm({ name: '', visitorId: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' })
                         alert('Add member submitted for approval.')
                       } catch (err) {
                         alert('Failed')
@@ -2422,17 +2427,43 @@ export default function CellReport() {
                     className="p-4 space-y-3"
                   >
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
-                      <input type="text" value={leaderAddMemberForm.name} onChange={(e) => setLeaderAddMemberForm((f) => ({ ...f, name: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Name * <span className="font-normal text-slate-400">(from People&apos;s Directory)</span></label>
+                      {leaderAddMemberForm.visitorId ? (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg border-2 border-emerald-200 bg-emerald-50">
+                          <span className="flex-1 text-sm font-semibold text-emerald-900">{leaderAddMemberForm.name}</span>
+                          <button type="button" onClick={() => { setLeaderAddMemberForm((f) => ({ ...f, name: '', visitorId: '' })); setLeaderAddSearch('') }} className="text-slate-400 hover:text-red-500 text-base leading-none">×</button>
+                        </div>
+                      ) : (
+                        <>
+                          <input type="text" value={leaderAddSearch} onChange={(e) => setLeaderAddSearch(e.target.value)} placeholder="Search by name…" autoComplete="off" className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                          {leaderAddSearch.trim() && (() => {
+                            const q = leaderAddSearch.trim().toLowerCase()
+                            const matches = cellVisitorList.filter((v) => v.name && v.name.toLowerCase().includes(q)).slice(0, 8)
+                            if (matches.length === 0) return <p className="mt-1 text-xs text-slate-500">Not in People&apos;s Directory — new people can only be added via D-Light Visitor Entry.</p>
+                            return (
+                              <div className="mt-1 max-h-48 overflow-y-auto rounded-lg border border-slate-200">
+                                {matches.map((v) => (
+                                  <button key={v.id} type="button"
+                                    onClick={() => { setLeaderAddMemberForm((f) => ({ ...f, name: v.name, visitorId: v.id, phone: f.phone || v.phone || '', birthday: f.birthday || (v.dob ? String(v.dob).slice(0, 10) : '') })); setLeaderAddSearch('') }}
+                                    className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 border-b border-slate-100 last:border-0">
+                                    <span className="font-medium text-slate-800">{v.name}</span>
+                                    {v.phone && <span className="ml-2 text-xs text-slate-400">{v.phone}</span>}
+                                  </button>
+                                ))}
+                              </div>
+                            )
+                          })()}
+                        </>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Birthday</label>
-                        <input type="date" value={leaderAddMemberForm.birthday} onChange={(e) => setLeaderAddMemberForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                        <DateInput value={leaderAddMemberForm.birthday} onChange={(e) => setLeaderAddMemberForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Anniversary</label>
-                        <input type="date" value={leaderAddMemberForm.anniversary} onChange={(e) => setLeaderAddMemberForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                        <DateInput value={leaderAddMemberForm.anniversary} onChange={(e) => setLeaderAddMemberForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                       </div>
                     </div>
                     <div>
@@ -2445,7 +2476,7 @@ export default function CellReport() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Since</label>
-                      <input type="date" value={leaderAddMemberForm.since} onChange={(e) => setLeaderAddMemberForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                      <DateInput value={leaderAddMemberForm.since} onChange={(e) => setLeaderAddMemberForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
@@ -2455,7 +2486,7 @@ export default function CellReport() {
                       </select>
                     </div>
                     <div className="flex gap-2 pt-2">
-                      <button type="submit" className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Submit for approval</button>
+                      <button type="submit" disabled={!leaderAddMemberForm.visitorId} className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors disabled:opacity-40">Submit for approval</button>
                       <button type="button" onClick={() => setLeaderAddMemberOpen(false)} className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-slate-700 text-sm hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Cancel</button>
                     </div>
                   </form>
@@ -2477,11 +2508,11 @@ export default function CellReport() {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Birthday</label>
-                        <input type="date" value={leaderEditForm.birthday} onChange={(e) => setLeaderEditForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                        <DateInput value={leaderEditForm.birthday} onChange={(e) => setLeaderEditForm((f) => ({ ...f, birthday: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Anniversary</label>
-                        <input type="date" value={leaderEditForm.anniversary} onChange={(e) => setLeaderEditForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                        <DateInput value={leaderEditForm.anniversary} onChange={(e) => setLeaderEditForm((f) => ({ ...f, anniversary: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                       </div>
                     </div>
                     <div>
@@ -2494,7 +2525,7 @@ export default function CellReport() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Since</label>
-                      <input type="date" value={leaderEditForm.since} onChange={(e) => setLeaderEditForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                      <DateInput value={leaderEditForm.since} onChange={(e) => setLeaderEditForm((f) => ({ ...f, since: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>

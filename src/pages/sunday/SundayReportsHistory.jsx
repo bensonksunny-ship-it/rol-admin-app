@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
 import * as XLSX from 'xlsx'
 import { getSundayReportSummaries, deleteSundayReport, getCellGroups, bulkImportSundayReports } from '../../services/firestore'
-import { formatDisplayDate } from '../../utils/date'
+import { formatDisplayDate, isoToDMY } from '../../utils/date'
 import { useAuth } from '../../context/AuthContext'
 import SundayReportPrintView from './SundayReportPrintView'
 import BackButton from '../../components/BackButton'
@@ -532,7 +532,7 @@ function downloadSingleReport(row, cellCols) {
 
   // Sheet 1: Summary
   const summaryRows = []
-  summaryRows.push([`Sunday Report — ${row.date}`])
+  summaryRows.push([`Sunday Report — ${isoToDMY(row.date)}`])
   summaryRows.push([])
 
   if (row.programTimings?.length > 0) {

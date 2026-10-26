@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, nextSundayISO } from '../utils/date'
+import DateInput from '../components/DateInput'
 
 const WORSHIP_ROLES = [
   'Lead Vocal-1', 'Lead Vocal-2', 'Lead Vocal-3', 'Lead Vocal-4', 'Lead Vocal-5', 'Lead Vocal-6',
@@ -788,8 +789,7 @@ export default function SundayPlanning() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="text-sm font-medium text-slate-600">Date</label>
-          <input
-            type="date"
+          <DateInput
             value={selectedDate}
             onChange={(e) => handleDateChange(e.target.value)}
             className="px-2 py-1.5 rounded-lg border border-slate-300 text-sm"

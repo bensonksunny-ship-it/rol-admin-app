@@ -12,6 +12,7 @@ import {
 } from '../../constants/caringEvents'
 import { openCaringEventCertificates } from '../../utils/caringEventCertificates'
 import { formatShortDate } from '../../utils/date'
+import DateInput from '../DateInput'
 
 const TYPE_CLS = {
   baptism: 'bg-sky-100 text-sky-800 border-sky-200',
@@ -185,7 +186,7 @@ function EventFormModal({ initial, events, pcsEntries, riverKids, dedicationApps
                 {CARING_EVENT_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
               </select>
             </label>
-            <label className="block">{label('Date')}<input type="date" value={form.date} onChange={(e) => set({ date: e.target.value })} className={inp} /></label>
+            <label className="block">{label('Date')}<DateInput value={form.date} onChange={(e) => set({ date: e.target.value })} className={inp} /></label>
             <label className="block">{label('Time (optional)')}<input type="time" value={form.time} onChange={(e) => set({ time: e.target.value })} className={inp} /></label>
             <label className="block">{label('Batch / Event code')}
               <input value={form.batchCode} onChange={(e) => { setCodeTouched(true); set({ batchCode: e.target.value }) }} className={inp} />

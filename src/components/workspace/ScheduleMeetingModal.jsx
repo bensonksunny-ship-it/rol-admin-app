@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { MEETING_MODES } from '../../utils/meetingSchedule'
+import DateInput from '../DateInput'
 
 const TIME_SLOTS = [['10:00', '10 AM'], ['12:00', '12 PM'], ['16:00', '4 PM'], ['18:00', '6 PM'], ['19:30', '7:30 PM']]
 const todayIso = () => new Date().toISOString().slice(0, 10)
@@ -67,7 +68,7 @@ export default function ScheduleMeetingModal({ title, subtitle = '', initial = n
         <div className="p-5 space-y-4">
           <label className="block">
             <span className="block text-xs font-semibold text-slate-600 mb-1">Date</span>
-            <input type="date" value={date} min={todayIso()} onChange={(e) => setDate(e.target.value)} className={inp} />
+            <DateInput value={date} min={todayIso()} onChange={(e) => setDate(e.target.value)} className={inp} />
           </label>
           <div>
             <span className="block text-xs font-semibold text-slate-600 mb-1">Time</span>

@@ -16,6 +16,7 @@ import {
   setSundayPlanSection,
 } from '../services/firestore'
 import BackButton from '../components/BackButton'
+import DateInput from '../components/DateInput'
 
 function nextSunday() {
   const today = new Date()
@@ -933,7 +934,7 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
         <div className="space-y-3 pt-2 border-t border-slate-100">
           <div className="flex flex-wrap items-center gap-2">
             <label className="text-sm text-slate-600 font-medium">Sunday date:</label>
-            <input type="date" value={pushDate}
+            <DateInput value={pushDate}
               onChange={(e) => { setPushDate(e.target.value); setNotifSuccess(false) }}
               className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm" />
             {notifSent && (

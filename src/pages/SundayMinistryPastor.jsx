@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
+import DateInput from '../components/DateInput'
 
 const PASTOR_REMARKS_KEY = 'sundayMinistryPastorRemarks'
 
@@ -47,8 +48,7 @@ export default function SundayMinistryPastor() {
 
       <div className="flex flex-wrap items-center gap-4">
         <label className="text-sm font-medium text-slate-700">Date:</label>
-        <input
-          type="date"
+        <DateInput
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
           className="px-3 py-2 rounded-lg border border-slate-300"

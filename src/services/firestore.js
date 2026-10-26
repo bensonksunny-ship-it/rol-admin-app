@@ -4746,10 +4746,9 @@ export function subscribeToRecentSundayAttendanceWeeks(numWeeks, onChange, onErr
       .map((d) => {
         const data = d.data()
         const names = new Set()
-        // `profileNames` = names from every list EXCEPT "Others" (free-text, ad-hoc
-        // headcount — not tied to any profile) and River Kids. Profile-matching
-        // engines (PCS "Recommended to Add") use this so a typed "Ramesh" in Others
-        // never credits whichever directory profile happens to share that name.
+        // `profileNames` = names from every list EXCEPT River Kids and linked Others.
+        // Unlinked Others names (unidentified headcount) are in neither set, so a
+        // typed "Ramesh" in Others never credits whoever shares that name.
         const profileNames = new Set()
         const addAll = (arr, { profile = true } = {}) => {
           if (!Array.isArray(arr)) return
@@ -4761,7 +4760,7 @@ export function subscribeToRecentSundayAttendanceWeeks(numWeeks, onChange, onErr
           })
         }
         addAll(data.nonCell)
-        addAll(data.others, { profile: false })
+        addAll(identifiedOthers(data), { profile: false })
         addAll(data.newComers)
         addAll(data.pastoralAttendees)
         addAll(data.riverKids, { profile: false })
@@ -4815,6 +4814,15 @@ export function subscribeToRecentSundayAttendanceWeeks(numWeeks, onChange, onErr
   return () => { unsubReports(); unsubPersonAttendance() }
 }
 
+// "Others" on a Sunday report = people Sunday Ministry couldn't identify (not a
+// newcomer, D-Light visitor or known attendee) — a headcount, never matched to anyone
+// by name. Only entries an older report explicitly linked to a profile (othersLinked)
+// count as that person; new reports move an identified name out of Others instead.
+function identifiedOthers(data) {
+  const linked = data?.othersLinked || {}
+  return (Array.isArray(data?.others) ? data.others : []).filter((n) => linked[String(n).trim().toLowerCase()])
+}
+
 /**
  * Count how many distinct Sunday reports (weeks) each name appears in, across
  * nonCell, others, newComers, secondWeekAttendeesNames, and every cell's
@@ -4834,7 +4842,7 @@ function extractAttendanceNamesFromReport(data) {
     })
   }
   addAll(data.nonCell)
-  addAll(data.others)
+  addAll(identifiedOthers(data))
   addAll(data.newComers)
   addAll(data.secondWeekAttendeesNames)
   addAll(data.thirdWeekAttendeesNames)
@@ -6720,11 +6728,14 @@ const PERSON_FIELDS = [
   'baptised', 'baptismDate', 'baptismPlace', 'baptismChurch',
   'maritalStatus', 'marriageDate', 'spouseName', 'spousePersonId',
   'membershipStatus', 'membershipNumber', 'permanentAddress',
-  'leadershipPosition', 'ministries', 'stage',
+  'leadershipPosition', 'ministries', 'stage', 'visitorId',
 ]
 
 export async function addPerson(data, addedBy = '') {
   if (!db) return null
+  // Visitor-first rule: a People record is only ever created for someone who
+  // already has a D-Light Visitor Entry record — never from a typed name.
+  requireLinkedPerson(data.visitorId)
   const payload = {
     addedAt: serverTimestamp(),
     addedBy,

@@ -162,9 +162,11 @@ export default function AdminUserManagement() {
   //   1. If we already have a real `people` doc id, update it in place.
   //   2. Otherwise, conflict-resolve by email — if someone in the directory already
   //      has this email, update that record instead of creating a second one for them.
-  //   3. Only if neither matches does this create a brand-new directory record.
-  // Returns the resolved personId to link onto the application user.
-  const syncDirectoryRecord = async ({ personId, name, email, phone, membershipNumber }) => {
+  //   3. Only if neither matches does this create a brand-new directory record — and
+  //      only for someone picked from D-Light Visitor Entry (visitor-first rule). A
+  //      typed name with no visitor record gets the login but no People record.
+  // Returns the resolved personId to link onto the application user ('' if none).
+  const syncDirectoryRecord = async ({ personId, visitorId, name, email, phone, membershipNumber }) => {
     const directoryPayload = { name, email, phone, membershipNumber }
     const updatedBy = userProfile?.email || ''
 
@@ -185,7 +187,8 @@ export default function AdminUserManagement() {
       return emailMatch.id
     }
 
-    return await addPerson({ ...directoryPayload, createdSource: 'admin_import' }, updatedBy)
+    if (!visitorId) return ''
+    return await addPerson({ ...directoryPayload, visitorId, createdSource: 'admin_import' }, updatedBy)
   }
 
   const handleSave = async (e) => {
@@ -237,13 +240,15 @@ export default function AdminUserManagement() {
       // user we're about to create/update always links to a real, de-duplicated personId.
       const personId = await syncDirectoryRecord({
         personId: form.personId,
+        visitorId: form.visitorId,
         name: form.name.trim(),
         email,
         phone: form.phone.trim(),
         membershipNumber,
       })
 
-      const { globalRole: formGlobalRole, ...formRest } = form
+      // visitorId only feeds the directory sync above — it isn't a user-account field.
+      const { globalRole: formGlobalRole, visitorId: _formVisitorId, ...formRest } = form
       const payload = {
         ...formRest,
         personId,
@@ -580,7 +585,7 @@ export default function AdminUserManagement() {
                       onChange={(e) => {
                         const q = e.target.value
                         // Typing breaks any existing directory link — it no longer names a specific record.
-                        setForm((f) => ({ ...f, name: q, personId: '' }))
+                        setForm((f) => ({ ...f, name: q, personId: '', visitorId: '' }))
                         const hits = q.trim().length >= 1
                           ? membersList.filter((m) => m.name.toLowerCase().includes(q.toLowerCase())).slice(0, 7)
                           : []
@@ -610,6 +615,7 @@ export default function AdminUserManagement() {
                                 email: m.email || f.email,
                                 phone: m.phone || f.phone,
                                 personId: m.source === 'people' ? m.id : '',
+                                visitorId: m.source === 'delight_visitor' ? m.id : '',
                                 membershipNumber: f.membershipNumber || m.membershipNumber || '',
                               }))
                               setShowNameSuggestions(false)
@@ -630,7 +636,7 @@ export default function AdminUserManagement() {
                         Linked to People's Directory
                         <button
                           type="button"
-                          onClick={() => setForm((f) => ({ ...f, personId: '' }))}
+                          onClick={() => setForm((f) => ({ ...f, personId: '', visitorId: '' }))}
                           className="text-slate-400 hover:text-red-500 underline"
                         >
                           Unlink

@@ -12,6 +12,7 @@ import { membershipFieldValue, MEMBERSHIP_DEPOSIT_AMOUNT, depositReceiptNo } fro
 import { advanceBlockReason, currentStage } from '../../utils/membershipPipeline'
 import { deaconStatusOf } from '../../utils/deaconOffice'
 import { getMemberDisplayName } from '../../utils/displayName'
+import DateInput from '../DateInput'
 
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const fmt = (d) => {
@@ -193,7 +194,7 @@ function InterviewTimePicker({ value, onChange }) {
         <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 space-y-3">
           <label className="block">
             <span className="block text-xs font-semibold text-slate-600 mb-1.5">Date</span>
-            <input type="date" value={date} min={todayIso()} onChange={(e) => setDate(e.target.value)}
+            <DateInput value={date} min={todayIso()} onChange={(e) => setDate(e.target.value)}
               className="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
           </label>
           <div>
@@ -507,7 +508,7 @@ export default function MembershipStageModal({
                         {[['receiptNo', 'Receipt No.', 'text'], ['amount', 'Amount (₹)', 'number'], ['date', 'Date', 'date'], ['receivedBy', 'Received By', 'text'], ['reference', 'Transaction / Reference ID', 'text']].map(([k, label, type]) => (
                           <label key={k} className="block">
                             <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">{label}</span>
-                            <input type={type} value={deposit[k]} onChange={(e) => setDeposit((d) => ({ ...d, [k]: e.target.value }))}
+                            <DateInput type={type} value={deposit[k]} onChange={(e) => setDeposit((d) => ({ ...d, [k]: e.target.value }))}
                               className="w-full px-2.5 py-1.5 rounded-lg border border-slate-300 text-xs bg-white" />
                           </label>
                         ))}
@@ -580,7 +581,7 @@ export default function MembershipStageModal({
                 <label className="block"><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Cell leader (as signed)</span>
                   <input value={leader.approvedBy} onChange={(e) => setLeader({ ...leader, approvedBy: e.target.value })} className={inp} /></label>
                 <label className="block"><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Signed on</span>
-                  <input type="date" value={leader.signedOn} onChange={(e) => setLeader({ ...leader, signedOn: e.target.value })} className={inp} /></label>
+                  <DateInput value={leader.signedOn} onChange={(e) => setLeader({ ...leader, signedOn: e.target.value })} className={inp} /></label>
                 <button type="button" disabled={busy || !leader.approvedBy.trim()} onClick={() => done({ approvedBy: leader.approvedBy.trim(), signedOn: leader.signedOn })}
                   className="w-full min-h-[40px] rounded-xl border-2 border-slate-300 text-slate-700 text-sm font-bold disabled:opacity-50">
                   Record Sign-off
@@ -624,7 +625,7 @@ export default function MembershipStageModal({
           {canAct && stage.key === 'membershipInterview' && !['Accepted', 'Follow-up Required'].includes(entry.membershipPipeline?.interview?.status) && (
             <div className="space-y-2 border-t border-slate-200 pt-3">
               <label className="block"><span className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">Interview held on</span>
-                <input type="date" value={interviewDate} onChange={(e) => setInterviewDate(e.target.value)} className={inp} /></label>
+                <DateInput value={interviewDate} onChange={(e) => setInterviewDate(e.target.value)} className={inp} /></label>
               <button type="button" disabled={busy || !interviewDate}
                 onClick={() => done({ interviewDate, interviewer: entry.membershipPipeline?.interview?.deaconName || '' })}
                 className="w-full min-h-[44px] rounded-xl border-2 border-indigo-600 text-indigo-700 text-sm font-bold disabled:opacity-50">

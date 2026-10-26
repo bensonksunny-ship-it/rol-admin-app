@@ -34,6 +34,7 @@ import useFloatingToast from '../hooks/useFloatingToast'
 import { buildEngagementLookup, engagementTag } from '../utils/pcsEngagement'
 import { isCellDirectorInPositions, isCellLeaderInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
+import DateInput from '../components/DateInput'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -155,8 +156,7 @@ function SessionConfigBar({ selectedDate, onDateChange, subTab, onSubTabChange }
     <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-slate-100/70 rounded-2xl px-3 py-2.5">
       <div className="flex items-center gap-2 flex-1 min-w-0">
         <span className="text-slate-400 text-sm shrink-0">📅</span>
-        <input
-          type="date"
+        <DateInput
           value={selectedDate}
           onChange={(e) => e.target.value && onDateChange(e.target.value)}
           title="Report date — change to enter data for a past session"

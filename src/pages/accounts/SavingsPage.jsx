@@ -1,3 +1,4 @@
+import { isoToDMY } from '../../utils/date'
 import { useState, useEffect, useRef } from 'react'
 import { format, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
@@ -482,7 +483,7 @@ export default function SavingsPage({ activeMonth = startOfMonth(new Date()) }) 
                         <td className="px-3 py-2.5 text-center">
                           <span title="Already saved" className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[10px] font-bold bg-emerald-500">✓</span>
                         </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{row.date}</td>
+                        <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{isoToDMY(row.date)}</td>
                         <td className="px-3 py-2.5">
                           <span className="inline-block max-w-full truncate px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[11px] font-medium" title={row.fund}>
                             {row.fund}

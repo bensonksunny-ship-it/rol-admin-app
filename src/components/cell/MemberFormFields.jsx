@@ -1,4 +1,5 @@
 import { calcAttendanceDuration } from '../../utils/cellMemberForm'
+import DateInput from '../DateInput'
 
 // Shared cell-member profile form — the field set used by Shepherd Care's
 // add/edit member sheet and by Mid-week Ministry's per-member attendance sheet.
@@ -37,19 +38,19 @@ export default function MemberFormFields({ form, onChange }) {
       <div className="grid grid-cols-2 gap-2.5">
         <div>
           <label className="text-xs text-slate-500 font-semibold mb-1 block">🎂 Birthday</label>
-          <input type="date" value={form.birthday} onChange={set('birthday')}
+          <DateInput value={form.birthday} onChange={set('birthday')}
             className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
         </div>
         <div>
           <label className="text-xs text-slate-500 font-semibold mb-1 block">💍 Anniversary</label>
-          <input type="date" value={form.anniversary} onChange={set('anniversary')}
+          <DateInput value={form.anniversary} onChange={set('anniversary')}
             className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
         </div>
       </div>
 
       <div>
         <label className="text-xs text-slate-500 font-semibold mb-1 block">⏳ Member Since (first attended)</label>
-        <input type="date" value={form.since} onChange={set('since')}
+        <DateInput value={form.since} onChange={set('since')}
           className="w-full px-3 py-2.5 rounded-2xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300" />
         {duration && (
           <p className="text-xs text-emerald-600 font-semibold mt-1.5 px-1">

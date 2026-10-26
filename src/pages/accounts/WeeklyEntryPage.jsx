@@ -1,3 +1,4 @@
+import { isoToDMY } from '../../utils/date'
 import { useState, useEffect } from 'react'
 import { Navigate } from 'react-router-dom'
 import { format, addWeeks, subWeeks, startOfWeek, endOfWeek, subMonths, addMonths, startOfMonth, endOfMonth } from 'date-fns'
@@ -26,6 +27,7 @@ import { getDepartmentRole } from '../../utils/access'
 import { isMonthClosedForEntry, monthKeyOf, monthKeyLabel } from '../../utils/financeEntryLock'
 import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
 import { isExpenseDisputed } from '../../utils/expenseDispute'
+import DateInput from '../../components/DateInput'
 
 const WEEK_START = { weekStartsOn: 1 }
 
@@ -1098,8 +1100,7 @@ export default function WeeklyEntryPage() {
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-slate-600">Date</label>
-                <input
-                  type="date"
+                <DateInput
                   value={form.date}
                   onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
                   className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -1203,7 +1204,7 @@ export default function WeeklyEntryPage() {
                     <tbody className="divide-y divide-slate-50">
                       {rows.map((row) => (
                         <tr key={row._row} className={row._valid ? '' : 'bg-red-50/60'}>
-                          <td className="px-4 py-2 text-slate-700">{row.date || '—'}</td>
+                          <td className="px-4 py-2 text-slate-700">{isoToDMY(row.date || '—')}</td>
                           <td className="px-4 py-2 text-slate-700">{row.item || '—'}</td>
                           <td className="px-4 py-2 text-slate-500">{row.billNo || '—'}</td>
                           <td className="px-4 py-2 text-right font-medium text-slate-800">

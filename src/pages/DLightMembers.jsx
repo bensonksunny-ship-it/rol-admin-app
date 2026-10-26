@@ -9,6 +9,7 @@ import {
   bulkAddDlightMembers,
   deleteAllDlightMembersByYear,
 } from '../services/firestore'
+import DateInput from '../components/DateInput'
 
 const SLUG = 'd-light'
 const START_YEAR = 2014
@@ -530,7 +531,7 @@ export default function DLightMembers() {
                     <label className="block text-xs font-medium text-slate-600 mb-1">
                       {label}{required && <span className="text-red-500 ml-0.5">*</span>}
                     </label>
-                    <input
+                    <DateInput
                       type={type}
                       value={form[key]}
                       onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}

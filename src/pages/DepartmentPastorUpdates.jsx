@@ -12,6 +12,7 @@ import { ROLES } from '../constants/roles'
 import { format } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import BackButton from '../components/BackButton'
+import DateInput from '../components/DateInput'
 
 export default function DepartmentPastorUpdates() {
   const { slug } = useParams()
@@ -201,8 +202,7 @@ export default function DepartmentPastorUpdates() {
             <form onSubmit={handleSubmit} className="p-5 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Date *</label>
-                <input
-                  type="date"
+                <DateInput
                   value={form.date}
                   onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
                   className="w-full px-3 py-2 rounded-lg border border-slate-300"

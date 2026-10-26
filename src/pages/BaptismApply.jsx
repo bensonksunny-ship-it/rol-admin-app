@@ -12,6 +12,7 @@ import LegalNameInputGroup from '../components/LegalNameInputGroup'
 import FamilyDetailsSection from '../components/FamilyDetailsSection'
 import { initialFamilyState, familyPayload } from '../utils/familyDetails'
 import { LEGAL_NAME_KEYS, legalFullName, legalNamePayload, isLegalNameComplete, splitName } from '../utils/legalName'
+import DateInput from '../components/DateInput'
 
 // Shrink an uploaded image to a small JPEG data URL so it fits inside the
 // Firestore doc (no Storage upload — this page runs signed-out).
@@ -147,7 +148,7 @@ export default function BaptismApply() {
             {f.options.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         ) : (
-          <input type={f.type || 'text'} placeholder={f.placeholder || ''} value={answers[f.key] || ''} onChange={(e) => setAnswers((a) => ({ ...a, [f.key]: e.target.value }))} className={cls} />
+          <DateInput type={f.type || 'text'} placeholder={f.placeholder || ''} value={answers[f.key] || ''} onChange={(e) => setAnswers((a) => ({ ...a, [f.key]: e.target.value }))} className={cls} />
         )}
       </div>
     )

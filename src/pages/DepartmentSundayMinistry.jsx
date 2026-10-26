@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY } from '../utils/date'
 import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
+import DateInput from '../components/DateInput'
 
 const DEPARTMENT = 'Sunday Ministry'
 
@@ -174,7 +175,7 @@ export default function DepartmentSundayMinistry({ defaultTab }) {
           <p className="text-sm text-slate-500 mb-3">Syncs with Sunday Planning page. Use <strong>Sunday Report</strong> for the structured report.</p>
           <div className="flex flex-wrap items-center gap-4 mb-4">
             <label className="text-sm text-slate-700">Date:</label>
-            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-300" />
+            <DateInput value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-3 py-2 rounded-lg border border-slate-300" />
             <button type="button" onClick={() => setSelectedDate(format(subWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))} className="px-3 py-2 rounded-lg border border-slate-300 text-sm">← Prev</button>
             <button type="button" onClick={() => setSelectedDate(format(addWeeks(new Date(selectedDate), 1), 'yyyy-MM-dd'))} className="px-3 py-2 rounded-lg border border-slate-300 text-sm">Next →</button>
           </div>
@@ -285,7 +286,7 @@ export default function DepartmentSundayMinistry({ defaultTab }) {
               } catch (err) { console.error(err); alert('Failed to add') }
             }} className="flex flex-wrap gap-3 items-end">
               <input type="text" placeholder="Name" value={newMember.name} onChange={(e) => setNewMember((m) => ({ ...m, name: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300 w-40" />
-              <input type="date" value={newMember.memberSince} onChange={(e) => setNewMember((m) => ({ ...m, memberSince: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300" />
+              <DateInput value={newMember.memberSince} onChange={(e) => setNewMember((m) => ({ ...m, memberSince: e.target.value }))} className="px-3 py-2 rounded-lg border border-slate-300" />
               <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={newMember.isFormer} onChange={(e) => setNewMember((m) => ({ ...m, isFormer: e.target.checked }))} />Former</label>
               <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700">Add</button>
             </form>
@@ -327,7 +328,7 @@ export default function DepartmentSundayMinistry({ defaultTab }) {
                   } catch (err) { console.error(err); alert('Failed') }
                 }} className="space-y-3">
                   <input type="text" value={editMember.name} onChange={(e) => setEditMember((m) => ({ ...m, name: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" required />
-                  <input type="date" value={editMember.memberSince || ''} onChange={(e) => setEditMember((m) => ({ ...m, memberSince: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                  <DateInput value={editMember.memberSince || ''} onChange={(e) => setEditMember((m) => ({ ...m, memberSince: e.target.value }))} className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                   <label className="flex items-center gap-2"><input type="checkbox" checked={editMember.isFormer || false} onChange={(e) => setEditMember((m) => ({ ...m, isFormer: e.target.checked }))} />Former</label>
                   <div className="flex gap-2"><button type="button" onClick={() => setEditMember(null)} className="px-3 py-2 rounded border">Cancel</button><button type="submit" className="px-4 py-2 rounded bg-blue-600 text-white">Save</button></div>
                 </form>

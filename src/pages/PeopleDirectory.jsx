@@ -17,6 +17,7 @@ import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import { formatJoinedDate } from '../utils/date'
+import DateInput from '../components/DateInput'
 
 const fmt = (d) => {
   if (!d) return null
@@ -74,7 +75,7 @@ function LabelInput({ label, value, onChange, type = 'text', options }) {
           {options.map(o => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
         </select>
       ) : (
-        <input
+        <DateInput
           type={type}
           value={value}
           onChange={e => onChange(e.target.value)}
@@ -85,7 +86,18 @@ function LabelInput({ label, value, onChange, type = 'text', options }) {
   )
 }
 
+// The D-Light visitor record behind a directory entry, if any — the only thing a new
+// People record may be created from (visitor-first rule).
+function linkedVisitorId(p) {
+  return p._visitorIds?.[0] || p.pcs?.visitorId ||
+    p.cells?.find((c) => c.visitorId)?.visitorId ||
+    p.deptTeams?.find((t) => t.visitorId)?.visitorId ||
+    p.worshipTeams?.find((t) => t.visitorId)?.visitorId || ''
+}
+
 function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
+  const visitorId = linkedVisitorId(p)
+  const blockedNoVisitor = !p.personId && !visitorId
   const blank = {
     name: p.name || '',
     phone: p.phone || '',
@@ -109,6 +121,7 @@ function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
 
   const handleSave = async () => {
     if (!form.name.trim()) { setError('Name is required'); return }
+    if (blockedNoVisitor) { setError('No D-Light visitor record — register this person through Visitor Entry first.'); return }
     setSaving(true)
     setError('')
     try {
@@ -133,7 +146,7 @@ function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
       } else {
         // Editing someone who so far exists only in another source (roster/visitor) —
         // the People record is created now, tagged as an admin-side creation.
-        resolvedPersonId = await addPerson({ ...personData, createdSource: 'admin_import' }, userEmail)
+        resolvedPersonId = await addPerson({ ...personData, visitorId, createdSource: 'admin_import' }, userEmail)
         // Link PCS entry if this was a legacy PCS record
         if (p.pcs?.id) {
           await updatePCSEntry(p.pcs.id, { personId: resolvedPersonId })
@@ -194,7 +207,7 @@ function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
           <div>
             <h2 className="text-base font-black text-slate-800">Edit Person</h2>
-            <p className="text-[10px] text-slate-400 mt-0.5">{p.personId ? 'Updating People Directory' : 'Will create a new People record'}</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">{p.personId ? 'Updating People Directory' : blockedNoVisitor ? 'No visitor record — cannot be saved' : 'Will create a new People record'}</p>
           </div>
           <button type="button" onClick={onClose} className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -236,6 +249,11 @@ function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
             </div>
           </div>
 
+          {blockedNoVisitor && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-300 rounded-lg px-3 py-2">
+              This name has no D-Light visitor record. New people enter the app only through D-Light Visitor Entry — register them there first.
+            </p>
+          )}
           {error && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
         </div>
 
@@ -245,7 +263,7 @@ function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || blockedNoVisitor}
             className="px-5 py-2 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center gap-2"
           >
             {saving && <div className="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />}
