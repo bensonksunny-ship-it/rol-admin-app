@@ -73,7 +73,8 @@ export function IncomeSectionModal({ title, monthLabel, onClose, children }) {
             <X size={18} />
           </button>
         </div>
-        <div className="flex-1 min-h-0 overflow-auto p-3 sm:p-5">{children}</div>
+        {/* Larger type than the compact grids: cells and inputs at text-sm, headings at text-xs. */}
+        <div className="flex-1 min-h-0 overflow-auto p-3 sm:p-5 [&_td]:text-sm [&_input]:text-sm [&_select]:text-sm [&_th]:text-xs [&_h3]:text-base">{children}</div>
       </div>
     </div>
   )
