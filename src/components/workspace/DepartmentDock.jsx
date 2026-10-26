@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { PenLine, LayoutGrid, Home } from 'lucide-react'
+import { PenLine, LayoutGrid, Home, Banknote } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentByName, getDepartmentIcon } from '../../constants/departments'
-import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
+import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH, isSundayCashCounter, SUNDAY_CASH_COUNT_PATH } from '../../utils/accountsEntryAccess'
 import { getDepartmentSubpages, myDepartmentNames, getDepartmentNavPath } from '../../utils/departmentSubpages'
 import DepartmentFolderModal from '../DepartmentFolderModal'
 
@@ -51,6 +51,9 @@ export default function DepartmentDock() {
 
   if (canAccessWeeklyEntryOnly(userProfile)) {
     tiles.push({ key: 'weekly-entry', label: 'Finance Assistant', to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`, Icon: PenLine, subpages: [] })
+  }
+  if (isSundayCashCounter(userProfile)) {
+    tiles.push({ key: 'cash-count', label: 'Sunday Cash Count', to: SUNDAY_CASH_COUNT_PATH, Icon: Banknote, subpages: [] })
   }
 
   // My Workspace leads the menu, same as DesktopDepartmentNav's first tile — so the

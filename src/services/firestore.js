@@ -9489,3 +9489,55 @@ export async function setUserRibbonState(uid, field, key, value) {
   if (!db || !uid || !key) return
   await setDoc(doc(db, USER_RIBBON_STATE, uid), { uid, [field]: { [key]: value }, updatedAt: serverTimestamp() }, { merge: true })
 }
+
+// ─── Sunday cash counts (offering_cash_counts/{yyyy-MM-dd}) ───────────────────
+// The Sunday Cash Counter's note-by-note count of the English / Tamil service
+// offerings. Accounts confirms a count in the Offering popup, which posts it as
+// English / Tamil Offering income; a confirmed count is read-only for the counter.
+const OFFERING_CASH_COUNTS = 'offering_cash_counts'
+
+function cashCountFromDoc(d) {
+  const data = d.data()
+  const ts = (v) => (v?.toDate ? v.toDate() : v || null)
+  return { id: d.id, ...data, submittedAt: ts(data.submittedAt), updatedAt: ts(data.updatedAt), confirmedAt: ts(data.confirmedAt) }
+}
+
+/** Live counts for one month ('yyyy-MM'). */
+export function subscribeOfferingCashCounts(monthKey, onChange, onError) {
+  if (!db || !monthKey) return () => {}
+  const q = query(collection(db, OFFERING_CASH_COUNTS), where('month', '==', monthKey))
+  return onSnapshot(q, (snap) => onChange(snap.docs.map(cashCountFromDoc)), (err) => { console.error('subscribeOfferingCashCounts', err); onError?.(err) })
+}
+
+/** Live single Sunday's count (null when none yet). */
+export function subscribeOfferingCashCount(iso, onChange, onError) {
+  if (!db || !iso) return () => {}
+  return onSnapshot(doc(db, OFFERING_CASH_COUNTS, iso), (d) => onChange(d.exists() ? cashCountFromDoc(d) : null), (err) => { console.error('subscribeOfferingCashCount', err); onError?.(err) })
+}
+
+/** Submit / update a count. data: { english, tamil, countedBy, witnessedBy, remarks, submittedBy, submittedByUid } */
+export async function saveOfferingCashCount(iso, data) {
+  if (!db || !iso) return
+  const ref = doc(db, OFFERING_CASH_COUNTS, iso)
+  const prev = await getDoc(ref)
+  await setDoc(ref, {
+    ...data,
+    date: iso,
+    month: iso.slice(0, 7),
+    status: 'submitted',
+    ...(prev.exists() ? {} : { submittedAt: serverTimestamp() }),
+    updatedAt: serverTimestamp(),
+  }, { merge: true })
+}
+
+/** Accounts: mark a count as posted to income. */
+export async function confirmOfferingCashCount(iso, by) {
+  if (!db || !iso) return
+  await updateDoc(doc(db, OFFERING_CASH_COUNTS, iso), { status: 'confirmed', confirmedBy: by || '', confirmedAt: serverTimestamp(), updatedAt: serverTimestamp() })
+}
+
+/** Accounts: send a confirmed count back to the counter for correction. */
+export async function reopenOfferingCashCount(iso) {
+  if (!db || !iso) return
+  await updateDoc(doc(db, OFFERING_CASH_COUNTS, iso), { status: 'submitted', confirmedBy: '', confirmedAt: null, updatedAt: serverTimestamp() })
+}

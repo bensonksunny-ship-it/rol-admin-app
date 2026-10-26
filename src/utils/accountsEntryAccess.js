@@ -28,3 +28,11 @@ export function canAccessAccountsEntry(userProfile, hasPermission, isFounder) {
   if (accountsRole === 'DIRECTOR' || accountsRole === 'COORDINATOR') return true
   return false
 }
+
+/** Sunday Cash Counter: the users/{uid}.cashCounter switch in User Management. Grants
+ *  only the Sunday Cash Count page — no Accounts or other department access. */
+export function isSundayCashCounter(userProfile) {
+  return userProfile?.cashCounter === true
+}
+
+export const SUNDAY_CASH_COUNT_PATH = '/sunday-cash-count'

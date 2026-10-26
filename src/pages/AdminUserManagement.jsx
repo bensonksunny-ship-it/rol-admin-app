@@ -56,6 +56,7 @@ export default function AdminUserManagement() {
     cellId: '',
     roleOverride: '',
     globalRole: '',
+    cashCounter: false,
     status: 'active',
   })
   const [error, setError] = useState('')
@@ -124,6 +125,7 @@ export default function AdminUserManagement() {
       cellId: '',
       roleOverride: '',
       globalRole: '',
+      cashCounter: false,
       status: 'active',
     })
     setError('')
@@ -149,6 +151,7 @@ export default function AdminUserManagement() {
       cellId: u.cellId || '',
       roleOverride: [ROLES.FOUNDER, ROLES.ADMIN, ROLES.SENIOR_PASTOR, ROLES.WEEKLY_ENTRY].includes(u.role) ? u.role : '',
       globalRole: u.globalRole === 'FOUNDER' ? 'FOUNDER' : '',
+      cashCounter: u.cashCounter === true,
       status: u.status || 'active',
     })
     setError('')
@@ -696,6 +699,20 @@ export default function AdminUserManagement() {
                     <p className="text-xs text-slate-500 mt-1">
                       Use this only for Founder/Admin accounts or Finance Assistant (restricted) users. Leave as Auto for normal users.
                     </p>
+                  </div>
+                  <div>
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!form.cashCounter}
+                        onChange={(e) => setForm((f) => ({ ...f, cashCounter: e.target.checked }))}
+                        className="mt-0.5 accent-emerald-600"
+                      />
+                      <span>
+                        <span className="block text-sm font-semibold text-slate-700">Sunday Cash Counter</span>
+                        <span className="block text-xs text-slate-500">Can enter the Sunday offering cash count (notes per service) for Accounts to confirm. Gives no other access.</span>
+                      </span>
+                    </label>
                   </div>
                   {isFounderGlobal && (
                     <div>

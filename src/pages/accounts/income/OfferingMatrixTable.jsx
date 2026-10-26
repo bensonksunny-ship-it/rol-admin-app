@@ -3,12 +3,12 @@ import { format } from 'date-fns'
 import { Plus, Trash2 } from 'lucide-react'
 import { ACCENT_STYLES, matchesCategory, toDate } from './incomeCategorize'
 import { GridCell, SaveStatus } from './gridKit'
-import { handleGridKeyDown, readGridPaste, parseCellDate, parseCellAmount, alignPastedDate, looksLikeDateCell, isoInMonth, isoToDisplay, fmtAmount } from './gridUtils'
+import { cellOps, mergeOps, handleGridKeyDown, readGridPaste, parseCellDate, parseCellAmount, alignPastedDate, looksLikeDateCell, isoInMonth, isoToDisplay, fmtAmount } from './gridUtils'
 import ConfirmPasteDatesDialog from './ConfirmPasteDatesDialog'
 
 const styles = ACCENT_STYLES.emerald
 
-const COLUMNS = [
+const ALL_COLUMNS = [
   { key: 'English Offering', label: 'English' },
   { key: 'Tamil Offering', label: 'Tamil' },
   { key: 'Online Offering', label: 'Online' },
@@ -24,30 +24,15 @@ function sundaysInMonth(monthDate) {
   return isos
 }
 
-// Writes that make one date × column cell hold `amount`. A cell is one entry:
-// 0 / blank clears it, and a cell that historically held several entries is
-// merged into its first one when edited.
-function cellOps(cellEntries, iso, category, amount) {
-  if (!amount) return { deletes: cellEntries.map(e => e.id) }
-  if (!cellEntries.length) return { creates: [{ date: iso, category, amount, giverName: '', towards: '' }] }
-  const [first, ...rest] = cellEntries
-  return {
-    updates: Number(first.amount) === amount ? [] : [{ id: first.id, data: { amount } }],
-    deletes: rest.map(e => e.id),
-  }
-}
-
-function mergeOps(into, ops) {
-  ;['creates', 'updates', 'deletes'].forEach(k => { if (ops[k]?.length) into[k] = [...(into[k] || []), ...ops[k]] })
-}
-
-// Offering as a flat Date × English / Tamil / Online grid — one row per date
+// Offering as a flat Date × English / Tamil / Online grid (or a subset of those
+// columns via columnKeys — the Offering popup shows Cash and Online side by side) — one row per date
 // (every Sunday of the month, plus any other date that has offerings). Every
 // cell is editable in place and saves when left (IncomePage.applyOps).
 // Roomy cells: the table opens in a full-page popup with space to spare.
 const CELL_PAD = 'px-4 py-3'
 
-export default function OfferingMatrixTable({ entries, activeMonth, saveState, onApply, onPastePlan, onError }) {
+export default function OfferingMatrixTable({ entries, activeMonth, saveState, onApply, onPastePlan, onError, columnKeys, title = 'Offering' }) {
+  const COLUMNS = columnKeys ? ALL_COLUMNS.filter(c => columnKeys.includes(c.key)) : ALL_COLUMNS
   const [extras, setExtras] = useState([]) // [{ key, iso }] — "Add row" rows; kept at the end this session
   const [live, setLive] = useState(null) // { iso, category, amount } — the cell being typed in
   const [confirm, setConfirm] = useState(null) // { lines, invalid } — paste waiting in ConfirmPasteDatesDialog
@@ -237,7 +222,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
       <div className={`px-4 py-2.5 border-b border-slate-100 ${styles.header} flex items-center justify-between gap-2`}>
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${styles.dot} shrink-0`} />
-          <h3 className="text-sm font-semibold text-slate-700">Offering</h3>
+          <h3 className="text-sm font-semibold text-slate-700">{title}</h3>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <SaveStatus state={saveState} />
@@ -246,7 +231,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
       </div>
 
       <div ref={gridRef} className="overflow-x-auto" onKeyDown={e => handleGridKeyDown(e)} onPaste={handlePaste}>
-        <table className="w-full text-xs border-collapse table-fixed min-w-[32rem]">
+        <table className={`w-full text-xs border-collapse table-fixed ${COLUMNS.length > 1 ? 'min-w-[32rem]' : ''}`}>
           <thead>
             <tr className="bg-slate-50 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               <th className="px-4 py-3 border-b border-slate-200 w-40">Date</th>

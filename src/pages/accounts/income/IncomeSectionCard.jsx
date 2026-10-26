@@ -8,7 +8,7 @@ import { fmtAmount } from './gridUtils'
 // View-only summary card for one Income section on the main grid: total, entry
 // count, latest date and an optional breakdown. Clicking anywhere on it opens the
 // section's editing table in IncomeSectionModal.
-export function IncomeSectionCard({ title, accent = 'indigo', entries, breakdown, saveState, onOpen }) {
+export function IncomeSectionCard({ title, accent = 'indigo', entries, breakdown, note, saveState, onOpen }) {
   const styles = ACCENT_STYLES[accent]
   const total = entries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
   const latest = entries.reduce((m, e) => { const d = toDate(e.date); return !m || d > m ? d : m }, null)
@@ -32,6 +32,7 @@ export function IncomeSectionCard({ title, accent = 'indigo', entries, breakdown
           {breakdown.map(b => <span key={b.label}>{b.label} <span className="font-semibold text-slate-700 tabular-nums">₹{fmtAmount(b.amount)}</span></span>)}
         </div>
       )}
+      {note && <span className="self-start text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">{note}</span>}
       <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
         <span>
           {entries.length} {entries.length === 1 ? 'entry' : 'entries'}

@@ -148,3 +148,19 @@ export function fmtAmount(n) {
   return Number(n || 0).toLocaleString('en-IN')
 }
 
+// Writes that make one date × column cell hold `amount`. A cell is one entry:
+// 0 / blank clears it, and a cell that historically held several entries is
+// merged into its first one when edited.
+export function cellOps(cellEntries, iso, category, amount) {
+  if (!amount) return { deletes: cellEntries.map(e => e.id) }
+  if (!cellEntries.length) return { creates: [{ date: iso, category, amount, giverName: '', towards: '' }] }
+  const [first, ...rest] = cellEntries
+  return {
+    updates: Number(first.amount) === amount ? [] : [{ id: first.id, data: { amount } }],
+    deletes: rest.map(e => e.id),
+  }
+}
+
+export function mergeOps(into, ops) {
+  ;['creates', 'updates', 'deletes'].forEach(k => { if (ops[k]?.length) into[k] = [...(into[k] || []), ...ops[k]] })
+}

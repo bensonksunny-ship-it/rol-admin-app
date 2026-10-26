@@ -32,6 +32,7 @@ import SundayMinistryPastor from './pages/SundayMinistryPastor'
 import SeniorPastorHub from './pages/SeniorPastorHub'
 import FirstLadyHub from './pages/FirstLadyHub'
 import EntryPage from './pages/accounts/EntryPage'
+import SundayCashCountPage from './pages/SundayCashCountPage'
 import DLightMembers from './pages/DLightMembers'
 import PeopleDirectory from './pages/PeopleDirectory'
 import WorklistSheet from './pages/WorklistSheet'
@@ -110,6 +111,7 @@ function App() {
               </Route>
               <Route path="department/:slug/pastor" element={<DepartmentPastorView />} />
               <Route path="department/:slug/pastor/updates" element={<DepartmentPastorUpdates />} />
+              <Route path="sunday-cash-count" element={<SundayCashCountPage />} />
               <Route path="sunday-ministry-pastor" element={<SundayMinistryPastor />} />
               <Route path="senior-pastor" element={<SeniorPastorHub />} />
               <Route path="first-lady" element={<FirstLadyHub />} />

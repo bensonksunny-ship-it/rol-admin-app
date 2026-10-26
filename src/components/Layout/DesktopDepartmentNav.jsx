@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
-import { PenLine } from 'lucide-react'
+import { PenLine, Banknote } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { getDepartmentByName, getDepartmentIcon, displayDeptName } from '../../constants/departments'
 import { getDepartmentSubpages, myDepartmentNames, getDepartmentNavPath } from '../../utils/departmentSubpages'
-import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH } from '../../utils/accountsEntryAccess'
+import { canAccessWeeklyEntryOnly, ACCOUNTS_ENTRY_BASE_PATH, isSundayCashCounter, SUNDAY_CASH_COUNT_PATH } from '../../utils/accountsEntryAccess'
 import { TILE_STYLES } from '../../constants/tileStyles'
 
 const MotionDiv = motion.div
@@ -113,6 +113,9 @@ export default function DesktopDepartmentNav() {
 
   if (canAccessWeeklyEntryOnly(userProfile)) {
     tiles.push({ key: 'weekly-entry', label: 'Finance Assistant', to: `${ACCOUNTS_ENTRY_BASE_PATH}/weekly`, Icon: PenLine, subpages: [] })
+  }
+  if (isSundayCashCounter(userProfile)) {
+    tiles.push({ key: 'cash-count', label: 'Sunday Cash Count', to: SUNDAY_CASH_COUNT_PATH, Icon: Banknote, subpages: [] })
   }
 
   // Departments only — My Workspace already has a fixed home in the left sidebar.

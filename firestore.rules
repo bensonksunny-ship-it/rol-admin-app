@@ -969,6 +969,20 @@ service cloud.firestore {
       return financeDataWritable(data, 'income_');
     }
 
+    // Sunday Cash Counter (users/{uid}.cashCounter == true, set in User Management):
+    // submits the Sunday offering note count. Accounts confirms it (posting it as
+    // income); once confirmed only Accounts / Founder can change it.
+    function isCashCounter() {
+      return isSignedIn() && getUserData().get('cashCounter', false) == true;
+    }
+    match /offering_cash_counts/{dateId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Accounts') ||
+        (isCashCounter() && request.resource.data.status == 'submitted' &&
+         (resource == null || resource.data.status != 'confirmed')));
+      allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Accounts'));
+    }
+
     match /finance_income/{docId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && (isFullAccess() || incomeDataWritable(request.resource.data));

@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
-import { getFinanceIncome, applyFinanceIncomeOps } from '../../services/firestore'
+import { getFinanceIncome, applyFinanceIncomeOps, subscribeOfferingCashCounts, confirmOfferingCashCount, reopenOfferingCashCount } from '../../services/firestore'
 import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
 import { unlockDocId } from '../../utils/financeEntryLock'
 import FinanceMonthLockBanner from '../../components/finance/FinanceMonthLockBanner'
@@ -13,6 +13,9 @@ import OfferingMatrixTable from './income/OfferingMatrixTable'
 import CategoryListTable from './income/CategoryListTable'
 import PasteReviewDialog from './income/PasteReviewDialog'
 import { IncomeSectionCard, IncomeSectionModal } from './income/IncomeSectionCard'
+import CashCountPanel from './income/CashCountPanel'
+import { cellOps, mergeOps, fmtAmount } from './income/gridUtils'
+import { CASH_SERVICES, serviceTotal, sundaysOfMonth } from '../../utils/cashCount'
 
 // The list-style Income sections, in page order. `categories[0]` is what new
 // rows and pasted rows are filed under; multi-category sections get a Category column.
@@ -60,7 +63,7 @@ function entryToCreate(entry) {
 }
 
 export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
-  const { userProfile, hasPermission, isFounder } = useAuth()
+  const { user, userProfile, hasPermission, isFounder } = useAuth()
   const [internalMonth, setInternalMonth] = useState(startOfMonth(new Date()))
   const activeMonth = controlledMonth || internalMonth
   // Income locks after the 10th of the next month (enforced in firestore.rules);
@@ -79,6 +82,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
   const [pasteReview, setPasteReview] = useState(null)
   // The section whose editing table is open in the popup ('offering' or a LIST_SECTIONS key).
   const [openSection, setOpenSection] = useState(null)
+  // Sunday Cash Counter submissions for the month (offering_cash_counts).
+  const [cashCounts, setCashCounts] = useState([])
+  const [cashBusy, setCashBusy] = useState(null) // date being confirmed / reopened
 
   const entriesRef = useRef(entries)
   entriesRef.current = entries
@@ -97,6 +103,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
     undoStackRef.current = []
     load()
   }, [activeMonth, canAccess])
+
+  const countMonthKey = format(activeMonth, 'yyyy-MM')
+  useEffect(() => (canAccess ? subscribeOfferingCashCounts(countMonthKey, setCashCounts) : undefined), [countMonthKey, canAccess])
 
   // Ctrl+Z / Cmd+Z inside the Income tab reverts the most recent saved edit, paste
   // or delete (LIFO across sections). A cell being typed in keeps the browser's own
@@ -149,8 +158,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
   // The change shows immediately (creates under a temporary id — `_key` when the
   // grid supplies one, so its row isn't remounted), then one atomic batch saves
   // it. A failed save reloads the month so nothing looks saved that isn't.
+  // Returns a promise of whether the save went through.
   function applyOps(section, ops, { label, undoable = true } = {}) {
-    if (!hasOps(ops)) return
+    if (!hasOps(ops)) return Promise.resolve(true)
     const title = SECTION_TITLES[section] || 'Income'
     const updates = ops.updates || []
     const deletes = ops.deletes || []
@@ -204,6 +214,7 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
         if (label) showToast(label)
         setJustSaved(s => ({ ...s, [section]: Date.now() }))
         setTimeout(() => setJustSaved(s => (Date.now() - (s[section] || 0) >= 1900 ? { ...s, [section]: 0 } : s)), 2000)
+        return true
       } catch (err) {
         console.error(`Failed to save ${title} income:`, err)
         showToast(
@@ -213,10 +224,45 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
           'error'
         )
         await load()
+        return false
       } finally {
         setBusy(b => ({ ...b, [section]: Math.max(0, (b[section] || 0) - 1) }))
       }
     })
+    return opChainRef.current
+  }
+
+  // Posts a Sunday cash count as that date's English / Tamil Offering (replacing
+  // what's there), then marks the count confirmed.
+  async function confirmCashCount(count) {
+    const iso = count.date
+    const day = isoToLocalDate(iso).toLocaleDateString('en-GB')
+    const ops = {}
+    const changes = []
+    CASH_SERVICES.forEach(s => {
+      const cell = entriesRef.current.filter(e => entryField(e, 'date') === iso && matchesCategory(e, s.category))
+      const now = cell.reduce((t, e) => t + (Number(e.amount) || 0), 0)
+      const counted = serviceTotal(count, s.key)
+      if (now && now !== counted) changes.push(`${s.category}: ₹${fmtAmount(now)} → ₹${fmtAmount(counted)}`)
+      mergeOps(ops, cellOps(cell, iso, s.category, counted))
+    })
+    if (changes.length && !window.confirm(`This replaces amounts already entered for ${day}:\n\n${changes.join('\n')}\n\nPost the cash count?`)) return
+    setCashBusy(iso)
+    try {
+      const ok = await applyOps('offering', ops, { label: `Offering: cash count for ${day} posted — Ctrl+Z to undo` })
+      if (ok) await confirmOfferingCashCount(iso, userProfile?.name || user?.email || '')
+    } catch (err) {
+      console.error('confirmCashCount', err)
+      showToast('Posted to income, but the count could not be marked confirmed. Please try again.', 'error')
+    }
+    setCashBusy(null)
+  }
+
+  async function reopenCashCount(count) {
+    if (!window.confirm('Reopen this count so the Cash Counter can correct it? The amounts already posted to income stay until you confirm again.')) return
+    setCashBusy(count.date)
+    try { await reopenOfferingCashCount(count.date) } catch (err) { console.error(err); showToast('Could not reopen the count.', 'error') }
+    setCashBusy(null)
   }
 
   function handleUndo() {
@@ -275,6 +321,7 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
   const categorized = categorizeEntries(entries)
   const offeringEntries = [...categorized.englishOffering, ...categorized.tamilOffering, ...categorized.onlineOffering]
   const monthKey = format(activeMonth, 'yyyy-MM')
+  const pendingCounts = cashCounts.filter(c => c.status !== 'confirmed').length
 
   function gridProps(section) {
     return {
@@ -372,6 +419,7 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
             { label: 'Online', amount: sumOf(categorized.onlineOffering) },
           ]}
           saveState={gridProps('offering').saveState}
+          note={pendingCounts ? `${pendingCounts} cash ${pendingCounts === 1 ? 'count' : 'counts'} to confirm` : ''}
           onOpen={() => setOpenSection('offering')}
         />
         {LIST_SECTIONS.map(s => (
@@ -391,7 +439,29 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
         <IncomeSectionModal title={SECTION_TITLES[openSection]} monthLabel={format(activeMonth, 'MMMM yyyy')} onClose={() => setOpenSection(null)}>
           {/* Keyed by month so grid-local state (unsaved new rows, row order) starts fresh. */}
           {openSection === 'offering'
-            ? <OfferingMatrixTable key={`offering-${monthKey}`} entries={offeringEntries} {...gridProps('offering')} />
+            ? (
+              // Cash (the counter's Sunday counts + English / Tamil ledger) beside Online.
+              <div className="grid gap-5 lg:grid-cols-[3fr_2fr] items-start">
+                <section className="space-y-4 min-w-0">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Cash Offering</h4>
+                  <CashCountPanel
+                    counts={cashCounts}
+                    sundays={sundaysOfMonth(activeMonth)}
+                    entries={offeringEntries}
+                    busyIso={cashBusy}
+                    onConfirm={confirmCashCount}
+                    onReopen={reopenCashCount}
+                  />
+                  <OfferingMatrixTable key={`offering-cash-${monthKey}`} title="Cash Offering (English / Tamil)" columnKeys={['English Offering', 'Tamil Offering']}
+                    entries={[...categorized.englishOffering, ...categorized.tamilOffering]} {...gridProps('offering')} />
+                </section>
+                <section className="space-y-4 min-w-0">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Online Offering</h4>
+                  <OfferingMatrixTable key={`offering-online-${monthKey}`} title="Online Offering (UPI / Bank)" columnKeys={['Online Offering']}
+                    entries={categorized.onlineOffering} {...gridProps('offering')} />
+                </section>
+              </div>
+            )
             : LIST_SECTIONS.filter(s => s.key === openSection).map(s => (
               <CategoryListTable
                 key={`${s.key}-${monthKey}`}
