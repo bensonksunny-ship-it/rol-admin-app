@@ -12,7 +12,7 @@ import SundayPlanBubble from '../SundayPlanBubble'
 // useActionNotifications); messages get their own independent useDirectMessages
 // instance, same pattern as the rail. The profile avatar lives in the sidebar rail
 // now, not here.
-export default function WorkspaceHeader({ notifications, onNotifAction, onDismissNotification, onAddNotificationToTodo }) {
+export default function WorkspaceHeader({ notifications, onNotifAction, onDismissNotification }) {
   const { user, userProfile } = useAuth()
 
   const [notifOpen, setNotifOpen] = useState(false)
@@ -69,7 +69,8 @@ export default function WorkspaceHeader({ notifications, onNotifAction, onDismis
         {notifOpen && (() => {
           const r = notifRef.current?.getBoundingClientRect()
           return <NotifPanel isDay notifications={notifications} onAction={(n) => { setNotifOpen(false); onNotifAction(n) }}
-            onAddToTodo={onAddNotificationToTodo} onDismiss={onDismissNotification} onClose={() => setNotifOpen(false)}
+            // No "Add to To-Do": the dashboard no longer shows a To-Do list.
+            onDismiss={onDismissNotification} onClose={() => setNotifOpen(false)}
             posStyle={{ top: (r?.bottom ?? 60) + 8, left: (r?.right ?? window.innerWidth) - 384 }} />
         })()}
       </div>

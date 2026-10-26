@@ -75,7 +75,7 @@ export default function MyWorkspace() {
     || (userProfile?.departments || []).includes('First Lady')
   const showPipeline = canCaring || canPastor || isFirstLady || isCellDirector
   const {
-    notifications, handleNotifAction, dismissNotification, addNotificationToTodo,
+    notifications, handleNotifAction, dismissNotification,
   } = useOutletContext()
   const hello = useGreeting()
   const firstName = firstNameOf(userProfile, user)
@@ -84,29 +84,22 @@ export default function MyWorkspace() {
     email: userProfile?.email || user?.email || '',
     myName: userProfile?.displayName || userProfile?.email || '',
   }
-  // Request ribbons addressed to this account (each renders nothing when empty):
-  // department-disapproved expenses (Accounts Director), Stage 5 cell leader
-  // reviews, Deacon interview invitations, and applicants' Baptism Self-Declaration requests.
-  const addressedRibbons = (
-    <>
-      <FinanceUnlockRequestRibbon {...ids} />
-      <ExpenseDisputeRibbon {...ids} />
-      <CellLeaderApprovalRibbon {...ids} />
-      <BaptismSignoffRibbon {...ids} />
-      <DeaconInterviewRibbon {...ids} />
-      <DeclarationRequestRibbon {...ids} />
-    </>
-  )
   // Every notification / action ribbon, one below the other in a single column
-  // (each renders nothing when it has nothing). The To-Do card is no longer shown.
+  // (each renders nothing when it has nothing): blue ones first, yellow below.
+  // The To-Do card is no longer shown.
   const ribbons = (
     <div className="flex flex-col gap-2 empty:hidden [&>*]:my-0">
+      {/* Blue */}
       <DepartmentAlertRibbons />
-      {/* Accounts team only (renders nothing for anyone else). */}
+      <CellLeaderApprovalRibbon {...ids} />
+      <DeaconInterviewRibbon {...ids} />
+      <DeclarationRequestRibbon {...ids} />
+      {/* Yellow: Accounts expenses (Accounts team only), To-Do ribbons (cell
+          assignment inputs, PCS hand-offs, …), unlock requests, expense disputes. */}
       {!isFounder && <AccountsExpenseApprovalRibbon />}
-      {/* Yellow To-Do ribbons (cell assignment inputs, PCS hand-offs, …). */}
       <TodoAlertRibbons />
-      {addressedRibbons}
+      <FinanceUnlockRequestRibbon {...ids} />
+      <ExpenseDisputeRibbon {...ids} />
     </div>
   )
   const pipeline = showPipeline && (
@@ -137,7 +130,6 @@ export default function MyWorkspace() {
             notifications={notifications}
             onNotifAction={handleNotifAction}
             onDismissNotification={dismissNotification}
-            onAddNotificationToTodo={addNotificationToTodo}
           />
         </div>
       </div>
