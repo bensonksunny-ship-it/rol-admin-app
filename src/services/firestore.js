@@ -2648,6 +2648,7 @@ export async function getAllCellGroupMembers() {
     status: d.data().status === 'inactive' ? 'inactive' : 'active',
     memberCategory: d.data().memberCategory || '',
     attendanceCountAtExit: Number.isFinite(d.data().attendanceCountAtExit) ? d.data().attendanceCountAtExit : null,
+    mergedInto: d.data().mergedInto || '',
   }))
 }
 
@@ -3474,6 +3475,7 @@ export async function getDelightVisitors() {
       onlyVisit: !!data.onlyVisit,
       isArchived: !!data.isArchived,
       flaggedForReview: !!data.flaggedForReview,
+      mergedInto: data.mergedInto || '',
       createdAt: toDate(data.createdAt),
       createdBy: data.createdBy || '',
     }
@@ -3566,6 +3568,8 @@ function mapPCSDoc(d) {
   return {
     id: d.id,
     visitorId: data.visitorId || '',
+    // The People record this PCS entry belongs to — the directory links them by it.
+    personId: data.personId || '',
     name: data.name || '',
     phone: data.phone || '',
     email: data.email || '',
@@ -3886,6 +3890,7 @@ export async function addPCSEntry(data) {
   const ref = doc(db, CARING_PCS_COLLECTION, `v_${data.visitorId}`)
   const payload = {
     visitorId: data.visitorId || '',
+    personId: data.personId || '',
     name: data.name || '',
     phone: data.phone || '',
     email: data.email || '',
@@ -3927,6 +3932,8 @@ export async function updatePCSEntry(id, data) {
   if (data.currentPlace !== undefined) payload.currentPlace = String(data.currentPlace)
   if (data.serviceAttended !== undefined) payload.serviceAttended = String(data.serviceAttended)
   if (data.howKnown !== undefined) payload.howKnown = String(data.howKnown)
+  // Was missing, so every "link this PCS entry to its People record" write was dropped.
+  if (data.personId !== undefined) payload.personId = String(data.personId || '')
   if (data.attendedDate !== undefined) payload.attendedDate = String(data.attendedDate).slice(0, 10)
   if (data.year !== undefined) payload.year = data.year ? Number(data.year) : null
   if (data.membershipNumber !== undefined) payload.membershipNumber = String(data.membershipNumber)
@@ -6841,7 +6848,12 @@ export async function getMergedPeopleDirectory() {
   // Last-resort match for records with no personId/visitorId/phone at all (e.g. a
   // cell member added by typing just a name) — better than silently dropping them.
   const byName = {}
+  // Records folded into another profile by the duplicate-merge tool. They get no card
+  // of their own; anything still pointing at them attaches to the surviving profile.
+  const mergedPeople = []
+  const mergedVisitors = []
   people.forEach(p => {
+    if (p.mergedInto || p.mergedIntoVisitorId) { mergedPeople.push(p); return }
     const entry = {
       _key: p.id,
       personId: p.id,
@@ -6860,6 +6872,7 @@ export async function getMergedPeopleDirectory() {
       membershipNumber: p.membershipNumber || '',
       leadershipPosition: p.leadershipPosition || '',
       ministries: p.ministries || [],
+      aliases: p.aliases || [],
       stage: p.stage || 'visitor',
       cells: [],
       pcs: null,
@@ -6876,14 +6889,14 @@ export async function getMergedPeopleDirectory() {
     if (nk && !byName[nk]) byName[nk] = entry
   })
 
-  // Attach PCS entries (match by personId, fall back to unlinked)
+  // Attach PCS entries (match by personId — following a merged-away People record to
+  // the one it was merged into — else fall back to unlinked, matched by phone below).
+  const mergedPersonTo = Object.fromEntries(mergedPeople.map(p => [p.id, p.mergedInto]))
   const unlinked = []
   pcsEntries.forEach(p => {
-    if (p.personId && byId[p.personId]) {
-      byId[p.personId].pcs = p
-    } else if (!p.personId) {
-      unlinked.push(p)
-    }
+    const owner = p.personId && (byId[p.personId] || byId[mergedPersonTo[p.personId]])
+    if (owner && !owner.pcs) owner.pcs = p
+    else unlinked.push(p)
   })
 
   // Start merged from people collection entries
@@ -6892,7 +6905,9 @@ export async function getMergedPeopleDirectory() {
   // Unlinked PCS entries (no personId yet — legacy records)
   unlinked.forEach(p => {
     const phone = (p.phone || '').replace(/\s+/g, '')
-    if (phone && byPhone[phone]) {
+    // Never replace a PCS entry already attached (by personId, or a spouse sharing the
+    // phone) — this one then gets its own card instead of silently vanishing.
+    if (phone && byPhone[phone] && !byPhone[phone].pcs) {
       byPhone[phone].pcs = p
       return
     }
@@ -6932,14 +6947,23 @@ export async function getMergedPeopleDirectory() {
 
   // D-Light visitors — process BEFORE cell/dept/worship attachment so we can build byVisitorId
   const byVisitorId = {}
+  // A People record or PCS entry that names its visitor record explicitly owns it —
+  // checked before the phone fallback, so a visitor with no (or a different) phone
+  // doesn't become a second card for the same person (e.g. after a duplicate merge).
+  merged.forEach(e => {
+    ;[e._origin?.visitorId, e.pcs?.visitorId, ...(e.pcs?.mergedVisitorIds || [])]
+      .filter(Boolean)
+      .forEach(vid => { if (!byVisitorId[vid]) byVisitorId[vid] = e })
+  })
   visitors.forEach(v => {
+    if (v.mergedInto) { mergedVisitors.push(v); return }
     const phone = (v.phone || '').replace(/\s+/g, '')
-    if (phone && byPhone[phone]) {
-      const existing = byPhone[phone]
+    const existing = byVisitorId[v.id] || (phone && byPhone[phone])
+    if (existing) {
       if (!existing.attendedDate && v.attendedDate) existing.attendedDate = v.attendedDate
       if (!existing.serviceAttended && v.serviceAttended) existing.serviceAttended = v.serviceAttended
       if (!existing.howKnown && v.howKnown) existing.howKnown = v.howKnown
-      existing._visitorIds.push(v.id)
+      if (!existing._visitorIds.includes(v.id)) existing._visitorIds.push(v.id)
       byVisitorId[v.id] = existing
       return
     }
@@ -6977,6 +7001,9 @@ export async function getMergedPeopleDirectory() {
     const nk = nameKey(entry.name)
     if (nk && !byName[nk]) byName[nk] = entry
   })
+
+  mergedVisitors.forEach(v => { const t = byVisitorId[v.mergedInto]; if (t) { byVisitorId[v.id] = t; t._visitorIds.push(v.id) } })
+  mergedPeople.forEach(p => { const t = byVisitorId[p.mergedIntoVisitorId] || byId[p.mergedInto]; if (t) byId[p.id] = t })
 
   // Match a cell/dept/worship team record to an existing merged entry (personId →
   // visitorId → phone → name, in order of reliability) or, failing all of those,
@@ -7033,6 +7060,7 @@ export async function getMergedPeopleDirectory() {
 
   // Attach cell memberships
   cellMembers.forEach(m => {
+    if (m.mergedInto) return
     const entry = attachTeamRecord(m, { source: 'cell-member' })
     if (!entry) return
     const cell = cellById[m.cellId]
@@ -9250,6 +9278,298 @@ export async function mergePCSEntries(masterId, duplicateIds, mergedBy = '') {
     deleteDoc(doc(db, PCS_LOOKUP_COLLECTION, id)).catch(() => {})
   }
   return { moved, archived: dupIds.length }
+}
+
+// ─── People Directory duplicate merge (TEMPORARY tool) ────────────────────────
+// Backs components/people/DuplicateFinder.jsx (Founder-only). Folds duplicate
+// directory entries (see getMergedPeopleDirectory) into one master profile that has
+// a D-Light visitor record (visitor-first rule). Nothing is hard-deleted by a merge:
+//  • the master gets one People record (adopting a duplicate's, or created), with
+//    blanks filled from the duplicates;
+//  • duplicate People / visitor records are stamped mergedInto (the directory then
+//    skips them and routes anything that pointed at them to the master);
+//  • PCS entries are merged with mergePCSEntries, or re-linked if the master had none;
+//  • cell roster rows are renamed + relinked; a second row in the SAME cell is
+//    archived (inactive, mergedInto) and its meeting attendance moved to the kept row;
+//  • department / worship team rows are renamed + relinked;
+//  • Sunday report name lists (not Others — those are unidentified) rename the given
+//    alias names to the master's, and per-person Sunday records are re-pointed.
+const SUNDAY_NAME_LIST_FIELDS = ['nonCell', 'newComers', 'pastoralAttendees', 'secondWeekAttendeesNames', 'thirdWeekAttendeesNames', 'fourthWeekAttendeesNames']
+const SUNDAY_NAME_MAP_FIELDS = ['sundayCellAttendance', 'sundayCellAway']
+const nameNorm = (n) => String(n || '').trim().toLowerCase().replace(/\s+/g, ' ')
+
+/** The D-Light visitor record behind a directory entry, if any. The PCS entry's own
+ *  visitorId comes first: PCS profile details (member_profiles), photo and
+ *  applications are keyed on it, so the merged profile must keep that one. */
+export function directoryEntryVisitorId(e) {
+  return e?.pcs?.visitorId || e?._visitorIds?.[0] ||
+    e?.cells?.find((c) => c.visitorId)?.visitorId ||
+    e?.deptTeams?.find((t) => t.visitorId)?.visitorId ||
+    e?.worshipTeams?.find((t) => t.visitorId)?.visitorId || ''
+}
+
+/** Replace alias names with toName in one name list; null when nothing changed. */
+function renameInList(arr, fromNorms, toName) {
+  if (!Array.isArray(arr)) return null
+  const toKey = nameNorm(toName)
+  let changed = false
+  let haveTo = false
+  const out = []
+  for (const n of arr) {
+    const k = nameNorm(n)
+    const isAlias = fromNorms.has(k)
+    if (isAlias || k === toKey) {
+      if (isAlias) changed = true
+      if (haveTo) { changed = true; continue } // same person listed twice — keep one
+      haveTo = true
+      out.push(isAlias ? toName : n)
+    } else out.push(n)
+  }
+  return changed ? out : null
+}
+
+async function rewriteSundayReportNames(fromNorms, toName) {
+  if (!fromNorms.size) return 0
+  const snap = await getDocs(collection(db, SUNDAY_REPORTS_COLLECTION))
+  let touched = 0
+  for (const d of snap.docs) {
+    const data = d.data()
+    const patch = {}
+    SUNDAY_NAME_LIST_FIELDS.forEach((f) => { const next = renameInList(data[f], fromNorms, toName); if (next) patch[f] = next })
+    SUNDAY_NAME_MAP_FIELDS.forEach((f) => {
+      Object.entries(data[f] || {}).forEach(([cellId, arr]) => {
+        const next = renameInList(arr, fromNorms, toName)
+        if (next) patch[`${f}.${cellId}`] = next
+      })
+    })
+    // An Others name an older report linked to this person (identified) — rename it too.
+    const linked = data.othersLinked || {}
+    const linkedAliases = (data.others || []).filter((n) => fromNorms.has(nameNorm(n)) && linked[String(n).trim().toLowerCase()])
+    if (linkedAliases.length) {
+      const next = renameInList(data.others, new Set(linkedAliases.map(nameNorm)), toName)
+      if (next) {
+        patch.others = next
+        const nextLinked = { ...linked }
+        linkedAliases.forEach((n) => {
+          const k = String(n).trim().toLowerCase()
+          nextLinked[nameNorm(toName)] = nextLinked[k]
+          delete nextLinked[k]
+        })
+        patch.othersLinked = nextLinked
+      }
+    }
+    if (Object.keys(patch).length) { await updateDoc(d.ref, patch); touched++ }
+  }
+  return touched
+}
+
+/** Move one roster row's cell-meeting attendance to another row of the same cell. */
+async function moveCellRowAttendance(cellId, fromRowId, toRowId, name) {
+  const reports = await getDocs(query(collection(db, CELL_REPORTS_COLLECTION), where('cellId', '==', cellId)))
+  let touched = 0
+  for (const r of reports.docs) {
+    const att = await getDocs(cellReportAttendeesRef(r.id))
+    const from = att.docs.filter((a) => a.data().memberId === fromRowId)
+    if (!from.length) continue
+    const hasTo = fromRowId !== toRowId && att.docs.some((a) => a.data().memberId === toRowId)
+    for (const a of from) {
+      if (hasTo) await deleteDoc(a.ref) // already counted under the kept row
+      else await updateDoc(a.ref, { memberId: toRowId, name })
+    }
+    if (hasTo) await updateDoc(r.ref, { membersAttended: att.docs.length - from.length })
+    touched++
+  }
+  if (fromRowId !== toRowId) {
+    const svc = await getDocs(query(collection(db, SUNDAY_SVC_ATTENDANCE), where('cellId', '==', cellId)))
+    for (const d of svc.docs) {
+      const ids = d.data().presentIds || []
+      if (!ids.includes(fromRowId)) continue
+      await updateDoc(d.ref, { presentIds: [...new Set(ids.map((x) => (x === fromRowId ? toRowId : x)))] })
+    }
+  }
+  return touched
+}
+
+/**
+ * Merge duplicate directory entries into `master`. `renameNames` = alias names whose
+ * Sunday attendance should be credited to the master (the caller leaves out names
+ * another, unrelated person also uses). `onProgress(text)` reports each step.
+ */
+export async function mergeDirectoryProfiles({ master, duplicates, cellGroups = [], renameNames = [], by = '', onProgress = () => {} }) {
+  if (!db || !master || !duplicates?.length) throw new Error('Nothing to merge')
+  // The kept profile's visitor record — its own, else one a duplicate brings. Long-time
+  // members often predate Visitor Entry and have none at all; merging existing records
+  // adds no new name, so that's allowed (MV stays '' and nothing is keyed on it).
+  const MV = directoryEntryVisitorId(master) || duplicates.map(directoryEntryVisitorId).find(Boolean) || ''
+  const name = String(master.name || '').trim()
+  const stamp = { mergedAt: Timestamp.now(), mergedBy: by || 'unknown' }
+  const blank = (v) => v === undefined || v === null || String(v).trim() === ''
+  const result = { people: 0, visitors: 0, pcs: 0, cellRows: 0, teamRows: 0, cellReports: 0, sundayReports: 0, sundayRecords: 0 }
+
+  // 1. One People record for the master. Every blank field is filled from the
+  //    duplicates (their own People docs first, then what the directory shows),
+  //    ministries are combined, and each old spelling is kept in `aliases`.
+  onProgress('Master profile…')
+  let MP = master.personId || ''
+  const adopted = !MP ? duplicates.find((d) => d.personId) : null
+  if (adopted) MP = adopted.personId
+  const masterDoc = MP ? (await getPerson(MP)) || {} : {}
+  const dupDocs = (await Promise.all(duplicates.filter((d) => d.personId && d.personId !== MP).map((d) => getPerson(d.personId)))).filter(Boolean)
+  const ENTRY_TO_PERSON = { phone: 'phone', email: 'email', dob: 'dob', nativity: 'nativity', currentPlace: 'currentPlace',
+    attendedDate: 'firstVisitDate', serviceAttended: 'serviceAttended', howKnown: 'howKnown', baptised: 'baptised',
+    maritalStatus: 'maritalStatus', membershipStatus: 'membershipStatus', membershipNumber: 'membershipNumber', leadershipPosition: 'leadershipPosition' }
+  const sources = [
+    ...dupDocs,
+    ...duplicates.map((d) => Object.fromEntries(Object.entries(ENTRY_TO_PERSON).map(([from, to]) => [to, d[from]]))),
+  ]
+  const masterHas = { ...Object.fromEntries(Object.entries(ENTRY_TO_PERSON).map(([from, to]) => [to, master[from]])), ...masterDoc }
+  const fill = {}
+  PERSON_FIELDS.forEach((k) => {
+    if (['name', 'stage', 'visitorId', 'ministries'].includes(k)) return
+    if (!blank(masterHas[k])) return
+    const src = sources.find((x) => !blank(x?.[k]))
+    if (src) fill[k] = src[k]
+  })
+  const ministries = [...(masterDoc.ministries || master.ministries || [])]
+  sources.forEach((x) => (Array.isArray(x?.ministries) ? x.ministries : []).forEach((m) => {
+    const key = String(m?.ministry || m || '').toLowerCase()
+    if (key && !ministries.some((y) => String(y?.ministry || y || '').toLowerCase() === key)) ministries.push(m)
+  }))
+  if (ministries.length) fill.ministries = ministries
+  const aliases = [...new Set([
+    ...(masterDoc.aliases || []),
+    master.pcs?.name, ...(master.cells || []).map((c) => c.name),
+    ...duplicates.flatMap((d) => [d.name, d.pcs?.name, ...(d.cells || []).map((c) => c.name), ...(d.deptTeams || []).map((t) => t.name), ...(d.worshipTeams || []).map((t) => t.name)]),
+    ...dupDocs.flatMap((x) => x.aliases || []),
+  ].map((n) => String(n || '').trim()).filter((n) => n && nameNorm(n) !== nameNorm(name)))]
+  const withVid = (o) => (MV ? { ...o, visitorId: MV } : o) // never blank out an existing link
+  if (MP) {
+    await updateDoc(doc(db, PEOPLE_COLLECTION, MP), withVid({
+      ...plain(fill), name, aliases, mergedInto: deleteField(), mergedIntoVisitorId: deleteField(),
+      lastUpdatedAt: serverTimestamp(), lastUpdatedBy: by,
+    }))
+  } else if (MV) {
+    MP = await addPerson({
+      name, phone: master.phone || '', email: master.email || '', dob: master.dob || '', nativity: master.nativity || '',
+      currentPlace: master.currentPlace || '', firstVisitDate: master.attendedDate || '', serviceAttended: master.serviceAttended || '',
+      howKnown: master.howKnown || '', ...plain(fill), visitorId: MV, createdSource: 'merge',
+    }, by)
+    await updateDoc(doc(db, PEOPLE_COLLECTION, MP), { aliases })
+  }
+
+  const masterRows = new Map((master.cells || []).filter((c) => c.status !== 'inactive').map((c) => [c.cellId, c]))
+  let masterPcsId = master.pcs?.id || ''
+  const dupIds = new Set()
+  for (const d of duplicates) {
+    onProgress(`Merging ${d.name || 'record'}…`)
+    if (d.personId) dupIds.add(d.personId)
+    ;(d._visitorIds || []).forEach((v) => dupIds.add(v))
+    ;(d.cells || []).forEach((c) => dupIds.add(c.id))
+
+    if (d.personId && d.personId !== MP) {
+      await updateDoc(doc(db, PEOPLE_COLLECTION, d.personId), { mergedInto: MP, mergedIntoVisitorId: MV, ...stamp })
+      result.people++
+    }
+    for (const vid of d._visitorIds || []) {
+      if (vid === MV) continue // MV is set whenever any duplicate has a visitor record
+      await updateDoc(doc(db, DELIGHT_VISITORS_COLLECTION, vid), { mergedInto: MV, isArchived: true, ...stamp })
+      result.visitors++
+    }
+    if (d.pcs?.id && d.pcs.id !== masterPcsId) {
+      if (masterPcsId) await mergePCSEntries(masterPcsId, [d.pcs.id], by)
+      else { await updatePCSEntry(d.pcs.id, withVid({ personId: MP, name })); masterPcsId = d.pcs.id }
+      result.pcs++
+    }
+    for (const c of d.cells || []) {
+      const rowRef = doc(db, CELL_GROUPS_COLLECTION, c.cellId, 'members', c.id)
+      const keep = masterRows.get(c.cellId)
+      if (keep && keep.id !== c.id) {
+        const [fromSnap, keepSnap] = await Promise.all([getDoc(rowRef), getDoc(doc(db, CELL_GROUPS_COLLECTION, c.cellId, 'members', keep.id))])
+        const from = fromSnap.data() || {}, kept = keepSnap.data() || {}
+        const rowFill = {}
+        ;['phone', 'email', 'birthday', 'anniversary', 'locality', 'address', 'occupation', 'role', 'notes'].forEach((k) => {
+          if (blank(kept[k]) && !blank(from[k])) rowFill[k] = from[k]
+        })
+        if (!blank(from.since) && (blank(kept.since) || String(from.since) < String(kept.since))) rowFill.since = from.since // earliest join date
+        if (Object.keys(rowFill).length) await updateDoc(keepSnap.ref, rowFill)
+        await updateDoc(rowRef, { status: 'inactive', mergedInto: keep.id, ...stamp })
+        result.cellReports += await moveCellRowAttendance(c.cellId, c.id, keep.id, name)
+      } else {
+        await updateDoc(rowRef, withVid({ name }))
+        result.cellReports += await moveCellRowAttendance(c.cellId, c.id, c.id, name)
+        if (!keep && c.status !== 'inactive') masterRows.set(c.cellId, c)
+      }
+      result.cellRows++
+    }
+    for (const t of d.deptTeams || []) {
+      await updateDoc(doc(db, 'department_team_members', t.id), withVid({ name, ...(MP ? { personId: MP } : {}) }))
+      result.teamRows++
+    }
+    for (const t of d.worshipTeams || []) {
+      await updateDoc(doc(db, 'worship_team_members', t.id), withVid({ name, ...(MP ? { personId: MP } : {}) }))
+      result.teamRows++
+    }
+  }
+  onProgress('Profile details…')
+  const dupVisitorIds = [...new Set(duplicates.flatMap((d) => [...(d._visitorIds || []), d.pcs?.visitorId]).filter((v) => v && v !== MV))]
+  if (MV && dupVisitorIds.length) {
+    const masterProfile = (await getMemberProfile(MV).catch(() => null)) || {}
+    const profFill = {}
+    for (const vid of dupVisitorIds) {
+      const prof = await getMemberProfile(vid).catch(() => null)
+      if (!prof) continue
+      ;[...MEMBER_PROFILE_FILL_FIELDS, 'fatherName', 'motherName', 'ministryNotes', 'isFirstChurch'].forEach((k) => {
+        if (blank(profFill[k] ?? masterProfile[k]) && !blank(prof[k])) profFill[k] = prof[k]
+      })
+      ;['children', 'parents', 'ministryHistory', 'membershipDocs'].forEach((k) => {
+        if (!(masterProfile[k] || []).length && (prof[k] || []).length && !profFill[k]) profFill[k] = prof[k]
+      })
+    }
+    if (Object.keys(profFill).length) await upsertMemberProfile(MV, profFill, by)
+  }
+
+  // Master's own roster/team rows: make sure they carry the master's name + ids.
+  for (const c of master.cells || []) {
+    if (c.name !== name || (MV && c.visitorId !== MV)) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, c.cellId, 'members', c.id), withVid({ name }))
+  }
+  // PCS matches Sunday / cell attendance by its own name, the roster name and the
+  // visitorId — all three now point at the kept profile.
+  if (masterPcsId) await updatePCSEntry(masterPcsId, withVid({ name, ...(MP ? { personId: MP } : {}) }))
+
+  // Cell groups led by a duplicate record now name the master as leader.
+  for (const g of cellGroups) {
+    if (g.leaderPersonId && dupIds.has(g.leaderPersonId)) {
+      await updateDoc(doc(db, CELL_GROUPS_COLLECTION, g.id), { leader: name, leaderPersonId: MP || MV || g.leaderPersonId })
+    }
+  }
+
+  // 2. Sunday history.
+  onProgress('Sunday reports…')
+  const fromNorms = new Set(renameNames.map(nameNorm).filter((k) => k && k !== nameNorm(name)))
+  result.sundayReports = await rewriteSundayReportNames(fromNorms, name)
+  for (const id of dupIds) {
+    for (const field of ['personId', 'visitorId']) {
+      const snap = await getDocs(query(collection(db, PERSON_SUNDAY_ATTENDANCE_COLLECTION), where(field, '==', id))).catch(() => null)
+      for (const d of snap?.docs || []) {
+        await updateDoc(d.ref, withVid({ name, ...(MP ? { personId: MP } : {}) }))
+        result.sundayRecords++
+      }
+    }
+  }
+  return result
+}
+
+/**
+ * Delete a directory entry that is only an empty duplicate: its People and/or visitor
+ * records, when nothing else (PCS, cell roster, teams) hangs off it.
+ */
+export async function deleteDirectoryProfile(entry) {
+  if (!db || !entry) return
+  if (entry.pcs || entry.cells?.length || entry.deptTeams?.length || entry.worshipTeams?.length) {
+    throw new Error('This profile has PCS, cell or team records — merge it instead of deleting.')
+  }
+  if (entry.personId) await deleteDoc(doc(db, PEOPLE_COLLECTION, entry.personId))
+  for (const vid of entry._visitorIds || []) await deleteDoc(doc(db, DELIGHT_VISITORS_COLLECTION, vid))
 }
 
 /**

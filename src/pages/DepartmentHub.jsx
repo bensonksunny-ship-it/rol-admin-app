@@ -222,6 +222,7 @@ import { DirectorBoardPage, SundayLeaderTab, SecCoreAnalyticsHub } from './secco
 import SundayPrepTracker from '../components/SundayPrepTracker'
 import BackButton from '../components/BackButton'
 import DateInput from '../components/DateInput'
+import CellDetailsModal from '../components/cell/CellDetailsModal'
 
 async function mergeTasksEntriesTeam(canonicalName) {
   const alt = LEGACY_DEPARTMENT_NAMES[canonicalName] || []
@@ -736,6 +737,8 @@ export default function DepartmentHub() {
   const [cellGroups, setCellGroups] = useState([])
   const [loadingCellGroups, setLoadingCellGroups] = useState(false)
   const [expandedCellId, setExpandedCellId] = useState(null)
+  // Cell Groups tab: the cell whose details popup is open (CellDetailsModal).
+  const [detailsCellId, setDetailsCellId] = useState(null)
   const [cellMembers, setCellMembers] = useState([])
   const [loadingCellMembers, setLoadingCellMembers] = useState(false)
   const [allCellMembers, setAllCellMembers] = useState([])
@@ -13366,6 +13369,18 @@ export default function DepartmentHub() {
 
           {activeTab === 'cellGroups' && slug === 'cell' && (
             <div className="space-y-6">
+              {detailsCellId && (() => {
+                const c = cellGroups.find((g) => g.id === detailsCellId)
+                if (!c) return null
+                return (
+                  <CellDetailsModal
+                    cell={c}
+                    members={allCellMembers.filter((m) => m.cellId === c.id && m.status !== 'inactive' && m.memberCategory !== 'former')}
+                    onClose={() => setDetailsCellId(null)}
+                    onManage={() => { setDetailsCellId(null); setExpandedCellId(c.id) }}
+                  />
+                )
+              })()}
 
               {/* Profile Fill Requests — visible to Cell Leaders (non-Directors) */}
               {!canViewAllCells && pendingFillInvitations.length > 0 && (
@@ -13447,7 +13462,7 @@ export default function DepartmentHub() {
                         { bg: 'bg-teal-600', text: 'text-white' },
                       ][idx % 6]
                       return (
-                      <div key={cell.id} className={`relative ${expandedCellId === cell.id ? 'col-span-full' : ''} ${tileStyle.bg} ${tileStyle.text} rounded-xl overflow-hidden shadow-lg border ${expandedCellId === cell.id ? 'border-white/60 ring-2 ring-white/40' : 'border-white/20'} transition`}>
+                      <div key={cell.id} className={`relative ${expandedCellId === cell.id ? 'col-span-full' : ''} ${tileStyle.bg} ${tileStyle.text} rounded-xl overflow-hidden shadow-lg border ${expandedCellId === cell.id ? 'border-white/60 ring-2 ring-white/40' : 'border-white/20 hover:shadow-xl hover:-translate-y-0.5'} transition`}>
                         {cell.meetingDay && (
                           <span className="absolute top-3 right-3 text-[10px] font-bold uppercase tracking-wide bg-black/20 rounded-full px-2 py-0.5">
                             {cell.meetingDay.slice(0, 3)}
@@ -13455,7 +13470,7 @@ export default function DepartmentHub() {
                         )}
                         <button
                           type="button"
-                          onClick={() => setExpandedCellId(expandedCellId === cell.id ? null : cell.id)}
+                          onClick={() => (expandedCellId === cell.id ? setExpandedCellId(null) : setDetailsCellId(cell.id))}
                           className="w-full text-left p-5 hover:opacity-95 transition"
                         >
                           <p className="text-xl font-semibold">{cell.cellName || 'Unnamed'}</p>

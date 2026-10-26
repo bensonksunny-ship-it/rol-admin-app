@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { format } from 'date-fns'
+import { useSearchParams } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 
 const MotionDiv = motion.div
@@ -72,6 +73,7 @@ export function CellDirectorCockpit({
   const [assignedNames, setAssignedNames] = useState(new Set())
 
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [statPanel, setStatPanel] = useState(null) // 'cells' | 'members' | null
   // Opens on mount when arriving via the Unassigned stat card's deep link
   // (?tab=summary&filter=unassigned) so the drawer is reachable/shareable as a URL,
   // not just a local click. Closing (either close button or backdrop) clears the
@@ -94,6 +96,19 @@ export function CellDirectorCockpit({
     setPendingHighlight(true)
     setTimeout(() => setPendingHighlight(false), 1500)
   }, [])
+  // Arriving from the My Workspace approvals ribbon (?focus=pendingChanges): scroll
+  // to Pending Member Changes once the list has rendered, then drop the param.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const wantsPendingFocus = searchParams.get('focus') === 'pendingChanges'
+  const hasPending = !loadingCellPending && cellPendingChanges.length > 0
+  useEffect(() => {
+    if (!wantsPendingFocus || !hasPending) return
+    const t = setTimeout(() => {
+      focusPendingChanges()
+      setSearchParams((p) => { const n = new URLSearchParams(p); n.delete('focus'); return n }, { replace: true })
+    }, 350)
+    return () => clearTimeout(t)
+  }, [wantsPendingFocus, hasPending, focusPendingChanges, setSearchParams])
   const [assignOpenName, setAssignOpenName] = useState(null)
   const [assignSelectedCellId, setAssignSelectedCellId] = useState('')
   const [assigning, setAssigning] = useState(false)
@@ -207,6 +222,9 @@ export function CellDirectorCockpit({
         return {
           cellId: g.id,
           cellName: rawName.length > 14 ? `${rawName.slice(0, 12)}…` : rawName,
+          fullCellName: rawName,
+          leader: g.leader || '',
+          meetingDay: g.meetingDay || '',
           memberCount: active.length,
           names: active
             .map((m) => String(m.name || '').trim().toLowerCase())
@@ -216,6 +234,8 @@ export function CellDirectorCockpit({
           // name-only match misses nicknames/typos and was the root cause of members
           // who'd already been added still showing up as a pending recommendation.
           members: active.map((m) => ({
+            name: String(m.name || '').trim(),
+            phone: m.phone || '',
             nameKey: String(m.name || '').trim().toLowerCase(),
             visitorId: m.visitorId || '',
             phoneKey: phoneKey(m.phone),
@@ -660,47 +680,34 @@ export function CellDirectorCockpit({
         </div>
       )}
 
-      {/* ── Stat Cards — all four are clickable navigation triggers. ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* ── Stat Cards — all clickable navigation triggers. Pending approvals moved
+          to a My Workspace ribbon (CellChangeApprovalRibbon). ── */}
+      <div className="grid grid-cols-3 gap-3">
         <button
           type="button"
-          onClick={focusPendingChanges}
-          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left cursor-pointer hover:border-amber-200 hover:shadow-md transition-all group"
+          onClick={() => setStatPanel('cells')}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl p-4 sm:p-5 shadow-md text-left cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all"
         >
-          <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-base mb-3 group-hover:bg-amber-200 transition-colors">⏳</div>
-          <p className="text-2xl font-black text-slate-800">{loadingCellPending ? '—' : cellPendingChanges.length}</p>
-          <p className="text-xs font-medium text-slate-500 mt-0.5">Pending Approvals</p>
+          <p className="text-4xl sm:text-5xl font-black leading-none tabular-nums">{activeCells.length}</p>
+          <p className="text-base sm:text-lg font-bold mt-2 leading-tight">Active Cells</p>
         </button>
 
         <button
           type="button"
-          onClick={onNavigateToCellGroups}
-          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left cursor-pointer hover:border-emerald-200 hover:shadow-md transition-all group"
+          onClick={() => setStatPanel('members')}
+          className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl p-4 sm:p-5 shadow-md text-left cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all"
         >
-          <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-base mb-3 group-hover:bg-emerald-200 transition-colors">🏘</div>
-          <p className="text-2xl font-black text-slate-800">{activeCells.length}</p>
-          <p className="text-xs font-medium text-slate-500 mt-0.5">Active Cells</p>
-        </button>
-
-        <button
-          type="button"
-          onClick={onNavigateToCellGroups}
-          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left cursor-pointer hover:border-blue-200 hover:shadow-md transition-all group"
-        >
-          <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-base mb-3 group-hover:bg-blue-200 transition-colors">👥</div>
-          <p className="text-2xl font-black text-slate-800">{loadingMembers ? '—' : totalMembers}</p>
-          <p className="text-xs font-medium text-slate-500 mt-0.5">Total Members</p>
+          <p className="text-4xl sm:text-5xl font-black leading-none tabular-nums">{loadingMembers ? '—' : totalMembers}</p>
+          <p className="text-base sm:text-lg font-bold mt-2 leading-tight">Total Members</p>
         </button>
 
         <button
           type="button"
           onClick={openUnassignedDrawer}
-          className="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm text-left cursor-pointer hover:border-violet-200 hover:shadow-md transition-all group"
+          className="bg-violet-600 hover:bg-violet-700 text-white rounded-2xl p-4 sm:p-5 shadow-md text-left cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all"
         >
-          <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center text-base mb-3 group-hover:bg-violet-200 transition-colors">🔍</div>
-          <p className="text-2xl font-black text-slate-800">{loadingUnassigned ? '—' : visibleUnassigned.length}</p>
-          <p className="text-xs font-medium text-slate-500 mt-0.5">Unassigned</p>
-          <p className="text-xs text-violet-500 font-semibold mt-1">Tap to view →</p>
+          <p className="text-4xl sm:text-5xl font-black leading-none tabular-nums">{loadingUnassigned ? '—' : visibleUnassigned.length}</p>
+          <p className="text-base sm:text-lg font-bold mt-2 leading-tight">Unassigned</p>
         </button>
       </div>
 
@@ -1079,6 +1086,108 @@ export function CellDirectorCockpit({
           </div>
         </div>
       )}
+
+      {statPanel && (
+        <StatListPanel
+          kind={statPanel}
+          cellMemberData={cellMemberData}
+          loading={loadingMembers}
+          onClose={() => setStatPanel(null)}
+          onOpenCellGroups={() => { setStatPanel(null); onNavigateToCellGroups?.() }}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * Active Cells / Total Members stat boxes → centered panel (same shell as the
+ * Unassigned panel): every active cell with leader, meeting day and member count,
+ * or every active member with their cell, searchable.
+ */
+function StatListPanel({ kind, cellMemberData, loading, onClose, onOpenCellGroups }) {
+  const [q, setQ] = useState('')
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+  const needle = q.trim().toLowerCase()
+  const cells = [...cellMemberData].sort((a, b) => (a.fullCellName || '').localeCompare(b.fullCellName || ''))
+  const members = cells
+    .flatMap((c) => (c.members || []).map((m) => ({ ...m, cellName: c.fullCellName })))
+    .filter((m) => m.name)
+    .sort((a, b) => a.name.localeCompare(b.name))
+  const hit = (vals) => !needle || vals.some((v) => String(v || '').toLowerCase().includes(needle))
+  const cellRows = cells.filter((c) => hit([c.fullCellName, c.leader, c.meetingDay]))
+  const memberRows = members.filter((m) => hit([m.name, m.cellName, m.phone]))
+  const isCells = kind === 'cells'
+  const count = isCells ? cells.length : members.length
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div role="dialog" aria-modal="true" aria-label={isCells ? 'Active Cells' : 'Total Members'}
+        className="bg-white rounded-3xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
+          <h3 className="font-bold text-slate-900">
+            {isCells ? 'Active Cells' : 'Total Members'} <span className="text-slate-400 font-semibold">· {loading ? '—' : count}</span>
+          </h3>
+          <button type="button" onClick={onClose} aria-label="Close"
+            className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors text-lg">✕</button>
+        </div>
+        <div className="px-4 pt-3 flex-shrink-0">
+          <input type="search" value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder={isCells ? 'Search cell, leader or day' : 'Search name, cell or phone'}
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200" />
+        </div>
+        <div className="overflow-y-auto p-4 flex-1">
+          {loading ? (
+            <p className="text-sm text-slate-500 text-center py-10">Loading…</p>
+          ) : isCells ? (
+            cellRows.length === 0 ? <p className="text-sm text-slate-500 text-center py-10">No cells found.</p> : (
+              <ul className="divide-y divide-slate-100">
+                {cellRows.map((c) => (
+                  <li key={c.cellId} className="py-2.5 flex items-center gap-3">
+                    <span className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 font-bold flex items-center justify-center flex-shrink-0">
+                      {(c.fullCellName || '?')[0].toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-slate-900 truncate">{c.fullCellName}</p>
+                      <p className="text-xs text-slate-500 truncate">
+                        {[c.leader && `Leader: ${c.leader}`, c.meetingDay].filter(Boolean).join(' · ') || '—'}
+                      </p>
+                    </div>
+                    <span className="text-lg font-black text-slate-800 tabular-nums" title="Members">{c.memberCount}</span>
+                  </li>
+                ))}
+              </ul>
+            )
+          ) : (
+            memberRows.length === 0 ? <p className="text-sm text-slate-500 text-center py-10">No members found.</p> : (
+              <ul className="divide-y divide-slate-100">
+                {memberRows.map((m, i) => (
+                  <li key={`${m.cellName}-${m.nameKey}-${i}`} className="py-2 flex items-center gap-3">
+                    <span className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 text-sm font-bold flex items-center justify-center flex-shrink-0">
+                      {m.name[0].toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-slate-900 truncate">{m.name}</p>
+                      <p className="text-xs text-slate-500 truncate">{m.cellName}</p>
+                    </div>
+                    {m.phone && <a href={`tel:${m.phone}`} className="text-xs font-semibold text-blue-600 hover:underline flex-shrink-0">{m.phone}</a>}
+                  </li>
+                ))}
+              </ul>
+            )
+          )}
+        </div>
+        <div className="px-4 py-3 border-t border-slate-100 flex-shrink-0">
+          <button type="button" onClick={onOpenCellGroups} className="text-xs font-semibold text-slate-500 hover:text-slate-800">
+            Open Cell Groups tab →
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -742,9 +742,17 @@ export default function CellHistory({ embedded = false }) {
                   )}
 
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full border whitespace-nowrap ${tierStyle.badgeCls}`}>
-                      {group.cellsSubmitted}/{group.totalCells} Cells Submitted
+                    {/* Submitted (green) · still pending (orange) — numbers only; tooltips name them. */}
+                    <span title={`${group.cellsSubmitted} submitted`} aria-label={`${group.cellsSubmitted} submitted`}
+                      className="min-w-[2.25rem] text-center text-lg font-black leading-none text-white bg-emerald-500 px-2.5 py-1.5 rounded-xl tabular-nums">
+                      {group.cellsSubmitted}
                     </span>
+                    {group.totalCells - group.cellsSubmitted > 0 && (
+                      <span title={`${group.totalCells - group.cellsSubmitted} pending`} aria-label={`${group.totalCells - group.cellsSubmitted} pending`}
+                        className="min-w-[2.25rem] text-center text-lg font-black leading-none text-white bg-orange-500 px-2.5 py-1.5 rounded-xl tabular-nums">
+                        {group.totalCells - group.cellsSubmitted}
+                      </span>
+                    )}
                     <span className="text-[10px] font-bold text-slate-600 bg-white/80 border border-slate-200 px-2 py-1 rounded-full whitespace-nowrap">
                       Total Attendance: {group.totalAttendance}
                     </span>

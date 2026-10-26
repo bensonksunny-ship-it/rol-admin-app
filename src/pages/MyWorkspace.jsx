@@ -11,6 +11,7 @@ import MembershipPipelineWidget from '../components/caring/MembershipPipelineWid
 import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
 import DeclarationRequestRibbon from '../components/workspace/DeclarationRequestRibbon'
 import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
+import CellChangeApprovalRibbon from '../components/workspace/CellChangeApprovalRibbon'
 import BaptismSignoffRibbon from '../components/workspace/BaptismSignoffRibbon'
 import ExpenseDisputeRibbon from '../components/workspace/ExpenseDisputeRibbon'
 import FinanceUnlockRequestRibbon from '../components/workspace/FinanceUnlockRequestRibbon'
@@ -97,6 +98,7 @@ export default function MyWorkspace() {
       {/* Yellow: Accounts expenses (Accounts team only), To-Do ribbons (cell
           assignment inputs, PCS hand-offs, …), unlock requests, expense disputes. */}
       {!isFounder && <AccountsExpenseApprovalRibbon />}
+      {(isFounder || isCellDirector) && <CellChangeApprovalRibbon />}
       <TodoAlertRibbons />
       <FinanceUnlockRequestRibbon {...ids} />
       <ExpenseDisputeRibbon {...ids} />

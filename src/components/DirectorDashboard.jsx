@@ -77,6 +77,8 @@ export function AlertPanelCellReports({ missingCount, submittedCount, totalCount
   // "All submitted" only when every cell actually has this week's report — not just
   // because no meeting date has passed yet (e.g. on a Sunday, nothing is due).
   if (missingCount === 0 && totalCount != null && submittedCount < totalCount) {
+    // Nothing filed yet and nothing overdue → nothing worth saying.
+    if (!submittedCount) return null
     return (
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center gap-3">
         <div className="w-8 h-8 rounded-xl bg-slate-200 flex items-center justify-center text-base flex-shrink-0">🗓️</div>
@@ -168,9 +170,7 @@ export function MissingCellReportsTable({ rows, tenWeekByCellId = new Map(), loa
   return (
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100">
-        <p className="text-sm font-bold text-slate-800">Cell Report Status</p>
-        <p className="text-xs text-slate-400 mt-0.5">Current week (Sun–Sat) · Expected date follows each cell's meeting day · Tap a Missing badge to see which of the last 10 weeks were skipped</p>
-        {!loading && rows.length > 0 && (
+        <p className="text-sm font-bold text-slate-800">Cell Report Status</p>        {!loading && rows.length > 0 && (
           <div className="flex gap-3 mt-3">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />

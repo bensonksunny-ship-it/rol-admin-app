@@ -17,6 +17,8 @@ import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
 import { ROLES } from '../constants/roles'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import { formatJoinedDate } from '../utils/date'
+// TEMPORARY duplicate-cleanup tool (Founder-only) — remove with its button below once done.
+import DuplicateFinder from '../components/people/DuplicateFinder'
 import DateInput from '../components/DateInput'
 
 const fmt = (d) => {
@@ -89,7 +91,7 @@ function LabelInput({ label, value, onChange, type = 'text', options }) {
 // The D-Light visitor record behind a directory entry, if any — the only thing a new
 // People record may be created from (visitor-first rule).
 function linkedVisitorId(p) {
-  return p._visitorIds?.[0] || p.pcs?.visitorId ||
+  return p.pcs?.visitorId || p._visitorIds?.[0] ||
     p.cells?.find((c) => c.visitorId)?.visitorId ||
     p.deptTeams?.find((t) => t.visitorId)?.visitorId ||
     p.worshipTeams?.find((t) => t.visitorId)?.visitorId || ''
@@ -551,6 +553,7 @@ export default function PeopleDirectory() {
   const [filter, setFilter] = useState('all')
   const [expandedId, setExpandedId] = useState(null)
   const [editingPerson, setEditingPerson] = useState(null)
+  const [dupFinderOpen, setDupFinderOpen] = useState(false)
 
   // Two independent axes, deliberately kept separate:
   //
@@ -623,6 +626,15 @@ export default function PeopleDirectory() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Re-read every source after the duplicate tool merges or deletes profiles.
+  const reloadDirectory = useCallback(() => {
+    getMergedPeopleDirectory().then(({ people: merged, cellGroups, sourceCounts: counts }) => {
+      setSourceCounts(counts)
+      setPeople(merged)
+      setCellGroups(cellGroups)
+    }).catch((err) => console.error('PeopleDirectory reload error:', err))
+  }, [])
+
   const personYear = (p) => {
     const currentYear = new Date().getFullYear()
     const yr = p.pcs?.year || (p.attendedDate ? new Date(p.attendedDate).getFullYear() : null)
@@ -636,6 +648,7 @@ export default function PeopleDirectory() {
       const q = search.toLowerCase()
       list = list.filter(p =>
         p.name.toLowerCase().includes(q) ||
+        (p.aliases || []).some(a => a.toLowerCase().includes(q)) ||
         (p.phone || '').includes(q) ||
         (p.email || '').toLowerCase().includes(q)
       )
@@ -686,6 +699,16 @@ export default function PeopleDirectory() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {dupFinderOpen && isFounder && (
+        <DuplicateFinder
+          people={people}
+          cellGroups={cellGroups}
+          userEmail={userProfile?.email || ''}
+          onClose={() => setDupFinderOpen(false)}
+          onChanged={reloadDirectory}
+        />
+      )}
+
       {editingPerson && canEditPeople && (
         <EditPersonModal
           p={editingPerson}
@@ -708,6 +731,15 @@ export default function PeopleDirectory() {
                   : (loading ? 'Loading…' : `${people.length} people across all sources`)}
               </p>
             </div>
+            {isFounder && !loading && (
+              <button
+                type="button"
+                onClick={() => setDupFinderOpen(true)}
+                className="flex-shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+              >
+                Find duplicates
+              </button>
+            )}
           </div>
           {!searchOnly && !loading && sourceCounts && (
             <div className="flex flex-wrap gap-1.5 mb-3">
