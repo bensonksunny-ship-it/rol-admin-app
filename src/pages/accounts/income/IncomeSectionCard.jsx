@@ -44,8 +44,8 @@ export function IncomeSectionCard({ title, accent = 'indigo', entries, breakdown
   )
 }
 
-// Full-page popup (same size for every section) holding one section's editing table. Esc closes it unless a cell is
-// being edited (there Esc reverts the cell) or a paste review is open on top.
+// Full-height popup at the Income page's width (same for every section) holding
+// one section's editing table. Esc closes it unless a cell is being edited (there Esc reverts the cell) or a paste review is open on top.
 export function IncomeSectionModal({ title, monthLabel, onClose, children }) {
   useEffect(() => {
     const onKey = (e) => {
@@ -63,11 +63,10 @@ export function IncomeSectionModal({ title, monthLabel, onClose, children }) {
   return (
     <div className="fixed inset-0 z-[900] flex bg-slate-900/50 backdrop-blur-[2px] p-0 sm:p-3" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div role="dialog" aria-modal="true" aria-label={`${title} — ${monthLabel}`}
-        className="w-full h-full flex flex-col sm:rounded-2xl bg-slate-50 shadow-2xl overflow-hidden">
+        className="w-full max-w-[250mm] mx-auto h-full flex flex-col sm:rounded-2xl bg-slate-50 shadow-2xl overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-3 bg-white border-b border-slate-200 shrink-0">
           <div className="flex-1 min-w-0">
             <p className="text-base font-bold text-slate-800 truncate">{title}</p>
-            <p className="text-xs text-slate-500">{monthLabel} · edits save as you leave each cell · paste rows from Excel with Ctrl+V</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close"
             className="w-9 h-9 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 shrink-0">

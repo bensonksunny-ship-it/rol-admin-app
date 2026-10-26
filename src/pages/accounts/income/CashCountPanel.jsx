@@ -87,7 +87,6 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
           })}
         </tbody>
       </table>
-      <p className="px-4 py-2 text-[11px] text-slate-400 border-t border-slate-100">Hover a row to see the note breakdown and who counted it. Confirming sets that Sunday's English / Tamil Offering to the counted amounts.</p>
     </div>
   )
 }
