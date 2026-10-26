@@ -9,8 +9,7 @@ const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
 
 /**
  * Sunday cash count entry: pick a Sunday, enter how many of each note / coin were
- * counted for the English and Tamil services, name who counted and who witnessed,
- * and submit. Accounts confirms it in the Offering popup, which posts it as
+ * counted for the English and Tamil services, name who counted, and submit. Accounts confirms it in the Offering popup, which posts it as
  * income; a confirmed count is read-only. Used by the Sunday Cash Count page and
  * the Offering popup's "Open count page" window.
  * sundays: the Sundays to choose from (default: the last 8); initialIso picks one.
@@ -54,8 +53,6 @@ function CashCountForm({ iso, myName, uid }) {
       english: { ...emptyNotes(), ...(c?.english?.notes || {}) },
       tamil: { ...emptyNotes(), ...(c?.tamil?.notes || {}) },
       countedBy: c?.countedBy || myName,
-      witnessedBy: c?.witnessedBy || '',
-      remarks: c?.remarks || '',
     })
   }, () => setMsg({ type: 'error', text: 'Could not load this Sunday. Please refresh.' })), [iso, myName])
 
@@ -65,7 +62,6 @@ function CashCountForm({ iso, myName, uid }) {
   const grand = (totals.english || 0) + (totals.tamil || 0)
 
   async function submit() {
-    if (!form.witnessedBy.trim()) { setMsg({ type: 'error', text: 'Please enter who witnessed the count.' }); return }
     if (!grand) { setMsg({ type: 'error', text: 'Enter the note counts first.' }); return }
     setBusy(true); setMsg(null)
     try {
@@ -74,8 +70,6 @@ function CashCountForm({ iso, myName, uid }) {
         english: svc('english'),
         tamil: svc('tamil'),
         countedBy: form.countedBy.trim(),
-        witnessedBy: form.witnessedBy.trim(),
-        remarks: form.remarks.trim(),
         submittedBy: myName,
         submittedByUid: uid,
       })
@@ -149,12 +143,6 @@ function CashCountForm({ iso, myName, uid }) {
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-semibold text-slate-600">Counted by
               <input value={form.countedBy} disabled={confirmed} onChange={(e) => setForm((f) => ({ ...f, countedBy: e.target.value }))} className={`${input} mt-1`} />
-            </label>
-            <label className="text-xs font-semibold text-slate-600">Witnessed by <span className="text-red-500">*</span>
-              <input value={form.witnessedBy} disabled={confirmed} onChange={(e) => setForm((f) => ({ ...f, witnessedBy: e.target.value }))} placeholder="Second person present at the count" className={`${input} mt-1`} />
-            </label>
-            <label className="text-xs font-semibold text-slate-600 sm:col-span-2">Remarks
-              <input value={form.remarks} disabled={confirmed} onChange={(e) => setForm((f) => ({ ...f, remarks: e.target.value }))} placeholder="Optional (e.g. torn note, foreign coin)" className={`${input} mt-1`} />
             </label>
           </section>
 

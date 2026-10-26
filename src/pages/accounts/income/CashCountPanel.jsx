@@ -46,8 +46,7 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
             const differs = c && CASH_SERVICES.some(s => posted(iso, s.category) !== serviceTotal(c, s.key))
             const detail = c ? [
               ...CASH_SERVICES.map(s => `${s.label}: ${CASH_DENOMINATIONS.filter(d => c[s.key]?.notes?.[d]).map(d => `₹${d}×${c[s.key].notes[d]}`).join(', ') || '—'}`),
-              `Counted by ${c.countedBy || '—'} · witnessed by ${c.witnessedBy || '—'}`,
-              c.remarks ? `Remarks: ${c.remarks}` : '',
+              `Counted by ${c.countedBy || '—'}`,
             ].filter(Boolean).join('\n') : ''
             return (
               <tr key={iso} className={confirmed ? '' : c ? 'bg-amber-50/40' : ''} title={detail}>
