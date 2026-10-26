@@ -8154,6 +8154,7 @@ function mapBaptismApplication(d) {
     createdAt: toDate(data.createdAt),
     expiresAt: toDate(data.expiresAt),
     submittedAt: toDate(data.submittedAt),
+    examOpenUntil: toDate(data.examOpenUntil),
   }
 }
 
@@ -8240,6 +8241,126 @@ export async function updateBaptismApplication(token, data) {
 export async function deleteBaptismApplication(token) {
   if (!db || !token) return
   await deleteDoc(doc(db, BAPTISM_APPLICATIONS, token))
+}
+
+// ── Baptism Stage 2: Cell Leader sign-off ────────────────────────────────────
+// Caring presses "Notify Cell Leader" on a submitted application: the cell's leader
+// gets a ribbon on My Workspace (workspace_notifications type 'baptism_cell_signoff'),
+// confirms readiness after a shared cell meeting, and their answer is written onto
+// the application (cellLeaderSignoff) — see utils/baptismProgress.js. Signing off
+// also opens the Stage 3 exam link for BAPTISM_EXAM_DAYS (examOpenUntil).
+const BAPTISM_EXAM_DAYS = 60
+
+export async function requestBaptismCellSignoff(app, { candidateName = '', cellName = '', cellGroup = null, cellLeaderName = '', leaderPersonId = '', phone = '', by = '' } = {}) {
+  if (!db || !app?.id) throw new Error('Missing application')
+  let leaderEmail = ''
+  if (leaderPersonId) {
+    const p = await getDoc(doc(db, 'people', leaderPersonId)).catch(() => null)
+    leaderEmail = p?.exists() ? String(p.data().email || '') : ''
+  }
+  const account = await findCellLeaderAccount({ cellGroup, cellLeaderName, leaderEmail })
+  const prev = app.cellLeaderRequest
+  if (prev?.notificationId && prev.status === 'Requested') {
+    await updateDoc(doc(db, WORKSPACE_NOTIFICATIONS, prev.notificationId), { status: 'cancelled', respondedAt: nowIso() }).catch(() => {})
+  }
+  const notifRef = doc(collection(db, WORKSPACE_NOTIFICATIONS))
+  const request = {
+    status: 'Requested',
+    cellName: cellName || '',
+    cellLeaderName: cellLeaderName || '',
+    recipientName: account?.name || '',
+    recipientUid: account?.id || '',
+    recipientEmail: String(account?.email || leaderEmail || '').trim().toLowerCase(),
+    notificationId: notifRef.id,
+    requestedBy: by || 'unknown',
+    requestedAt: nowIso(),
+  }
+  await setDoc(notifRef, {
+    type: 'baptism_cell_signoff',
+    status: 'pending',
+    applicationId: app.id,
+    candidatePcsId: app.pcsEntryId || '',
+    candidateName: candidateName || '',
+    candidateCell: cellName || '',
+    candidatePhone: phone || '',
+    preferredBatchDate: app.applicant?.preferredBatchDate || '',
+    cellLeaderName: cellLeaderName || '',
+    recipientName: request.recipientName,
+    recipientUid: request.recipientUid,
+    recipientEmail: request.recipientEmail,
+    createdBy: request.requestedBy,
+    createdAt: Timestamp.now(),
+    respondedAt: '', respondedBy: '', responseNote: '',
+  })
+  // A re-send after "not ready yet" clears that answer so Stage 2 is open again.
+  await updateDoc(doc(db, BAPTISM_APPLICATIONS, app.id), {
+    cellLeaderRequest: request,
+    ...(app.cellLeaderSignoff?.status === 'not_ready' ? { cellLeaderSignoff: deleteField() } : {}),
+  })
+  return { request, account }
+}
+
+/** The signed-in cell leader's pending baptism sign-offs (by uid and by email), live. */
+export function subscribeMyBaptismSignoffs({ uid, email }, onChange) {
+  if (!db || (!uid && !email)) { onChange([]); return () => {} }
+  const lists = { uid: [], email: [] }
+  const emit = () => {
+    const seen = new Set()
+    onChange([...lists.uid, ...lists.email].filter((n) => !seen.has(n.id) && seen.add(n.id)))
+  }
+  const map = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) }))
+  const base = [where('type', '==', 'baptism_cell_signoff'), where('status', '==', 'pending')]
+  const unsubs = []
+  if (uid) unsubs.push(onSnapshot(query(collection(db, WORKSPACE_NOTIFICATIONS), where('recipientUid', '==', uid), ...base),
+    (s) => { lists.uid = map(s); emit() }, (e) => console.error('subscribeMyBaptismSignoffs(uid):', e)))
+  const em = String(email || '').trim().toLowerCase()
+  if (em) unsubs.push(onSnapshot(query(collection(db, WORKSPACE_NOTIFICATIONS), where('recipientEmail', '==', em), ...base),
+    (s) => { lists.email = map(s); emit() }, (e) => console.error('subscribeMyBaptismSignoffs(email):', e)))
+  return () => unsubs.forEach((u) => u())
+}
+
+/**
+ * The cell leader's answer: ready → Stage 2 complete and the exam opens; not ready →
+ * Stage 2 flagged with their note (Caring can re-send later). The application and
+ * the ribbon change in one batch. Rules: only the leader the request was sent to.
+ */
+export async function submitBaptismCellSignoff(notif, { ready, checks = {}, notes = '', by = '', uid = '' }) {
+  if (!db || !notif?.id || !notif.applicationId) throw new Error('Missing request')
+  const at = nowIso()
+  const cleanNotes = String(notes || '').trim()
+  const batch = writeBatch(db)
+  batch.update(doc(db, BAPTISM_APPLICATIONS, notif.applicationId), {
+    cellLeaderSignoff: {
+      status: ready ? 'completed' : 'not_ready',
+      at, by: by || notif.cellLeaderName || 'Cell Leader', uid: uid || '',
+      checks, notes: cleanNotes,
+    },
+    'cellLeaderRequest.status': ready ? 'Completed' : 'Declined',
+    'cellLeaderRequest.respondedAt': at,
+    ...(ready ? { examOpenUntil: Timestamp.fromDate(new Date(Date.now() + BAPTISM_EXAM_DAYS * 24 * 60 * 60 * 1000)) } : {}),
+  })
+  batch.update(doc(db, WORKSPACE_NOTIFICATIONS, notif.id), {
+    status: ready ? 'completed' : 'declined', respondedAt: at, respondedBy: by || '', responseNote: cleanNotes,
+  })
+  await batch.commit()
+}
+
+/** Caring: keep the exam link open for another BAPTISM_EXAM_DAYS. */
+export async function extendBaptismExam(token) {
+  if (!db || !token) return
+  await updateDoc(doc(db, BAPTISM_APPLICATIONS, token), {
+    examOpenUntil: Timestamp.fromDate(new Date(Date.now() + BAPTISM_EXAM_DAYS * 24 * 60 * 60 * 1000)),
+  })
+}
+
+// ── Baptism Stage 3: MCQ exam ────────────────────────────────────────────────
+/** Candidate's attempt from /baptism-exam (works signed-out; rules allow only `exam`). */
+export async function submitBaptismExamAttempt(app, { answers, passed }) {
+  if (!db || !app?.id) throw new Error('Missing link')
+  const attempts = [...(Array.isArray(app.exam?.attempts) ? app.exam.attempts : []), { at: nowIso(), answers: answers || {} }]
+  const exam = { attempts, passed: !!passed, ...(passed ? { passedAt: nowIso() } : {}) }
+  await updateDoc(doc(db, BAPTISM_APPLICATIONS, app.id), { exam })
+  return exam
 }
 
 // ─── Membership Applications ──────────────────────────────────────────────────

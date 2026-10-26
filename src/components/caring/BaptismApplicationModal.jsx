@@ -8,6 +8,7 @@ import {
 import useRefreshPendingApplication from '../../hooks/useRefreshPendingApplication'
 import { baptismFieldValue, visibleBaptismFields, hasValue } from '../../constants/baptismForm'
 import { openBaptismFormPrint, applicantFullName } from '../../utils/baptismFormPrint'
+import BaptismStagesPanel from './BaptismStagesPanel'
 
 // Last Batch No. used, pre-filled when assigning the next one (per browser).
 const BATCH_KEY = 'rol.baptismBatch'
@@ -207,6 +208,9 @@ export default function BaptismApplicationModal({ entry, prefill, userEmail, onC
                   {app.signatureDataUrl && <div className="p-3"><img src={app.signatureDataUrl} alt="Signature" className="max-h-16" /></div>}
                 </div>
               )}
+
+              {/* Stage 2 (Cell Leader sign-off) + Stage 3 (MCQ exam) with the progress tracker */}
+              {app.status !== 'pending' && <BaptismStagesPanel app={app} entry={entry} by={userEmail} />}
 
               {/* Formal Batch No. + Serial No. → Form ID "B-<batch> / <serial>" — office
                   processing, so only once the applicant has submitted. */}

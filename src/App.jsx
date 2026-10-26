@@ -15,6 +15,7 @@ import Reports from './pages/Reports'
 import DepartmentWorship from './pages/DepartmentWorship'
 import SundayReport from './pages/SundayReport'
 import BaptismApply from './pages/BaptismApply'
+import BaptismExam from './pages/BaptismExam'
 import MembershipApply from './pages/MembershipApply'
 import DedicationApply from './pages/DedicationApply'
 import BaptismDeclarationSign from './pages/BaptismDeclarationSign'
@@ -52,6 +53,8 @@ function App() {
             {/* Public — opened from the PCS baptism QR code; no login. Access is the
                 unguessable token in the link (see firestore.rules → baptism_applications). */}
             <Route path="/baptism-apply" element={<BaptismApply />} />
+            {/* Public — Baptism Stage 3 MCQ exam on the same application token; opens after the Cell Leader signs off. */}
+            <Route path="/baptism-exam" element={<BaptismExam />} />
             {/* Public — PCS membership QR code; same token model (firestore.rules → membership_applications). */}
             <Route path="/membership-apply" element={<MembershipApply />} />
             {/* Public — PCS baby dedication QR code (firestore.rules → dedication_applications). */}

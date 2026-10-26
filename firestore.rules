@@ -692,9 +692,14 @@ service cloud.firestore {
     //    and submit their part exactly once: only the applicant fields may change,
     //    status must go pending → submitted, and only before expiry.
     //  - Caring / full access manage everything (create, list, notes, delete).
+    //  - Stage 2: the cell leader a "Notify Cell Leader" request was sent to answers it
+    //    once (ready → Completed, not ready → Declined): only the sign-off fields.
+    //  - Stage 3: once signed off, holders of the link may read it until examOpenUntil
+    //    and record MCQ attempts (only `exam`) until they pass.
     match /baptism_applications/{token} {
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
-        || resource.data.expiresAt > request.time;
+        || resource.data.expiresAt > request.time
+        || resource.data.get('examOpenUntil', timestamp.value(0)) > request.time;
       allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
       allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
         || (resource.data.status == 'pending'
@@ -702,7 +707,18 @@ service cloud.firestore {
             && request.resource.data.status == 'submitted'
             && request.resource.data.declarationAccepted == true
             && request.resource.data.diff(resource.data).affectedKeys()
-                 .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'declarationAccepted', 'status', 'submittedAt']));
+                 .hasOnly(['applicant', 'photoDataUrl', 'signatureDataUrl', 'declarationAccepted', 'status', 'submittedAt']))
+        || (isNotificationRecipient(resource.data.get('cellLeaderRequest', {}))
+            && resource.data.cellLeaderRequest.get('status', '') == 'Requested'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cellLeaderSignoff', 'cellLeaderRequest', 'examOpenUntil'])
+            && request.resource.data.cellLeaderRequest.status in ['Completed', 'Declined']
+            && request.resource.data.cellLeaderSignoff.status in ['completed', 'not_ready'])
+        || (resource.data.status in ['submitted', 'info_requested']
+            && resource.data.get('cellLeaderSignoff', {}).get('status', '') == 'completed'
+            && resource.data.get('examOpenUntil', timestamp.value(0)) > request.time
+            && resource.data.get('exam', {}).get('passed', false) != true
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['exam'])
+            && request.resource.data.exam.attempts.size() <= 25);
     }
 
     // Marriage (Holy Matrimony) applications — same token model as

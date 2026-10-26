@@ -5,6 +5,8 @@ import { APPLICATION_TYPES, APPLICATION_TYPE_KEYS, SUBMITTED_STATUSES, applicati
 import { findPcsCellMember } from '../../utils/pcsEngagement'
 import { getMemberDisplayName } from '../../utils/displayName'
 import SubmittedApplicationViewer from './SubmittedApplicationViewer'
+import BaptismStageTracker from './BaptismStageTracker'
+import { baptismReadyForApproval } from '../../utils/baptismProgress'
 
 const fmtD = (d) => {
   const dt = d instanceof Date ? d : d ? new Date(d) : null
@@ -105,10 +107,13 @@ export default function ApplicationsQueueCard({ pcsEntries, allCellMembers, cell
     const open = (app.status === 'submitted' || app.status === 'info_requested') && !inEvent
     if (!open) return null
     const btn = compact ? 'px-2.5 py-1 text-[11px]' : 'min-h-[40px] px-4 text-sm'
+    // Baptism: final approval waits for Cell Leader sign-off and a passed MCQ exam.
+    const stagesPending = type === 'baptism' && !baptismReadyForApproval(app)
     return (
       <>
         {APPLICATION_TYPES[type].eventType ? (
-          <button type="button" disabled={busy} onClick={() => setLinking({ type, app })} className={`${btn} rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50`}>Approve &amp; Link to Event</button>
+          <button type="button" disabled={busy || stagesPending} onClick={() => setLinking({ type, app })}
+            title={stagesPending ? 'Needs Cell Leader sign-off and a passed MCQ exam first (open it from the PCS profile).' : undefined} className={`${btn} rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50`}>Approve &amp; Link to Event</button>
         ) : (
           <button type="button" disabled={busy} onClick={() => decide(type, app, { status: 'approved' }, 'Could not approve.')} className={`${btn} rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50`}>Approve</button>
         )}
@@ -154,6 +159,7 @@ export default function ApplicationsQueueCard({ pcsEntries, allCellMembers, cell
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${t.cls}`}>{t.short}</span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span>
                 </div>
+                {type === 'baptism' && <div className="mt-1"><BaptismStageTracker app={app} compact /></div>}
                 <p className="text-xs text-slate-400 mt-0.5">
                   {[type === 'dedication' ? `Baby: ${t.title(app) || '—'}` : '', w.cell ? `Cell: ${w.cell}` : 'No cell group', `Submitted ${fmtD(app.submittedAt)}`].filter(Boolean).join(' · ')}
                 </p>

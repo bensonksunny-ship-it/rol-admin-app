@@ -160,6 +160,7 @@ import ApplicationsQueueCard from '../components/caring/ApplicationsQueueCard'
 import SubmittedApplicationViewer from '../components/caring/SubmittedApplicationViewer'
 import { APPLICATION_TYPES, APPLICATION_TYPE_KEYS, applicationStatus } from '../utils/pastoralApplications'
 import BaptismApplicationModal from '../components/caring/BaptismApplicationModal'
+import BaptismEntryProgress from '../components/caring/BaptismEntryProgress'
 import MembershipApplicationModal from '../components/caring/MembershipApplicationModal'
 import CaringEventsTab from '../components/caring/CaringEventsTab'
 import DedicationApplicationModal from '../components/caring/DedicationApplicationModal'
@@ -8293,7 +8294,9 @@ export default function DepartmentHub() {
                                 )
                               })()}
                               {!baptismRecorded && !pcsExpandedLoading && (
-                                <div className="col-span-2 pt-2">
+                                <div className="col-span-2 pt-2 space-y-2">
+                                  {/* Application → Cell Leader sign-off → MCQ exam, once an application exists */}
+                                  <BaptismEntryProgress pcsEntryId={entry.id} />
                                   <button type="button" {...appTriggerGuard} onClick={() => openApplication(setPcsBaptismOpenFor)}
                                     className={`w-full flex items-center justify-center gap-2 min-h-[40px] rounded-xl text-sm font-bold transition-colors ${f.baptised === 'no'
                                       ? 'bg-violet-600 text-white hover:bg-violet-700 shadow-sm'

@@ -11,6 +11,7 @@ import MembershipPipelineWidget from '../components/caring/MembershipPipelineWid
 import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
 import DeclarationRequestRibbon from '../components/workspace/DeclarationRequestRibbon'
 import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
+import BaptismSignoffRibbon from '../components/workspace/BaptismSignoffRibbon'
 import ExpenseDisputeRibbon from '../components/workspace/ExpenseDisputeRibbon'
 import FinanceUnlockRequestRibbon from '../components/workspace/FinanceUnlockRequestRibbon'
 import QuickActionsWidget from '../components/workspace/QuickActionsWidget'
@@ -91,6 +92,7 @@ export default function MyWorkspace() {
       <FinanceUnlockRequestRibbon {...ids} />
       <ExpenseDisputeRibbon {...ids} />
       <CellLeaderApprovalRibbon {...ids} />
+      <BaptismSignoffRibbon {...ids} />
       <DeaconInterviewRibbon {...ids} />
       <DeclarationRequestRibbon {...ids} />
     </>
