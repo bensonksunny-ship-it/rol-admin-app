@@ -62,7 +62,6 @@ function CashCountForm({ iso, myName, uid }) {
   const grand = (totals.english || 0) + (totals.tamil || 0)
 
   async function submit() {
-    if (!grand) { setMsg({ type: 'error', text: 'Enter the note counts first.' }); return }
     setBusy(true); setMsg(null)
     try {
       const svc = (k) => ({ notes: Object.fromEntries(Object.entries(form[k]).map(([d, v]) => [d, Number(v) || 0])), total: totals[k] })
