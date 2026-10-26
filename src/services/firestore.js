@@ -3217,19 +3217,20 @@ export async function createCellReport(data, createdBy) {
 async function syncCellReportHistoryCounts(cellId, meetingDateISO, { membersAttended, visitors, children, startTime, endTime }) {
   if (!db || !cellId || !meetingDateISO) return
   try {
-    const weekStart = toMondayISO(meetingDateISO)
-    const historyRef = doc(db, CELL_REPORT_HISTORY_COLLECTION, `${weekStart}_${cellId}`)
-    const historySnap = await getDoc(historyRef)
-    if (historySnap.exists()) {
-      const patch = {
-        membersAttended,
-        visitors,
-        children,
-        totalAttendance: membersAttended + visitors + children,
+    for (const historyId of cellHistoryIdsFor(cellId, meetingDateISO)) {
+      const historyRef = doc(db, CELL_REPORT_HISTORY_COLLECTION, historyId)
+      const historySnap = await getDoc(historyRef)
+      if (historySnap.exists()) {
+        const patch = {
+          membersAttended,
+          visitors,
+          children,
+          totalAttendance: membersAttended + visitors + children,
+        }
+        if (startTime !== undefined) patch.startTime = startTime
+        if (endTime !== undefined) patch.endTime = endTime
+        await updateDoc(historyRef, patch)
       }
-      if (startTime !== undefined) patch.startTime = startTime
-      if (endTime !== undefined) patch.endTime = endTime
-      await updateDoc(historyRef, patch)
     }
   } catch (err) {
     console.warn('syncCellReportHistoryCounts: could not patch cell_report_history', err)
@@ -5528,13 +5529,18 @@ export async function saveMidweekSessionSummary(cellId, dateStr, { segmentTiming
 }
 
 /**
- * After a midweek meeting ends, sync attendance into cell_reports so it
- * appears in the reports history immediately (without waiting for the Sunday Cloud Function).
+ * Sync Live Meeting attendance into cell_reports so it shows on the Cell summary
+ * and reports history straight away. Runs while the meeting is in progress (each
+ * change, debounced) and once more when it ends — so a meeting that's never
+ * formally ended, or a phone that closes the app early, still lands in reports.
  * Creates a minimal cell_reports doc if none exists for the given cell + date.
  * Adds present members to the attendees subcollection (skipping any already recorded).
  * `visitors`/`children` are name-only lists ({name} or {id, name}); `children` here is
  * distinct from department_children — it's the session's roster of River Kids children
  * confirmed as attending alongside their parent, written to cell_reports.childrenList.
+ * Attendees this sync wrote (source: 'live') who are no longer present are removed,
+ * so un-ticking someone mid-meeting doesn't leave them counted; attendees added any
+ * other way (Cell Report page, edits) are never touched.
  */
 export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateStr, presentMembers, updatedBy, visitors = [], children = [], awayNames = []) {
   if (!db || !cellId || !dateStr || !Array.isArray(presentMembers)) return
@@ -5579,6 +5585,19 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
   const attendeesRef = collection(db, CELL_REPORTS_COLLECTION, reportId, 'attendees')
   const existingSnap = await getDocs(attendeesRef)
   const existingMemberIds = new Set(existingSnap.docs.map((d) => d.data().memberId).filter(Boolean))
+  const presentIdSet = new Set(presentMembers.map((m) => m.id).filter(Boolean))
+
+  const isUnticked = (a) => a.data().source === 'live' && a.data().memberId && !presentIdSet.has(a.data().memberId)
+
+  // Live-synced attendees who were un-ticked. Separate batch: if it's refused
+  // (older rules let only directors delete) the additions below still go through,
+  // and the count skips these rows either way.
+  const stale = existingSnap.docs.filter(isUnticked)
+  if (stale.length) {
+    const del = writeBatch(db)
+    stale.forEach((a) => del.delete(a.ref))
+    await del.commit().catch((err) => console.warn('syncMidweekAttendanceToCellReport: could not remove un-ticked attendees', err?.code || err))
+  }
 
   // Batch-write new attendees
   const batch = writeBatch(db)
@@ -5591,15 +5610,16 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
         anniversary: member.anniversary || '',
         phone: member.phone || '',
         locality: member.locality || '',
+        source: 'live',
       })
     }
   }
   await batch.commit()
 
-  // Update membersAttended count from final subcollection size
+  // Update membersAttended count from the final subcollection (minus un-ticked rows)
   const finalSnap = await getDocs(attendeesRef)
   await updateDoc(doc(db, CELL_REPORTS_COLLECTION, reportId), {
-    membersAttended: finalSnap.size,
+    membersAttended: finalSnap.docs.filter((a) => !isUnticked(a)).length,
     visitors: visitorNames.length,
     visitorsList: visitorNames,
     children: childNames.length,
@@ -5610,14 +5630,20 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
   })
 }
 
-// Returns the ISO date string (YYYY-MM-DD) of the Monday of the week containing dateStr
-function toMondayISO(dateStr) {
+/**
+ * cell_report_history doc ids that could hold the archive for a cell's meeting on
+ * dateStr: `${weekStart}_${cellId}`. The cell week is Sunday → Saturday, but
+ * archives written before that change are keyed by the Monday of a Mon–Sun week,
+ * so both candidates are returned (Sunday key first).
+ */
+function cellHistoryIdsFor(cellId, dateStr) {
   const [y, m, day] = String(dateStr).slice(0, 10).split('-').map(Number)
-  const d = new Date(y, m - 1, day)
-  const dow = d.getDay()
-  const diff = dow === 0 ? -6 : 1 - dow
-  d.setDate(d.getDate() + diff)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const sun = new Date(y, m - 1, day)
+  sun.setDate(sun.getDate() - sun.getDay())
+  const mon = new Date(y, m - 1, day)
+  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7))
+  return [...new Set([`${iso(sun)}_${cellId}`, `${iso(mon)}_${cellId}`])]
 }
 
 /**
@@ -5722,20 +5748,20 @@ export async function updateCellReportFull(row, { attendees, segmentTimings, she
 
   // 5. Patch cell_report_history if an archived doc exists
   const meetingDurationMinutes = (segmentTimings || []).reduce((s, t) => s + (Number(t.durationMinutes) || 0), 0)
-  const weekStart = toMondayISO(d)
-  const historyId = `${weekStart}_${row.cellId}`
   try {
-    const historyRef = doc(db, CELL_REPORT_HISTORY_COLLECTION, historyId)
-    const historySnap = await getDoc(historyRef)
-    if (historySnap.exists()) {
-      await updateDoc(historyRef, {
-        membersAttended: attendees.length,
-        totalAttendance: attendees.length + (Number(visitors) || 0) + (Number(children) || 0),
-        visitors: Number(visitors) || 0,
-        children: Number(children) || 0,
-        meetingDurationMinutes,
-        programList: (segmentTimings || []).map((t) => ({ programName: t.name, durationMinutes: t.durationMinutes })),
-      })
+    for (const historyId of cellHistoryIdsFor(row.cellId, d)) {
+      const historyRef = doc(db, CELL_REPORT_HISTORY_COLLECTION, historyId)
+      const historySnap = await getDoc(historyRef)
+      if (historySnap.exists()) {
+        await updateDoc(historyRef, {
+          membersAttended: attendees.length,
+          totalAttendance: attendees.length + (Number(visitors) || 0) + (Number(children) || 0),
+          visitors: Number(visitors) || 0,
+          children: Number(children) || 0,
+          meetingDurationMinutes,
+          programList: (segmentTimings || []).map((t) => ({ programName: t.name, durationMinutes: t.durationMinutes })),
+        })
+      }
     }
   } catch (err) {
     console.warn('updateCellReportFull: could not patch cell_report_history', err)
@@ -5764,12 +5790,12 @@ export async function deleteCellReportFull(row) {
   const d = String(row.meetingDateISO).slice(0, 10)
 
   // 1. Delete cell_report_history if archived
-  const weekStart = toMondayISO(d)
-  const historyId = `${weekStart}_${row.cellId}`
-  try {
-    await deleteDoc(doc(db, CELL_REPORT_HISTORY_COLLECTION, historyId))
-  } catch {
-    // may not exist — ignore
+  for (const historyId of cellHistoryIdsFor(row.cellId, d)) {
+    try {
+      await deleteDoc(doc(db, CELL_REPORT_HISTORY_COLLECTION, historyId))
+    } catch {
+      // may not exist — ignore
+    }
   }
 
   // 2. Find and delete cell_reports + attendees subcollection

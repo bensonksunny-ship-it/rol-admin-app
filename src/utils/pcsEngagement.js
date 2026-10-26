@@ -83,10 +83,10 @@ export const CELL_HEALTH_REPORT_COUNT = 12
 export const CELL_ABSENCE_MAX_WEEKS = 20
 
 const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-/** Monday (local) of the week containing `date`. */
+/** Sunday (local) that starts the cell week (Sun–Sat) containing `date`. */
 const weekStartOf = (date) => {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  d.setDate(d.getDate() - d.getDay())
   return d
 }
 const parseISO = (s) => {

@@ -513,19 +513,17 @@ function meetingDayToJsDay(meetingDay) {
 function computeMeetingDateYYYYMMDD(meetingDay, weekStartIST) {
   const jsDay = meetingDayToJsDay(meetingDay)
   if (jsDay == null) return formatISODateYYYYMMDD(weekStartIST)
-  // weekStartIST is Monday 00:00; JS: Monday=1..Sunday=0 => offset from Monday.
-  const offset = (jsDay + 6) % 7
+  // weekStartIST is Sunday 00:00 (cell week = Sun–Sat); JS Sunday=0..Saturday=6 is the offset.
   const dt = new Date(weekStartIST)
-  dt.setDate(weekStartIST.getDate() + offset)
+  dt.setDate(weekStartIST.getDate() + jsDay)
   return formatISODateYYYYMMDD(dt)
 }
 
 function computeWeekRangeYYYYMMDD(now = new Date()) {
   const nowIST = toISTDate(now)
   const day = nowIST.getDay() // Sun=0..Sat=6
-  const diffToMonday = (day + 6) % 7
-  const weekStart = new Date(nowIST)
-  weekStart.setDate(nowIST.getDate() - diffToMonday)
+  const weekStart = new Date(nowIST) // Sunday that starts the cell week (Sun–Sat)
+  weekStart.setDate(nowIST.getDate() - day)
   weekStart.setHours(0, 0, 0, 0)
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekStart.getDate() + 6)
@@ -554,11 +552,11 @@ function computeMeetingDurationMinutes(programDocs) {
 }
 
 /**
- * Sunday 11:59 PM IST: archive current week cell reports into `cell_report_history`.
+ * Saturday 11:59 PM IST: archive the current Sun–Sat week's cell reports into `cell_report_history`.
  * Copies meeting-day reports for each cell group into a single weekly history doc.
  */
 exports.archiveCurrentWeekCellReportsToHistory = onSchedule(
-  { schedule: '59 23 * * 0', timeZone: 'Asia/Kolkata' },
+  { schedule: '59 23 * * 6', timeZone: 'Asia/Kolkata' },
   async () => {
     const db = admin.firestore()
     const { weekStartISO, weekEndISO, weekStartIST } = computeWeekRangeYYYYMMDD(new Date())

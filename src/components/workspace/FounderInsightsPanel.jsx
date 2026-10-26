@@ -283,7 +283,7 @@ export default function FounderInsightsPanel() {
     Object.keys(byCell).forEach(id => { if (!isRealCellReportSubmission(byCell[id])) delete byCell[id] })
     return byCell
   }
-  const thisWeek = weekWindow(startOfWeek(new Date(), { weekStartsOn: 1 }))
+  const thisWeek = weekWindow(startOfWeek(new Date(), { weekStartsOn: 0 })) // cell week: Sun–Sat
   const thisWeekReports = reportsInWindow(thisWeek)
   const useThisWeek = Object.keys(thisWeekReports).length > 0
   const cellWeek = useThisWeek ? thisWeek : weekWindow(subWeeks(thisWeek.monday, 1))

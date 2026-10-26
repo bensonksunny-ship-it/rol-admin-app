@@ -11,11 +11,11 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import { format, startOfWeek, subWeeks, parseISO } from 'date-fns'
+import { format, subWeeks, parseISO } from 'date-fns'
 import { getCellGroups, subscribeLatestCellReports, createCellReportReminder } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole, isFounder as isFounderUser } from '../utils/access'
-import { computeMeetingDateISO, formatWeekRangeLabel, formatWeekDayRangeShort, monthSpanLabel, totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission } from '../utils/cellWeek'
+import { cellWeekStart, computeMeetingDateISO, formatWeekRangeLabel, formatWeekDayRangeShort, monthSpanLabel, totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission } from '../utils/cellWeek'
 
 const CELL_DEPARTMENT = 'Cell'
 const TREND_LINE_COLOR = '#6366f1'
@@ -50,7 +50,7 @@ export function canSeeCellDirectorDashboard(userProfile) {
 }
 
 /**
- * Buckets reports by cellId + the Monday-anchored week the report's own date
+ * Buckets reports by cellId + the Sunday-anchored week the report's own date
  * falls in — not by a guessed "expected" date derived from the cell's configured
  * meetingDay. A cell with a missing/wrong meetingDay, or one that met on a
  * different day than usual, still gets counted here since we key off the report
@@ -74,7 +74,7 @@ function buildReportsByCellWeek(reports) {
 
 export function AlertPanelCellReports({ missingCount, submittedCount, totalCount, onOpenDetails }) {
   // "All submitted" only when every cell actually has this week's report — not just
-  // because no meeting date has passed yet (e.g. on a Monday, nothing is due).
+  // because no meeting date has passed yet (e.g. on a Sunday, nothing is due).
   if (missingCount === 0 && totalCount != null && submittedCount < totalCount) {
     return (
       <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex items-center gap-3">
@@ -168,7 +168,7 @@ export function MissingCellReportsTable({ rows, tenWeekByCellId = new Map(), loa
     <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
       <div className="px-5 py-4 border-b border-slate-100">
         <p className="text-sm font-bold text-slate-800">Cell Report Status</p>
-        <p className="text-xs text-slate-400 mt-0.5">Current week (Mon–Sun) · Expected date follows each cell's meeting day · Tap a Missing badge to see which of the last 10 weeks were skipped</p>
+        <p className="text-xs text-slate-400 mt-0.5">Current week (Sun–Sat) · Expected date follows each cell's meeting day · Tap a Missing badge to see which of the last 10 weeks were skipped</p>
         {!loading && rows.length > 0 && (
           <div className="flex gap-3 mt-3">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-full">
@@ -448,18 +448,18 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   const [reminderToast, setReminderToast] = useState(null)
 
   // Today's date, re-read every minute so a dashboard left open across midnight
-  // (e.g. Sunday → Monday) rolls into the new Mon–Sun week by itself.
+  // (e.g. Saturday → Sunday) rolls into the new Sun–Sat week by itself.
   const [todayISO, setTodayISO] = useState(() => format(new Date(), 'yyyy-MM-dd'))
   useEffect(() => {
     const t = setInterval(() => setTodayISO(format(new Date(), 'yyyy-MM-dd')), 60_000)
     return () => clearInterval(t)
   }, [])
-  const weekStartDate = useMemo(() => startOfWeek(parseISO(todayISO), { weekStartsOn: 1 }), [todayISO])
+  const weekStartDate = useMemo(() => cellWeekStart(parseISO(todayISO)), [todayISO])
   const weekKey = format(weekStartDate, 'yyyy-MM-dd')
   const storageKey = `cell_alerts_dismissed_${weekKey}`
 
   const [dismissedIds, setDismissedIds] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(`cell_alerts_dismissed_${format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd')}`) || '[]')) }
+    try { return new Set(JSON.parse(localStorage.getItem(`cell_alerts_dismissed_${format(cellWeekStart(new Date()), 'yyyy-MM-dd')}`) || '[]')) }
     catch { return new Set() }
   })
   useEffect(() => {
@@ -494,7 +494,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
   const rows = useMemo(() => {
     return visibleGroups.map((cell) => {
       const expectedDate = computeMeetingDateISO(cell.meetingDay, weekStartDate)
-      // Any real report dated inside this Mon–Sun week counts — same week rule as the
+      // Any real report dated inside this Sun–Sat week counts — same week rule as the
       // 10-week badges and the chart, so a cell that met on a different day than its
       // configured meetingDay isn't shown as not-submitted. Doc ID first, then the
       // logical cellId for legacy reports.

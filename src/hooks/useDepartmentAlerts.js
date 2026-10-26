@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { format, parseISO, startOfWeek } from 'date-fns'
+import { format, parseISO } from 'date-fns'
 import { getCellGroups, subscribeLatestCellReports, subscribeTasksByDepartment, subscribeFinanceExpenseByDept } from '../services/firestore'
-import { computeMeetingDateISO, isRealCellReportSubmission } from '../utils/cellWeek'
+import { cellWeekStart, computeMeetingDateISO, isRealCellReportSubmission } from '../utils/cellWeek'
 import { normalizeDepartmentName } from '../constants/roles'
 import { monthKeyOf } from '../utils/financeEntryLock'
 import useFinanceMonthLocks from './useFinanceMonthLocks'
@@ -130,7 +130,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
 
     // Cell reports overdue this week
     if (isCell && cellGroups.length) {
-      const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 })
+      const weekStart = cellWeekStart()
       const weekKey = format(weekStart, 'yyyy-MM-dd')
       const today = format(new Date(), 'yyyy-MM-dd')
       const mine = new Set(myCellKey ? myCellKey.split('|') : [])

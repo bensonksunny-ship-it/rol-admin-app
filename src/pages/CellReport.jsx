@@ -130,7 +130,7 @@ function weekStartKey(reportDateStr) {
   try {
     const d = parseISO(reportDateStr)
     if (Number.isNaN(d.getTime())) return reportDateStr
-    return format(startOfWeek(d, { weekStartsOn: 1 }), 'yyyy-MM-dd')
+    return format(startOfWeek(d, { weekStartsOn: 0 }), 'yyyy-MM-dd')
   } catch {
     return reportDateStr
   }
@@ -156,9 +156,8 @@ function meetingDayToJsDay(meetingDay) {
 function computeMeetingDateISO(meetingDay, weekStartDate) {
   const jsDay = meetingDayToJsDay(meetingDay)
   if (jsDay == null) return format(weekStartDate, 'yyyy-MM-dd')
-  // Offset from Monday of this weekStart.
-  const offset = (jsDay + 6) % 7
-  return format(addDays(weekStartDate, offset), 'yyyy-MM-dd')
+  // Offset from the Sunday that starts this week.
+  return format(addDays(weekStartDate, jsDay), 'yyyy-MM-dd')
 }
 
 export default function CellReport() {
@@ -211,12 +210,12 @@ export default function CellReport() {
   const [attendanceSaveError, setAttendanceSaveError] = useState('')
   const [riverKidsChildren, setRiverKidsChildren] = useState([])
 
-  // Current weekly window: Monday → Sunday (client local time).
+  // Current weekly window: Sunday → Saturday (client local time).
   // Cell reports are restricted to the meeting day inside this window.
-  const [weekStartISO, setWeekStartISO] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'))
+  const [weekStartISO, setWeekStartISO] = useState(() => format(startOfWeek(new Date(), { weekStartsOn: 0 }), 'yyyy-MM-dd'))
   const weekStartDate = useMemo(() => {
     const d = parseISO(weekStartISO)
-    if (Number.isNaN(d.getTime())) return startOfWeek(new Date(), { weekStartsOn: 1 })
+    if (Number.isNaN(d.getTime())) return startOfWeek(new Date(), { weekStartsOn: 0 })
     return d
   }, [weekStartISO])
   const currentWeekStartISO = format(weekStartDate, 'yyyy-MM-dd')
@@ -942,14 +941,14 @@ export default function CellReport() {
                 <p className="text-xs text-slate-500 mt-1">Single table view. Click a row to expand quick attendance edit.</p>
               </div>
               <label className="text-sm text-slate-700">
-                Week (Monday)
+                Week (Sunday)
                 <input
                   type="date"
                   value={weekStartISO}
                   onChange={(e) => {
                     const d = parseISO(e.target.value)
                     if (Number.isNaN(d.getTime())) return
-                    setWeekStartISO(format(startOfWeek(d, { weekStartsOn: 1 }), 'yyyy-MM-dd'))
+                    setWeekStartISO(format(startOfWeek(d, { weekStartsOn: 0 }), 'yyyy-MM-dd'))
                     setSelectedCellId(null)
                   }}
                   className="mt-1 block px-3 py-2 rounded-lg border border-slate-300"
@@ -1460,14 +1459,14 @@ export default function CellReport() {
 
             <div className="mt-3">
               <label className="text-sm text-slate-700">
-                Week (Monday)
+                Week (Sunday)
                 <input
                   type="date"
                   value={weekStartISO}
                   onChange={(e) => {
                     const d = parseISO(e.target.value)
                     if (Number.isNaN(d.getTime())) return
-                    setWeekStartISO(format(startOfWeek(d, { weekStartsOn: 1 }), 'yyyy-MM-dd'))
+                    setWeekStartISO(format(startOfWeek(d, { weekStartsOn: 0 }), 'yyyy-MM-dd'))
                     setLeaderTab('attendance')
                   }}
                   className="ml-2 mt-1 block px-3 py-2 rounded-lg border border-slate-300"

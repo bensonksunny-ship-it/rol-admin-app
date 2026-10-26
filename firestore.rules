@@ -557,7 +557,10 @@ service cloud.firestore {
     match /cell_reports/{reportId}/attendees/{attendeeId} {
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', ''))) || canAccessDept('Caring') || isFirstLady());
       allow create, update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', ''))));
-      allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
+      // A leader's Live Meeting sync may remove the rows it wrote itself (source 'live')
+      // when someone is un-ticked mid-meeting.
+      allow delete: if isSignedIn() && (isFullAccess() || isCellDirector()
+        || (resource.data.get('source', '') == 'live' && canAccessDept('Cell') && userLinkedCellMatchesDocId(get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', ''))));
     }
 
     // Weekly cell report history

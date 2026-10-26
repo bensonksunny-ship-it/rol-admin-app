@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
-import { format, startOfWeek } from 'date-fns'
+import { format } from 'date-fns'
 import { AnimatePresence, motion } from 'framer-motion'
 
 const MotionDiv = motion.div
@@ -24,7 +24,7 @@ import {
   getDelightVisitors,
   VISITOR_REQUIRED_MESSAGE,
 } from '../services/firestore'
-import { totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission } from '../utils/cellWeek'
+import { cellWeekStart, totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission } from '../utils/cellWeek'
 import DirectorDashboardCellWidgets, { CellMemberGrowthChart } from './DirectorDashboard'
 
 function initials(name) {
@@ -268,7 +268,7 @@ export function CellDirectorCockpit({
   const [weeklyReports, setWeeklyReports] = useState([])
   useEffect(() => subscribeLatestCellReports(500, setWeeklyReports, () => setWeeklyReports([])), [])
 
-  // Bucketed by cellId + the Monday-anchored week the report's own date falls
+  // Bucketed by cellId + the Sunday-anchored week the report's own date falls
   // in — not by guessing an "expected" date from the cell's configured
   // meetingDay. That guess silently misses (shows 0 attended) for any cell
   // with a missing/wrong meetingDay or one that met on an unusual day.
@@ -285,7 +285,7 @@ export function CellDirectorCockpit({
   }, [weeklyReports])
 
   const currentWeekKey = useMemo(
-    () => format(startOfWeek(new Date(), { weekStartsOn: 1 }), 'yyyy-MM-dd'),
+    () => format(cellWeekStart(), 'yyyy-MM-dd'),
     []
   )
 

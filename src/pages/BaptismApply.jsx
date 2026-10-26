@@ -235,7 +235,7 @@ export default function BaptismApply() {
           {genderError && <p className="text-sm font-medium text-red-600 mt-2">{GENDER_REQUIRED_MESSAGE}</p>}
         </section>
 
-        <FamilyDetailsSection value={family} showSpouse={showSpouse} />
+        <FamilyDetailsSection value={family} showSpouse={showSpouse} showChildren={showSpouse} />
 
         {/* Declaration + signature */}
         <section>

@@ -26,13 +26,13 @@ const CELL_DEPARTMENT = 'Cell'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Monday-anchored (ISO, Mon–Sun) start-of-week key (YYYY-MM-DD) for a meeting
+/** Sunday-anchored (Sun–Sat) start-of-week key (YYYY-MM-DD) for a meeting
  *  date — the same week band the Hub's Cell Report Status uses (utils/cellWeek). */
 function weekStartKey(dateISO) {
   if (!dateISO) return null
   const d = new Date(String(dateISO).slice(0, 10) + 'T00:00:00')
   if (Number.isNaN(d.getTime())) return null
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+  d.setDate(d.getDate() - d.getDay())
   const yyyy = d.getFullYear()
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
@@ -527,7 +527,7 @@ export default function CellHistory({ embedded = false }) {
     [cellGroups]
   )
 
-  // Group every report into its Monday–Sunday week, newest week first, each
+  // Group every report into its Sunday–Saturday week, newest week first, each
   // carrying its own quick-analysis numbers for the per-week header badges.
   const weekGroups = useMemo(() => {
     const map = new Map()

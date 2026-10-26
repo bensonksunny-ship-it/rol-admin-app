@@ -830,15 +830,15 @@ export default function DepartmentHub() {
   const [backToBibleList, setBackToBibleList] = useState([])
   const [btbForm, setBtbForm] = useState(() => {
     const now = new Date()
-    const mon = startOfWeek(now, { weekStartsOn: 1 })
-    const sun = endOfWeek(now, { weekStartsOn: 1 })
+    const mon = startOfWeek(now, { weekStartsOn: 0 })
+    const sun = endOfWeek(now, { weekStartsOn: 0 })
     return { fromDate: format(mon, 'yyyy-MM-dd'), toDate: format(sun, 'yyyy-MM-dd'), title: '', content: '' }
   })
   const btbWeekStart = useMemo(() => {
     const d = btbForm.fromDate ? new Date(btbForm.fromDate + 'T12:00:00') : new Date()
-    return startOfWeek(d, { weekStartsOn: 1 })
+    return startOfWeek(d, { weekStartsOn: 0 })
   }, [btbForm.fromDate])
-  const btbWeekEnd = useMemo(() => endOfWeek(btbWeekStart, { weekStartsOn: 1 }), [btbWeekStart])
+  const btbWeekEnd = useMemo(() => endOfWeek(btbWeekStart, { weekStartsOn: 0 }), [btbWeekStart])
   const [caringMembers, setCaringMembers] = useState([])
   const [loadingCaringMembers, setLoadingCaringMembers] = useState(false)
   const [expandedCaringId, setExpandedCaringId] = useState(null)
@@ -5359,8 +5359,8 @@ export default function DepartmentHub() {
                           const list = await getBackToBibleList()
                           setBackToBibleList(list)
                           const now = new Date()
-                          const mon = startOfWeek(now, { weekStartsOn: 1 })
-                          const sun = endOfWeek(now, { weekStartsOn: 1 })
+                          const mon = startOfWeek(now, { weekStartsOn: 0 })
+                          const sun = endOfWeek(now, { weekStartsOn: 0 })
                           setBtbForm({ fromDate: format(mon, 'yyyy-MM-dd'), toDate: format(sun, 'yyyy-MM-dd'), title: '', content: '' })
                         } catch (err) {
                           console.error('Back to Bible save error', err)
@@ -5372,7 +5372,7 @@ export default function DepartmentHub() {
                     >
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-sm font-medium text-slate-700 mb-1">Week start (Monday)</label>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Week start (Sunday)</label>
                           <input
                             type="date"
                             value={btbForm.fromDate}
@@ -5380,8 +5380,8 @@ export default function DepartmentHub() {
                               const v = e.target.value
                               if (!v) return
                               const d = new Date(v + 'T12:00:00')
-                              const mon = startOfWeek(d, { weekStartsOn: 1 })
-                              const sun = endOfWeek(mon, { weekStartsOn: 1 })
+                              const mon = startOfWeek(d, { weekStartsOn: 0 })
+                              const sun = endOfWeek(mon, { weekStartsOn: 0 })
                               setBtbForm((f) => ({ ...f, fromDate: format(mon, 'yyyy-MM-dd'), toDate: format(sun, 'yyyy-MM-dd') }))
                             }}
                             className="w-full px-3 py-2 rounded-lg border border-slate-300"

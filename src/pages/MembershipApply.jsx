@@ -382,7 +382,7 @@ export default function MembershipApply() {
           </div>
         </section>
 
-        <FamilyDetailsSection value={family} showSpouse={showSpouse} />
+        <FamilyDetailsSection value={family} showSpouse={showSpouse} showChildren={showSpouse} />
 
         {/* Talents */}
         <section>

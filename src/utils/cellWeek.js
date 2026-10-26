@@ -1,13 +1,21 @@
 import { format, parseISO, addDays, startOfWeek } from 'date-fns'
 import { computeDurationMinutes } from './date'
 
-/** Firestore cell_reports week band (Monday week start), matches Cell Report page. */
+/** The Cell department's week runs Sunday → Saturday (date-fns startOfWeek options). */
+export const CELL_WEEK = { weekStartsOn: 0 }
+
+/** Sunday (local) that starts the cell week containing `date`. */
+export function cellWeekStart(date = new Date()) {
+  return startOfWeek(date, CELL_WEEK)
+}
+
+/** Firestore cell_reports week band (Sunday week start), matches Cell Report page. */
 export function weekStartKey(reportDateStr) {
   if (!reportDateStr) return 'unknown'
   try {
     const d = parseISO(reportDateStr)
     if (Number.isNaN(d.getTime())) return reportDateStr
-    return format(startOfWeek(d, { weekStartsOn: 1 }), 'yyyy-MM-dd')
+    return format(startOfWeek(d, CELL_WEEK), 'yyyy-MM-dd')
   } catch {
     return reportDateStr
   }
@@ -28,12 +36,11 @@ export function meetingDayToJsDay(meetingDay) {
   return null
 }
 
-/** Expected report date (YYYY-MM-DD) for a cell’s meeting day within a given week (Mon–Sun). */
+/** Expected report date (YYYY-MM-DD) for a cell’s meeting day within a given week (Sun–Sat). */
 export function computeMeetingDateISO(meetingDay, weekStartDate) {
   const jsDay = meetingDayToJsDay(meetingDay)
   if (jsDay == null) return format(weekStartDate, 'yyyy-MM-dd')
-  const offset = (jsDay + 6) % 7
-  return format(addDays(weekStartDate, offset), 'yyyy-MM-dd')
+  return format(addDays(weekStartDate, jsDay), 'yyyy-MM-dd')
 }
 
 export function totalAttendanceFromCellReport(r) {
@@ -70,10 +77,10 @@ export function isRealCellReportSubmission(r) {
 }
 
 /**
- * Monday–Sunday range label for a Monday-anchored week start (as produced by
- * weekStartKey / startOfWeek(d, { weekStartsOn: 1 })) — the label covers exactly
- * the days the week bucket holds.
- * e.g. weekStart 2026-07-27 (Mon) -> "Jul 27 - Aug 02"
+ * Sunday–Saturday range label for a Sunday-anchored week start (as produced by
+ * weekStartKey / cellWeekStart) — the label covers exactly the days the week
+ * bucket holds.
+ * e.g. weekStart 2026-07-26 (Sun) -> "Jul 26 - Aug 01"
  */
 export function formatWeekRangeLabel(weekStart) {
   const monday = typeof weekStart === 'string' ? parseISO(weekStart) : weekStart
