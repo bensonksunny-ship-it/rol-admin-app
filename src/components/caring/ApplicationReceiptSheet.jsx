@@ -214,8 +214,8 @@ export default function ApplicationReceiptSheet({ entry, application, onClose })
                   {/* Seal + signature */}
                   <div className="w-[48mm] shrink-0 flex flex-col items-center justify-end">
                     <div className="relative w-[44mm] h-[34mm]">
-                      <img src={SEAL_SRC} alt="Church seal" className="absolute left-0 top-0 h-[30mm] w-auto opacity-90" />
-                      <img src={SIGN_SRC} alt="Signature" className="absolute right-0 bottom-0 h-[20mm] w-auto" />
+                      <img src={SEAL_SRC} alt="Church seal" className="absolute left-0 top-0 h-[27mm] w-auto opacity-90" />
+                      <img src={SIGN_SRC} alt="Signature" className="absolute right-0 bottom-0 h-[13mm] w-auto" />
                     </div>
                     <div className="w-full border-t border-slate-800 mt-[1mm] pt-[1mm] text-center">
                       <p className="text-[8pt] font-bold uppercase tracking-[0.12em] text-slate-600">Authorised Signatory</p>

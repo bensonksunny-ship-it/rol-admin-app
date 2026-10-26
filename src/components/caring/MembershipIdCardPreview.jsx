@@ -1,30 +1,34 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
-import { Printer, X } from 'lucide-react'
+import { Download, Printer, X } from 'lucide-react'
 
-// Double-sided Membership ID card, 55 × 85 mm portrait (8.5 × 5.5 cm, vertical),
-// laid out in mm / pt so it prints at true size. Front: dark upper section, green
-// lower diagonal bar, church name, globe-and-cross watermark, member name, member
-// since, membership ID. Back: green "Membership Details" banner with a QR code to
-// rolcc.in, the member's details with the authorised signature, church address.
+// Double-sided Membership ID card, 55 × 85 mm portrait, laid out in mm / pt so it
+// prints at true size. Matches the printed PVC card: Front — charcoal card, church
+// name top left, white church logo on the right, emerald (#005044) diagonal lower
+// section with the member name, "member since" and membership number right-aligned.
+// Back — emerald "Membership Details" header blending into charcoal, QR code to
+// rolcc.in, the member's details, white authorised signature, church address.
 
 const QR_URL = 'https://rolcc.in'
-const SIGN_URL = '/assets/certificate/sign.png'
-const ADDRESS = 'No.49, AMR Plaza 3rd floor, 18th Main HSR Layout Sector 3, Bangalore 560102'
+const EMERALD = '#005044'
+// White-on-transparent copies of src/assets/rolcc_logo BW.JPG and the certificate
+// signature (levelled — the original is written on a diagonal).
+const LOGO_URL = '/assets/idcard/logo-white.png'
+const SIGN_URL = '/assets/idcard/sign-white.png'
+const ADDRESS_LINES = ['No.49, AMR Plaza 3rd floor, 18th Main HSR', 'Layout Sector 3, Bangalore 560102']
 const CONTACT_LINE = '90367 45258 | www.rolcc.in'
 const DISCLAIMER = 'In case found unattended please return this to above address'
 
 const CARD_CSS = `
-.idc-card { position: relative; width: 55mm; height: 85mm; border-radius: 8px; overflow: hidden; flex: none;
-  font-family: 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif; color: #1a1a1a; background: #fff;
+.idc-card { position: relative; width: 55mm; height: 85mm; border-radius: 3.2mm; overflow: hidden; flex: none;
+  font-family: 'Plus Jakarta Sans', 'Inter', 'Segoe UI', Helvetica, Arial, sans-serif; color: #fff; background: #161617;
   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .idc-card * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 .idc-abs { position: absolute; }
 .idc-qr svg { display: block; width: 100%; height: 100%; }
-.idc-mono { font-family: ui-monospace, 'SFMono-Regular', Consolas, 'Courier New', monospace; }
-.idc-field { border-bottom: 0.2mm solid #dfe8e3; padding-bottom: 1mm; margin-bottom: 2mm; }
-.idc-label { font-size: 4.8pt; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #6b7a75; }
-.idc-value { font-size: 7.6pt; font-weight: 700; color: #141a18; margin-top: 0.4mm; line-height: 1.15; overflow-wrap: anywhere; }
+.idc-row { height: 10mm; padding: 3mm 0 0 3.3mm; border-left: 0.2mm solid rgba(255,255,255,.09); border-bottom: 0.2mm solid rgba(255,255,255,.09); }
+.idc-label { font-size: 5.4pt; font-weight: 500; color: rgba(255,255,255,.88); line-height: 1; }
+.idc-value { font-size: 8.4pt; font-weight: 700; color: #fff; margin-top: 1mm; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .idc-print { display: none; }
 @media screen { .idc-preview .idc-card { zoom: 1.5; box-shadow: 0 6px 22px rgba(0,0,0,.25); } }
 `
@@ -45,127 +49,104 @@ const printCss = (mode) => `
 }
 `
 
-// White line-art globe with a cross rising from it (watermark on the front).
-function GlobeCross() {
-  return (
-    <svg viewBox="-50 -72 100 124" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true" style={{ width: '100%', height: '100%', display: 'block' }}>
-      <circle cx="0" cy="10" r="40" />
-      <ellipse cx="0" cy="10" rx="14" ry="40" />
-      <ellipse cx="0" cy="10" rx="28" ry="40" />
-      <line x1="0" y1="-30" x2="0" y2="50" />
-      <ellipse cx="0" cy="-10" rx="34.6" ry="5" />
-      <line x1="-40" y1="10" x2="40" y2="10" />
-      <ellipse cx="0" cy="30" rx="34.6" ry="5" />
-      <path d="M0 -70 V-14 M-15 -55 H15" strokeWidth="5" />
-    </svg>
-  )
-}
-
-function ChurchName({ light = true, size = 1 }) {
-  return (
-    <div style={{ color: light ? '#fff' : '#0b3d22', lineHeight: 1.05 }}>
-      <div style={{ fontSize: `${8.6 * size}pt`, fontWeight: 800, letterSpacing: '0.01em' }}>River of Life</div>
-      <div style={{ fontSize: `${5 * size}pt`, fontWeight: 600, letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.85, marginTop: '0.5mm' }}>Christian Church</div>
-    </div>
-  )
-}
+// "RE15/12201/90005" → "RE15 / 12201 / 90005", as printed on the card.
+const spacedNumber = (n) => String(n || '').trim().replace(/\s*\/\s*/g, ' / ')
 
 export function IdCardFront({ data }) {
-  const uid = useId().replace(/:/g, '')
   const name = String(data?.name || '').trim() || 'Member Name'
-  const nameSize = name.length > 22 ? 10 : name.length > 16 ? 11.5 : 13
+  const nameSize = name.length > 24 ? 9 : name.length > 18 ? 10.5 : 12
   return (
-    <div className="idc-card" aria-label="ID card front">
+    <div className="idc-card" aria-label="ID card front"
+      style={{ background: 'linear-gradient(200deg, #3a3839 0%, #1d1c1e 42%, #121213 100%)' }}>
       <svg className="idc-abs" viewBox="0 0 55 85" preserveAspectRatio="none" style={{ inset: 0, width: '100%', height: '100%' }} aria-hidden="true">
-        <defs>
-          <linearGradient id={`d${uid}`} x1="0" y1="0" x2="0.4" y2="1">
-            <stop offset="0" stopColor="#34393a" />
-            <stop offset="1" stopColor="#0d0f0f" />
-          </linearGradient>
-          <linearGradient id={`g${uid}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#16a34a" />
-            <stop offset="1" stopColor="#065f2c" />
-          </linearGradient>
-        </defs>
-        <rect width="55" height="85" fill={`url(#d${uid})`} />
-        <polygon points="0,59.5 55,46.5 55,48.6 0,61.6" fill="#4ade80" opacity="0.85" />
-        <polygon points="0,63.5 55,50.5 55,85 0,85" fill={`url(#g${uid})`} />
+        <polygon points="0,66.2 55,42.4 55,85 0,85" fill={EMERALD} />
       </svg>
 
-      <div className="idc-abs" style={{ right: '-11mm', top: '2.5mm', width: '40mm', height: '49.6mm', opacity: 0.22 }}>
-        <GlobeCross />
+      <img src={LOGO_URL} alt="" aria-hidden="true" className="idc-abs"
+        style={{ left: '22mm', top: '9.4mm', width: '35.2mm', height: 'auto', opacity: 0.9 }} />
+
+      <div className="idc-abs" style={{ left: '4.5mm', top: '5.2mm', fontSize: '7pt', fontWeight: 600, lineHeight: 1.22, letterSpacing: '-0.005em' }}>
+        River of Life<br />Christian Church
       </div>
 
-      <div className="idc-abs" style={{ left: '4.5mm', top: '5mm' }}>
-        <ChurchName />
-        <div style={{ width: '7mm', height: '0.7mm', background: '#22c55e', borderRadius: '1mm', marginTop: '1.6mm' }} />
-      </div>
-
-      <div className="idc-abs" style={{ left: '4.5mm', right: '4.5mm', top: '33mm' }}>
-        <div style={{ fontSize: '4.8pt', fontWeight: 700, letterSpacing: '0.2em', color: '#86efac', textTransform: 'uppercase' }}>Member</div>
-        <div style={{ fontSize: `${nameSize}pt`, fontWeight: 800, color: '#fff', lineHeight: 1.08, marginTop: '0.8mm', overflowWrap: 'anywhere' }}>{name}</div>
+      <div className="idc-abs" style={{ left: '4mm', right: '3.2mm', top: '68.6mm', textAlign: 'right' }}>
+        <div style={{ fontSize: `${nameSize}pt`, fontWeight: 700, lineHeight: 1.05, letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</div>
         {data?.memberSince ? (
-          <div style={{ fontSize: '5.6pt', fontWeight: 600, letterSpacing: '0.22em', color: 'rgba(255,255,255,.72)', textTransform: 'uppercase', marginTop: '1.6mm' }}>
+          <div style={{ fontSize: '5.2pt', fontWeight: 400, textTransform: 'uppercase', letterSpacing: '0.01em', opacity: 0.85, marginTop: '0.7mm' }}>
             Member since {data.memberSince}
           </div>
         ) : null}
       </div>
 
-      <div className="idc-abs" style={{ left: '4.5mm', right: '4.5mm', bottom: '6mm', color: '#fff' }}>
-        <div style={{ fontSize: '4.6pt', fontWeight: 700, letterSpacing: '0.2em', textTransform: 'uppercase', opacity: 0.75 }}>Membership ID</div>
-        <div className="idc-mono" style={{ fontSize: '8.4pt', fontWeight: 800, letterSpacing: '0.08em', marginTop: '0.8mm', whiteSpace: 'nowrap' }}>
-          {String(data?.membershipNumber || '').trim() || '—'}
-        </div>
+      <div className="idc-abs" style={{ left: '4mm', right: '3mm', bottom: '3.4mm', textAlign: 'right', fontSize: '9.6pt', fontWeight: 700, letterSpacing: '0.12em', whiteSpace: 'nowrap' }}>
+        {spacedNumber(data?.membershipNumber) || '—'}
       </div>
     </div>
   )
 }
 
 export function IdCardBack({ data, qrSvg }) {
-  const uid = useId().replace(/:/g, '')
   const [signOk, setSignOk] = useState(true)
   const val = (v) => String(v ?? '').trim() || '—'
   return (
-    <div className="idc-card" aria-label="ID card back">
-      <svg className="idc-abs" viewBox="0 0 55 26" preserveAspectRatio="none" style={{ left: 0, top: 0, width: '55mm', height: '26mm' }} aria-hidden="true">
-        <defs>
-          <linearGradient id={`b${uid}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#16a34a" />
-            <stop offset="1" stopColor="#065f2c" />
-          </linearGradient>
-        </defs>
-        <polygon points="0,0 55,0 55,21.5 0,25" fill={`url(#b${uid})`} />
-      </svg>
+    <div className="idc-card" aria-label="ID card back"
+      style={{ background: `linear-gradient(162deg, ${EMERALD} 0%, ${EMERALD} 22%, #18302b 50%, #141816 76%, #111212 100%)` }}>
+      {/* Header band: crisp lower edge on the right, melts into the gradient on the left. */}
+      <div className="idc-abs" style={{ left: 0, right: 0, top: 0, height: '17mm', background: `linear-gradient(90deg, transparent 0%, ${EMERALD} 48%)` }} />
 
-      <div className="idc-abs" style={{ left: '4.5mm', top: '5.5mm', color: '#fff', width: '28mm' }}>
-        <div style={{ fontSize: '9.5pt', fontWeight: 800, lineHeight: 1.05 }}>Membership<br />Details</div>
-        <div style={{ fontSize: '4.6pt', fontWeight: 600, letterSpacing: '0.14em', textTransform: 'uppercase', opacity: 0.8, marginTop: '1.6mm' }}>River of Life Christian Church</div>
+      <div className="idc-abs" style={{ left: '3.8mm', top: '5.4mm', fontSize: '11pt', lineHeight: 1.12, letterSpacing: '-0.01em' }}>
+        <div style={{ fontWeight: 800 }}>Membership</div>
+        <div style={{ fontWeight: 400 }}>Details</div>
       </div>
 
-      <div className="idc-abs" style={{ right: '4mm', top: '3.5mm', width: '16mm', height: '16mm', background: '#fff', borderRadius: '1.2mm', padding: '1.1mm' }}>
+      <div className="idc-abs" style={{ right: '4.4mm', top: '4.4mm', width: '10.6mm', height: '10.6mm', background: '#fff', borderRadius: '0.5mm', padding: '0.6mm' }}>
         {qrSvg ? <div className="idc-qr" style={{ width: '100%', height: '100%' }} dangerouslySetInnerHTML={{ __html: qrSvg }} /> : null}
       </div>
 
-      <div className="idc-abs" style={{ left: '4.5mm', right: '4.5mm', top: '28.5mm' }}>
-        <div className="idc-field"><div className="idc-label">Name</div><div className="idc-value">{val(data?.name)}</div></div>
-        <div className="idc-field"><div className="idc-label">Emergency Contact</div><div className="idc-value">{val(data?.emergencyContact)}</div></div>
-        <div className="idc-field"><div className="idc-label">Congregation</div><div className="idc-value">{val(data?.congregation)}</div></div>
-        <div>
-          <div className="idc-label">Authorised Signature</div>
-          <div style={{ height: '8mm', marginTop: '0.4mm' }}>
-            {signOk && <img src={SIGN_URL} alt="Authorised signature" onError={() => setSignOk(false)} style={{ height: '100%', width: 'auto', objectFit: 'contain' }} />}
-          </div>
-        </div>
+      <div className="idc-abs" style={{ left: '4mm', width: '32mm', top: '17.5mm', borderTop: '0.2mm solid rgba(255,255,255,.09)' }}>
+        <div className="idc-row"><div className="idc-label">Name</div><div className="idc-value">{val(data?.name)}</div></div>
+        <div className="idc-row"><div className="idc-label">Emergency Contact</div><div className="idc-value">{val(data?.emergencyContact)}</div></div>
+        <div className="idc-row"><div className="idc-label">Congregation</div><div className="idc-value">{val(data?.congregation)}</div></div>
       </div>
 
-      <div className="idc-abs" style={{ left: 0, right: 0, bottom: 0, height: '14.5mm', background: '#141716', color: '#fff', textAlign: 'center', padding: '2mm 3.5mm 0' }}>
-        <div style={{ fontSize: '4.7pt', lineHeight: 1.3, opacity: 0.9 }}>{ADDRESS}</div>
-        <div style={{ fontSize: '5.4pt', fontWeight: 700, color: '#4ade80', marginTop: '0.7mm', letterSpacing: '0.03em' }}>{CONTACT_LINE}</div>
-        <div style={{ fontSize: '4.3pt', fontStyle: 'italic', opacity: 0.65, marginTop: '0.6mm' }}>{DISCLAIMER}</div>
+      <div className="idc-abs idc-label" style={{ left: '7.3mm', top: '49.8mm' }}>Authorised Signature</div>
+      {signOk && (
+        <img src={SIGN_URL} alt="Authorised signature" onError={() => setSignOk(false)} className="idc-abs"
+          style={{ left: '20.6mm', top: '52.8mm', width: '17.5mm', height: 'auto' }} />
+      )}
+
+      <div className="idc-abs" style={{ left: '2.5mm', right: '2.5mm', top: '65.6mm', textAlign: 'center' }}>
+        <div style={{ fontSize: '5.6pt', lineHeight: 1.3 }}>{ADDRESS_LINES.map((l) => <div key={l}>{l}</div>)}</div>
+        <div style={{ fontSize: '7.6pt', fontWeight: 700, marginTop: '1.5mm' }}>{CONTACT_LINE}</div>
+      </div>
+      <div className="idc-abs" style={{ left: '1.5mm', right: '1.5mm', bottom: '1.7mm', textAlign: 'center', fontSize: '4.3pt', color: '#a7dccf', whiteSpace: 'nowrap' }}>
+        {DISCLAIMER}
       </div>
     </div>
   )
 }
+
+// Card face → JPEG blob. Captures the unzoomed off-screen copy at 3× (≈ 290 dpi on
+// a 55 mm card). html2canvas-pro, not html2canvas: Tailwind v4 colours are oklch().
+async function cardToJpeg(node) {
+  const { default: html2canvas } = await import('html2canvas-pro')
+  await document.fonts?.ready
+  const canvas = await html2canvas(node, { scale: 3, backgroundColor: '#ffffff', useCORS: true, logging: false })
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('JPEG export failed'))), 'image/jpeg', 0.95))
+}
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
+}
+
+const fileBase = (name) => (String(name || '').trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_') || 'Member')
 
 /**
  * Full-screen preview of the Membership ID card (front and back) with Print.
@@ -175,10 +156,31 @@ export function IdCardBack({ data, qrSvg }) {
 export default function MembershipIdCardPreview({ data, onClose }) {
   const [qrSvg, setQrSvg] = useState('')
   const [mode, setMode] = useState('sheet')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const frontRef = useRef(null)
+  const backRef = useRef(null)
+
+  // Both faces are rendered first, then saved one after the other with a short
+  // gap so the browser treats them as two downloads rather than blocking one.
+  const downloadJpegs = async () => {
+    setSaving(true); setError('')
+    try {
+      const [front, back] = await Promise.all([cardToJpeg(frontRef.current.firstElementChild), cardToJpeg(backRef.current.firstElementChild)])
+      const base = fileBase(data?.name)
+      saveBlob(front, `${base}_ID_Card_Front.jpg`)
+      await new Promise((r) => setTimeout(r, 250))
+      saveBlob(back, `${base}_ID_Card_Back.jpg`)
+    } catch (e) {
+      console.error('ID card JPEG', e)
+      setError('Could not create the JPEG files. Please try again.')
+    }
+    setSaving(false)
+  }
 
   useEffect(() => {
     let cancelled = false
-    QRCode.toString(QR_URL, { type: 'svg', margin: 0, errorCorrectionLevel: 'M', color: { dark: '#0b2e1b', light: '#ffffff' } })
+    QRCode.toString(QR_URL, { type: 'svg', margin: 0, errorCorrectionLevel: 'M', color: { dark: EMERALD, light: '#ffffff' } })
       .then((s) => { if (!cancelled) setQrSvg(s) })
       .catch((e) => console.error('ID card QR', e))
     return () => { cancelled = true }
@@ -221,8 +223,12 @@ export default function MembershipIdCardPreview({ data, onClose }) {
               {seg('pvc', 'PVC card')}
             </div>
             <button type="button" onClick={() => window.print()} disabled={!qrSvg}
-              className={`${btn} bg-[#0d5c46] text-white hover:bg-[#168a68]`}>
+              className={`${btn} bg-[#005044] text-white hover:bg-[#00695a]`}>
               <Printer size={14} aria-hidden="true" /> Print
+            </button>
+            <button type="button" onClick={downloadJpegs} disabled={!qrSvg || saving}
+              className={`${btn} bg-white text-slate-700 border border-slate-300 hover:bg-slate-50`}>
+              <Download size={14} aria-hidden="true" /> {saving ? 'Preparing…' : 'Download JPEG (Front & Back)'}
             </button>
             <button type="button" onClick={onClose} aria-label="Close"
               className="w-9 h-9 flex items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 shrink-0">
@@ -241,6 +247,7 @@ export default function MembershipIdCardPreview({ data, onClose }) {
                 <figcaption className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Back</figcaption>
               </figure>
             </div>
+            {error && <p className="mt-4 text-center text-xs font-semibold text-red-600">{error}</p>}
             <p className="mt-6 text-center text-[11px] text-slate-500">
               {mode === 'pvc'
                 ? 'PVC card: prints one 55 × 85 mm page per side (front, then back). Choose your card printer, set scale to 100% / Actual size, and turn on two-sided printing.'
@@ -248,6 +255,12 @@ export default function MembershipIdCardPreview({ data, onClose }) {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Unzoomed copies off screen, captured for the JPEG download. */}
+      <div aria-hidden="true" style={{ position: 'fixed', left: '-10000px', top: 0, pointerEvents: 'none' }}>
+        <div ref={frontRef}><IdCardFront data={data} /></div>
+        <div ref={backRef} style={{ marginTop: '4mm' }}><IdCardBack data={data} qrSvg={qrSvg} /></div>
       </div>
 
       {/* What actually prints (hidden on screen). */}

@@ -1,50 +1,17 @@
 import { useEffect, useState } from 'react'
-import { Lock, LockOpen } from 'lucide-react'
+import { Check, Loader2, Lock, LockOpen } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { subscribePendingFinanceUnlockRequests, setFinanceMonthUnlock } from '../../services/firestore'
 import { isMonthClosedForFinance, isFinanceMonthLocked, monthKeyLabel, monthKeyOf, financeLockTypeLabel } from '../../utils/financeEntryLock'
-import { format, startOfMonth, subMonths } from 'date-fns'
-import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
-import { unlockDocId } from '../../utils/financeEntryLock'
 import { MonthLockRow } from './FinanceMonthLocksModal'
-
-// Founder, inside the lock popup: the last 12 months (this type) that were never
-// marked "Entry completed" — locked by the 10th or still open — each with a
-// one-tap Entry completed.
-function FounderPendingCompletions({ type, by }) {
-  const { unlocks, now } = useFinanceMonthLocks(true)
-  const [busy, setBusy] = useState(null)
-  const [error, setError] = useState('')
-  const months = Array.from({ length: 12 }, (_, i) => format(subMonths(startOfMonth(now), i + 1), 'yyyy-MM'))
-    .filter(mk => unlocks[unlockDocId(type, mk)]?.completed !== true)
-  if (!months.length) return null
-  async function complete(mk) {
-    setBusy(mk); setError('')
-    try { await setFinanceMonthUnlock(mk, 0, by, type) } catch { setError('Could not update. Please try again.') }
-    setBusy(null)
-  }
-  return (
-    <div className="mt-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-xs font-semibold text-slate-600 mb-2">Not marked completed</p>
-      <div className="flex flex-wrap gap-1.5">
-        {months.map(mk => (
-          <button key={mk} type="button" disabled={busy != null} onClick={() => complete(mk)}
-            className="px-2.5 py-1 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-800 text-xs font-semibold hover:bg-emerald-100 disabled:opacity-50">
-            {busy === mk ? '…' : `✓ ${format(new Date(mk + '-01T00:00:00'), 'MMM yyyy')}`}
-          </button>
-        ))}
-      </div>
-      {error && <p className="text-xs text-red-600 mt-1.5">{error}</p>}
-    </div>
-  )
-}
 
 // Shown on a finance screen (type 'expense' or 'income') for the month in view
 // once it closed (10th of the following month). No text: the page takes on a
 // tint — muted amber while locked, green while the Founder has it unlocked — with
 // a lock / open-lock icon on top. Tapping the icon opens the lock controls:
-// Founder unlock, Accounts unlock request, or "Entry completed" to re-lock.
-// Before the close date (e.g. the current month) only the "Entry completed"
+// Founder unlock, Accounts unlock request, or "Mark Completed" to re-lock.
+// Sits at the right edge (centred only while the lock controls are open).
+// Before the close date (e.g. the current month) only the "Mark Completed"
 // button shows; pressing it locks the month early.
 // Time left before an unlocked month locks again: a draining bar from the unlock
 // moment to unlockedUntil, plus a short countdown. `now` ticks every minute.
@@ -90,19 +57,27 @@ export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unl
     setCompleting(false)
   }
   const locked = isFinanceMonthLocked(monthKey, unlock?.unlockedUntil, now, completed)
+  // A 36px ✓ circle at the right edge of the page, with a soft halo so it stands
+  // out; on hover / keyboard focus it widens into an emerald
+  // "Mark Completed" pill (the label slides out from behind the check).
   const completeButton = (
-    <button type="button" disabled={completing} onClick={markCompleted}
-      className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm disabled:opacity-50">
-      {completing ? '…' : '✓ Entry completed'}
+    <button type="button" disabled={completing} onClick={markCompleted} title="Mark Completed" aria-label="Mark Completed"
+      className="group inline-flex items-center h-9 rounded-full bg-emerald-600 text-white shadow-md ring-4 ring-emerald-500/20 transition-colors duration-200 hover:bg-emerald-700 hover:ring-emerald-500/30 focus-visible:outline-none focus-visible:ring-emerald-400/60 disabled:opacity-60">
+      <span className="flex items-center justify-center w-9 h-9 shrink-0">
+        {completing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-[18px] h-[18px]" strokeWidth={2.75} />}
+      </span>
+      <span aria-hidden="true"
+        className="max-w-0 overflow-hidden whitespace-nowrap text-sm font-semibold opacity-0 transition-all duration-300 ease-out group-hover:max-w-[9rem] group-hover:pr-3.5 group-hover:opacity-100 group-focus-visible:max-w-[9rem] group-focus-visible:pr-3.5 group-focus-visible:opacity-100">
+        Mark Completed
+      </span>
     </button>
   )
   // Still open (before the 10th, not completed): just the button.
   if (!lockable) {
     return (
-      <div className="flex flex-col items-center gap-1">
+      <div className="flex flex-col items-end gap-1">
         {completeButton}
         {completeError && <p className="text-xs text-red-600">{completeError}</p>}
-        {isFounder && <div className="w-full max-w-2xl"><FounderPendingCompletions type={type} by={by} /></div>}
       </div>
     )
   }
@@ -111,12 +86,15 @@ export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unl
   return (
     <>
       <div aria-hidden className={`fixed inset-0 -z-10 pointer-events-none ${locked ? 'bg-amber-100/70 dark:bg-amber-950/40' : 'bg-emerald-100/60 dark:bg-emerald-950/40'}`} />
-      <div className="flex flex-col items-center gap-2">
+      <div className={`flex flex-col gap-2 ${open ? 'items-center' : 'items-end'}`}>
         <button type="button" onClick={() => setOpen(o => !o)} title={label} aria-label={label} aria-expanded={open}
           className={`inline-flex items-center justify-center w-11 h-11 rounded-full shadow-sm transition ${locked ? 'bg-amber-200 text-amber-800 hover:bg-amber-300' : 'bg-emerald-200 text-emerald-800 hover:bg-emerald-300'} ${open ? 'ring-2 ring-offset-2 ' + (locked ? 'ring-amber-400' : 'ring-emerald-400') : ''}`}>
           <Icon className="w-5 h-5" strokeWidth={2.25} />
         </button>
         {!locked && <UnlockTimerBar unlock={unlock} now={now} />}
+        {completed && locked && !open && (
+          <span className="px-4 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-semibold">✓ Completed</span>
+        )}
         {!open && (!locked || (isFounder && !completed)) && completeButton}
         {completeError && <p className="text-xs text-red-600">{completeError}</p>}
         {open && (
@@ -129,7 +107,6 @@ export default function FinanceMonthLockBanner({ monthKey, type = 'expense', unl
               pendingRequest={requests.find(r => r.month === monthKey && (r.type || 'expense') === type) || null}
               onDone={() => setOpen(false)}
             />
-            {isFounder && <FounderPendingCompletions type={type} by={by} />}
           </div>
         )}
       </div>

@@ -64,7 +64,7 @@ export default function EntryCompletionProgress({ selectedKey = null, onSelectMo
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-      {/* The Total Completion line is the whole collapsed view; a click opens the
+      {/* The Months Closed line is the whole collapsed view; a click opens the
           month-by-month details below it. */}
       <button
         type="button"
@@ -74,7 +74,7 @@ export default function EntryCompletionProgress({ selectedKey = null, onSelectMo
       >
         <span className="flex items-center justify-between gap-2 mb-2">
           <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${overall >= 90 ? 'bg-emerald-100' : overall >= 60 ? 'bg-amber-100' : 'bg-rose-100'} ${textTone(overall)}`}>
-            Total Completion: {overall}%
+            Months Closed: {overall}%
           </span>
           <span className="flex items-center gap-2 min-w-0">
             <span className="text-[11px] text-slate-500 truncate">{allDone} completed · {pendingTotal} not completed</span>

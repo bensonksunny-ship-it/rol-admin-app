@@ -2,7 +2,7 @@ import { useParams, Link, Navigate, useSearchParams, Outlet, useLocation, useNav
 import { useEffect, useMemo, useState, useCallback, Fragment, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle, Trash2, ChevronUp, ChevronDown, ChevronLeft } from 'lucide-react'
+import { Pencil, Download, CheckCircle2, Loader2, AlertTriangle, Trash2, ChevronUp, ChevronDown, ChevronLeft, TrendingUp, TrendingDown, PiggyBank, ArrowDownLeft, ArrowUpRight, ClipboardList, ChevronRight, Building2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { getDepartmentBySlug } from '../constants/departments'
 import { getDepartmentHubTabs, LEGACY_DEPARTMENT_NAMES, usesGenericSubDepartmentCollection } from '../constants/departmentTabs'
@@ -171,7 +171,7 @@ import { hasMembershipPipeline, resolveMembershipStages } from '../utils/members
 import { buildFamilyPrefill, childDisplayName, childAgeText } from '../utils/familyDetails'
 import { canRevealSurpriseNames } from '../constants/dedicationForm'
 import { MEMBERSHIP_DECISIONS } from '../constants/membershipForm'
-import { ROLES } from '../constants/roles'
+import { ROLES, EXPENSE_CATEGORIES, normalizeDepartmentName } from '../constants/roles'
 import { SAVINGS_FUNDS } from '../constants/savingsFunds'
 import { logAction } from '../utils/auditLog'
 import { isRestrictedDLightDirector } from '../utils/dlightAccess'
@@ -2466,46 +2466,34 @@ export default function DepartmentHub() {
     setAcctSummaryLoading(true)
     const now = new Date()
     const isCurrentMonth = acctSummaryYear === now.getFullYear() && acctSummaryMonth === now.getMonth()
-
-    if (acctSummaryMonth != null) {
-      const fetches = [
-        getFinanceIncome({ year: acctSummaryYear, month: acctSummaryMonth }),
-        getFinanceExpense({ year: acctSummaryYear, month: acctSummaryMonth }),
-      ]
-      if (isCurrentMonth) {
-        const wkStart = startOfWeek(now, { weekStartsOn: 1 })
-        const wkEnd = endOfWeek(now, { weekStartsOn: 1 })
-        const wkEndMs = new Date(wkEnd); wkEndMs.setHours(23, 59, 59, 999)
-        fetches.push(getFinanceExpense({ startDate: wkStart, endDate: wkEndMs }))
-      }
-      Promise.all(fetches).then(([inc, exp, wkl]) => {
-        setAcctSummary({
-          isCurrentMonth,
-          incomeCount: inc.length,
-          incomeTotal: inc.reduce((s, e) => s + (Number(e.amount) || 0), 0),
-          expenseCount: exp.length,
-          expenseTotal: exp.reduce((s, e) => s + (Number(e.amount) || 0), 0),
-          ...(isCurrentMonth ? {
-            weeklyCount: wkl.length,
-            weeklyPending: wkl.filter(e => e.status === 'pending').length,
-            weeklyApproved: wkl.filter(e => e.status === 'approved' || !e.status).length,
-          } : {}),
-        })
-      }).catch(() => {}).finally(() => setAcctSummaryLoading(false))
-    } else {
-      Promise.all([
-        getFinanceIncome({ year: acctSummaryYear }),
-        getFinanceExpense({ year: acctSummaryYear }),
-      ]).then(([inc, exp]) => {
-        setAcctSummary({
-          isCurrentMonth: false,
-          incomeCount: inc.length,
-          incomeTotal: inc.reduce((s, e) => s + (Number(e.amount) || 0), 0),
-          expenseCount: exp.length,
-          expenseTotal: exp.reduce((s, e) => s + (Number(e.amount) || 0), 0),
-        })
-      }).catch(() => {}).finally(() => setAcctSummaryLoading(false))
-    }
+    const range = acctSummaryMonth != null ? { year: acctSummaryYear, month: acctSummaryMonth } : { year: acctSummaryYear }
+    const sum = (list) => list.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+    Promise.all([getFinanceIncome(range), getFinanceExpense(range)]).then(([inc, exp]) => {
+      // Finance Assistant tracker: every expense entry of the period (the same list
+      // the Finance Assistant page shows for the month). Entries without a status
+      // predate the review flow and count as approved, as on the Expense page.
+      const approved = exp.filter(e => e.status === 'approved' || !e.status)
+      const pending = exp.filter(e => e.status && e.status !== 'approved')
+      // Department submissions: departments that filed at least one expense of their
+      // own in the period (bills typed in by the Finance Assistant don't count).
+      // Accounts is the Finance Assistant's own department, so it's left out.
+      const expected = [...new Set(EXPENSE_CATEGORIES.map(normalizeDepartmentName))].filter(d => d && d !== 'Accounts')
+      const filed = new Set(exp.filter(e => !e.enteredByFinanceAssistant).map(e => normalizeDepartmentName(e.department || e.category)))
+      setAcctSummary({
+        isCurrentMonth,
+        incomeCount: inc.length,
+        incomeTotal: sum(inc),
+        expenseCount: exp.length,
+        expenseTotal: sum(exp),
+        approvedTotal: sum(approved),
+        pendingTotal: sum(pending),
+        faCount: exp.length,
+        faPending: pending.length,
+        faApproved: approved.length,
+        deptExpected: expected,
+        deptFiled: expected.filter(d => filed.has(d)),
+      })
+    }).catch(() => {}).finally(() => setAcctSummaryLoading(false))
   }, [slug, activeTab, acctSummaryYear, acctSummaryMonth])
 
   // Total Savings for the Hub's summary card — deliberately its own effect, not
@@ -3344,13 +3332,16 @@ export default function DepartmentHub() {
 
           {activeTab === 'summary' && (
             <>
-              {/* ── Total Expense (This Month) — shown on every department's dashboard ── */}
+              {/* ── Total Expense (This Month) — shown on every department's dashboard
+                  (Accounts shows the all-department total in its Hub instead) ── */}
+              {slug !== 'accounts' && (
               <div className="bg-white rounded-xl border border-slate-200 border-l-4 border-l-rose-300 shadow-sm px-4 py-2.5 flex items-center justify-between">
                 <p className="text-xs font-semibold text-slate-500">Total Expense (This Month)</p>
                 <p className="text-sm font-bold text-slate-700 bg-rose-50 px-2.5 py-1 rounded-lg tabular-nums">
                   {loadingMonthlyExpense ? '—' : `₹${monthlyExpenseTotal.toLocaleString('en-IN')}`}
                 </p>
               </div>
+              )}
 
               {/* ── Caring Hub ── */}
               {slug === 'caring' && (
@@ -3816,90 +3807,164 @@ export default function DepartmentHub() {
                   {acctSummaryLoading || !acctSummary ? (
                     <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
                   ) : (() => {
-                    const now = new Date()
-                    const monthLabel = format(new Date(acctSummaryYear, acctSummaryMonth, 1), 'MMMM yyyy')
-                    const wkStart = startOfWeek(now, { weekStartsOn: 1 })
-                    const wkEnd = endOfWeek(now, { weekStartsOn: 1 })
-                    const weekLabel = `${format(wkStart, 'd MMM')} – ${format(wkEnd, 'd MMM yyyy')}`
+                    const periodLabel = acctSummaryMonth != null ? format(new Date(acctSummaryYear, acctSummaryMonth, 1), 'MMMM yyyy') : String(acctSummaryYear)
+                    const inr = (n) => `₹${Math.abs(n).toLocaleString('en-IN')}`
                     const net = acctSummary.incomeTotal - acctSummary.expenseTotal
+                    const surplus = net >= 0
+                    const flowMax = Math.max(acctSummary.incomeTotal, acctSummary.expenseTotal, 1)
+                    const { deptExpected, deptFiled } = acctSummary
+                    const deptPct = deptExpected.length ? Math.round((deptFiled.length / deptExpected.length) * 100) : 0
+                    const deptMissing = deptExpected.filter(d => !deptFiled.includes(d))
+                    const faTotal = acctSummary.faCount
+                    const faApprovedPct = faTotal ? Math.round((acctSummary.faApproved / faTotal) * 100) : 0
+                    const periodQuery = acctSummary.isCurrentMonth ? '' : `&year=${acctSummaryYear}${acctSummaryMonth != null ? `&month=${acctSummaryMonth}` : ''}`
+                    const card = 'rounded-2xl border border-slate-200/70 bg-white/85 backdrop-blur shadow-[0_10px_30px_-16px_rgba(0,80,68,0.35)]'
+                    const eyebrow = 'text-[10px] font-bold uppercase tracking-[0.14em]'
                     return (
                       <>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{monthLabel}</p>
+                        <p className={`${eyebrow} text-[#005044]/70`}>{periodLabel}</p>
 
-                        {/* Income + Expense + Net + Funds Reserved row. Funds Reserved is always
-                            the all-time running balance across every fund (see SavingsPage) —
-                            not scoped to {monthLabel} the way the other three are — so its
-                            caption says "all-time" instead of an entry count. */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                          <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl border border-emerald-200 shadow-sm px-4 py-3">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-500 mb-1">Income</p>
-                            <p className="text-xl font-black text-emerald-700">₹{acctSummary.incomeTotal.toLocaleString('en-IN')}</p>
-                            <p className="text-[10px] text-emerald-500 mt-1">{acctSummary.incomeCount} {acctSummary.incomeCount === 1 ? 'entry' : 'entries'}</p>
-                          </div>
-                          <div className="bg-gradient-to-br from-rose-50 to-rose-100 rounded-2xl border border-rose-200 shadow-sm px-4 py-3">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-rose-500 mb-1">Expense</p>
-                            <p className="text-xl font-black text-rose-700">₹{acctSummary.expenseTotal.toLocaleString('en-IN')}</p>
-                            <p className="text-[10px] text-rose-500 mt-1">{acctSummary.expenseCount} {acctSummary.expenseCount === 1 ? 'entry' : 'entries'}</p>
-                          </div>
-                          <div className={`bg-gradient-to-br rounded-2xl border shadow-sm px-4 py-3 ${net >= 0 ? 'from-indigo-50 to-indigo-100 border-indigo-200' : 'from-amber-50 to-amber-100 border-amber-200'}`}>
-                            <p className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${net >= 0 ? 'text-indigo-500' : 'text-amber-500'}`}>Net</p>
-                            <p className={`text-xl font-black ${net >= 0 ? 'text-indigo-700' : 'text-amber-700'}`}>{net < 0 ? '-' : ''}₹{Math.abs(net).toLocaleString('en-IN')}</p>
-                            <p className={`text-[10px] mt-1 ${net >= 0 ? 'text-indigo-400' : 'text-amber-500'}`}>{net >= 0 ? 'Surplus' : 'Deficit'}</p>
-                          </div>
-                          {acctSavingsTotal != null && (
-                            <div className="bg-gradient-to-br from-violet-50 to-violet-100 rounded-2xl border border-violet-200 shadow-sm px-4 py-3">
-                              <p className="text-[10px] font-bold uppercase tracking-wider text-violet-500 mb-1">Funds Reserved</p>
-                              <p className="text-xl font-black text-violet-700">₹{acctSavingsTotal.toLocaleString('en-IN')}</p>
-                              <p className="text-[10px] text-violet-400 mt-1">all-time</p>
+                        {/* Bento grid: Net Balance hero (2×2), Income / Expense / Funds Reserved
+                            tiles, then Department Submissions + Finance Assistant tracker. */}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                          {/* Net balance hero */}
+                          <div className="col-span-2 lg:row-span-2 relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#005044] via-[#00695a] to-teal-600 text-white p-5 shadow-[0_18px_40px_-18px_rgba(0,80,68,0.75)]">
+                            <div aria-hidden className="pointer-events-none absolute -right-16 -top-16 w-56 h-56 rounded-full bg-white/10 blur-2xl" />
+                            <div aria-hidden className="pointer-events-none absolute -left-10 -bottom-20 w-48 h-48 rounded-full bg-teal-300/20 blur-2xl" />
+                            <div className="relative flex items-start justify-between gap-3">
+                              <p className={`${eyebrow} text-emerald-100/80`}>Net Balance</p>
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${surplus ? 'bg-emerald-300/20 text-emerald-100 ring-1 ring-emerald-200/40' : 'bg-amber-300/25 text-amber-100 ring-1 ring-amber-200/50'}`}>
+                                {surplus ? <TrendingUp size={13} aria-hidden="true" /> : <TrendingDown size={13} aria-hidden="true" />}
+                                {surplus ? 'Surplus' : 'Deficit'}
+                              </span>
                             </div>
-                          )}
+                            <p className={`relative mt-2 text-4xl font-black tracking-tight tabular-nums ${surplus ? 'text-white' : 'text-amber-200'}`}>{net < 0 ? '−' : ''}{inr(net)}</p>
+                            <p className="relative text-xs text-emerald-100/70 mt-1">Income minus expense · {periodLabel}</p>
+                            <div className="relative mt-5 space-y-3">
+                              {[
+                                { label: 'Income', value: acctSummary.incomeTotal, bar: 'bg-emerald-300' },
+                                { label: 'Expense', value: acctSummary.expenseTotal, bar: 'bg-amber-300' },
+                              ].map(r => (
+                                <div key={r.label}>
+                                  <div className="flex items-center justify-between text-xs mb-1">
+                                    <span className="text-emerald-50/90 font-medium">{r.label}</span>
+                                    <span className="font-semibold tabular-nums">{inr(r.value)}</span>
+                                  </div>
+                                  <div className="h-2 rounded-full bg-white/15 overflow-hidden">
+                                    <div className={`h-full rounded-full ${r.bar} transition-[width] duration-700`} style={{ width: `${Math.round((r.value / flowMax) * 100)}%` }} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Income */}
+                          <div className={`${card} p-4 border-t-4 border-t-emerald-500`}>
+                            <div className="flex items-center justify-between">
+                              <p className={`${eyebrow} text-emerald-700`}>Income</p>
+                              <span className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><ArrowDownLeft size={16} aria-hidden="true" /></span>
+                            </div>
+                            <p className="mt-2 text-2xl font-black tracking-tight tabular-nums text-slate-900">{inr(acctSummary.incomeTotal)}</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">{acctSummary.incomeCount} {acctSummary.incomeCount === 1 ? 'entry' : 'entries'}</p>
+                          </div>
+
+                          {/* Expense */}
+                          <div className={`${card} p-4 border-t-4 border-t-amber-500`}>
+                            <div className="flex items-center justify-between">
+                              <p className={`${eyebrow} text-amber-700`}>Total Expense</p>
+                              <span className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><ArrowUpRight size={16} aria-hidden="true" /></span>
+                            </div>
+                            <p className="mt-2 text-2xl font-black tracking-tight tabular-nums text-slate-900">{inr(acctSummary.expenseTotal)}</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              {acctSummary.expenseCount} {acctSummary.expenseCount === 1 ? 'entry' : 'entries'}
+                              {acctSummary.pendingTotal > 0 && <> · <span className="text-amber-700 font-medium">{inr(acctSummary.pendingTotal)} pending</span></>}
+                            </p>
+                          </div>
+
+                          {/* Funds Reserved — all-time running balance across every fund (see
+                              SavingsPage), not scoped to the period like the others. */}
+                          <div className={`${card} col-span-2 p-4 border-t-4 border-t-violet-500 flex items-center justify-between gap-3`}>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className={`${eyebrow} text-violet-700`}>Funds Reserved</p>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-50 text-violet-700 ring-1 ring-violet-200">All-time</span>
+                              </div>
+                              <p className="mt-2 text-2xl font-black tracking-tight tabular-nums text-slate-900">{acctSavingsTotal == null ? '—' : `${acctSavingsTotal < 0 ? '−' : ''}${inr(acctSavingsTotal)}`}</p>
+                            </div>
+                            <span className="w-11 h-11 shrink-0 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white flex items-center justify-center shadow-md shadow-violet-500/30"><PiggyBank size={20} aria-hidden="true" /></span>
+                          </div>
+
+                          {/* Department submissions (Total Completion) */}
+                          <div className={`${card} col-span-2 p-4`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className={`${eyebrow} text-[#005044]`}>Total Completion</p>
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${deptPct >= 90 ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : deptPct >= 50 ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' : 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'}`}>{deptPct}%</span>
+                            </div>
+                            <p className="text-sm text-slate-700 mt-1.5">
+                              <span className="font-bold text-slate-900">{deptFiled.length}</span> of {deptExpected.length} departments submitted expenses
+                            </p>
+                            <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
+                              <div className="h-full rounded-full bg-gradient-to-r from-[#005044] to-teal-500 transition-[width] duration-700" style={{ width: `${deptPct}%` }} />
+                            </div>
+                            {deptMissing.length > 0 && (
+                              <div className="mt-3 flex flex-wrap gap-1.5">
+                                {deptMissing.map(d => (
+                                  <span key={d} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-50 text-slate-600 ring-1 ring-slate-200">
+                                    <Building2 size={10} aria-hidden="true" />{d}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Finance Assistant operational tracker */}
+                          <div className={`${card} col-span-2 p-4`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className={`${eyebrow} text-[#005044]`}>Finance Assistant</p>
+                              <span className="text-[11px] text-slate-500">{periodLabel}</span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-3 gap-2">
+                              <div className="rounded-xl bg-slate-50 ring-1 ring-slate-100 px-3 py-2 text-center">
+                                <p className="text-2xl font-black tabular-nums text-slate-900">{faTotal}</p>
+                                <p className="text-[10px] font-semibold text-slate-500 mt-0.5">Total entries</p>
+                              </div>
+                              <div className="rounded-xl bg-amber-50 ring-1 ring-amber-100 px-3 py-2 text-center">
+                                <p className="text-2xl font-black tabular-nums text-amber-700">{acctSummary.faPending}</p>
+                                <p className="text-[10px] font-semibold text-amber-700/80 mt-0.5">Pending verification</p>
+                              </div>
+                              <div className="rounded-xl bg-emerald-50 ring-1 ring-emerald-100 px-3 py-2 text-center">
+                                <p className="text-2xl font-black tabular-nums text-emerald-700">{acctSummary.faApproved}</p>
+                                <p className="text-[10px] font-semibold text-emerald-700/80 mt-0.5">Approved</p>
+                              </div>
+                            </div>
+                            <div className="mt-3 h-2 rounded-full bg-amber-100 overflow-hidden" title={`${faApprovedPct}% approved`}>
+                              <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-[width] duration-700" style={{ width: `${faApprovedPct}%` }} />
+                            </div>
+                          </div>
                         </div>
 
-                        {/* Weekly entries — only meaningful when viewing the actual current month */}
-                        {acctSummary.isCurrentMonth && (
-                          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Finance Assistant</p>
-                              <p className="text-[10px] text-slate-400">{weekLabel}</p>
-                            </div>
-                            <div className="flex items-center gap-4">
-                              <div className="flex-1 text-center">
-                                <p className="text-2xl font-black text-slate-700">{acctSummary.weeklyCount}</p>
-                                <p className="text-[10px] text-slate-400 mt-0.5">Total entries</p>
-                              </div>
-                              <div className="w-px h-10 bg-slate-100" />
-                              <div className="flex-1 text-center">
-                                <p className="text-2xl font-black text-amber-600">{acctSummary.weeklyPending}</p>
-                                <p className="text-[10px] text-amber-500 mt-0.5">Pending</p>
-                              </div>
-                              <div className="w-px h-10 bg-slate-100" />
-                              <div className="flex-1 text-center">
-                                <p className="text-2xl font-black text-emerald-600">{acctSummary.weeklyApproved}</p>
-                                <p className="text-[10px] text-emerald-500 mt-0.5">Approved</p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Quick-nav tiles */}
-                        <div className={`grid gap-3 ${canAccessWeeklyEntryOnly(userProfile) ? 'grid-cols-3' : 'grid-cols-2'}`}>
+                        {/* Quick actions */}
+                        <div className={`grid gap-3 ${canAccessWeeklyEntryOnly(userProfile) ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}>
                           {[
-                            { label: 'Income', path: `/department/accounts/entry?tab=income${acctSummary.isCurrentMonth ? '' : `&year=${acctSummaryYear}${acctSummaryMonth != null ? `&month=${acctSummaryMonth}` : ''}`}`, icon: '💰', desc: 'View income entries' },
-                            { label: 'Expense', path: `/department/accounts/entry?tab=expense${acctSummary.isCurrentMonth ? '' : `&year=${acctSummaryYear}${acctSummaryMonth != null ? `&month=${acctSummaryMonth}` : ''}`}`, icon: '📤', desc: 'View expense entries' },
+                            { label: 'Income', path: `/department/accounts/entry?tab=income${periodQuery}`, Icon: ArrowDownLeft, desc: 'View income entries', tone: 'from-emerald-500 to-teal-500 shadow-emerald-500/30' },
+                            { label: 'Expense', path: `/department/accounts/entry?tab=expense${periodQuery}`, Icon: ArrowUpRight, desc: 'View expense entries', tone: 'from-amber-500 to-orange-500 shadow-amber-500/30' },
                             // Finance Assistant role only — the Accounts Director works from the grid.
-                            canAccessWeeklyEntryOnly(userProfile) && { label: 'Finance Assistant', path: '/department/accounts/entry?tab=weekly', icon: '📋', desc: 'Weekly bill entry' },
-                          ].filter(Boolean).map(({ label, icon, desc, path }) => (
+                            canAccessWeeklyEntryOnly(userProfile) && { label: 'Finance Assistant', path: '/department/accounts/entry?tab=weekly', Icon: ClipboardList, desc: 'Weekly bill entry', tone: 'from-[#005044] to-teal-600 shadow-emerald-900/30' },
+                          ].filter(Boolean).map((tile) => { const { label, Icon, desc, path, tone } = tile; return (
                             <button
                               key={label}
                               type="button"
                               onClick={() => navigate(path)}
-                              className="bg-white rounded-2xl border border-slate-100 shadow-sm px-3 py-3 text-center hover:border-indigo-200 hover:bg-indigo-50 active:scale-95 transition-all"
+                              className={`group ${card} flex items-center gap-3 px-4 py-3 text-left hover:-translate-y-0.5 hover:shadow-[0_16px_34px_-16px_rgba(0,80,68,0.5)] hover:border-emerald-200 active:translate-y-0 transition-all`}
                             >
-                              <p className="text-xl mb-1">{icon}</p>
-                              <p className="text-xs font-semibold text-slate-700">{label}</p>
-                              <p className="text-[9px] text-slate-400 mt-0.5">{desc}</p>
+                              <span className={`w-10 h-10 shrink-0 rounded-xl bg-gradient-to-br ${tone} text-white flex items-center justify-center shadow-md`}><Icon size={18} aria-hidden="true" /></span>
+                              <span className="flex-1 min-w-0">
+                                <span className="block text-sm font-semibold text-slate-900">{label}</span>
+                                <span className="block text-[11px] text-slate-500">{desc}</span>
+                              </span>
+                              <ChevronRight size={18} aria-hidden="true" className="text-slate-300 group-hover:text-[#005044] group-hover:translate-x-0.5 transition" />
                             </button>
-                          ))}
+                          ) })}
                         </div>
                       </>
                     )

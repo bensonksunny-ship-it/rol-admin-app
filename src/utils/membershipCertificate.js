@@ -164,21 +164,22 @@ export async function buildMembershipCertificatePdf(c) {
     if (i) page.drawLine({ start: { x: metaX + colW * i, y: y - 4 }, end: { x: metaX + colW * i, y: y + 28 }, thickness: 0.7, color: LINE })
   })
 
-  // ── Footer: signature blocks either side of the digital church seal ──────
+  // ── Footer: church seal centred, Senior Pastor signature on the right ────
   const sigY = 104
   const sig = (cx, signer, role) => {
     page.drawLine({ start: { x: cx - 100, y: sigY }, end: { x: cx + 100, y: sigY }, thickness: 0.7, color: INK })
     center(signer, sigY - 17, 13, font.serifItalic, INK, 0, cx)
     center(role, sigY - 30, 7, font.sansBold, MUTED, 1.4, cx)
   }
-  sig(PAD + 120, 'Church Administrator', 'AUTHORISED SIGNATORY')
-  sig(W - PAD - 120, 'Rev. Benson K. Sunny', 'SENIOR PASTOR  ·  OFFICIATING')
+  // One signatory: the Senior Pastor (right); the seal sits centred.
+  const sigX = W - PAD - 120
+  sig(sigX, 'Rev. Benson K. Sunny', 'SENIOR PASTOR  ·  OFFICIATING')
 
-  // Senior Pastor's signature, resting on his line.
+  // Senior Pastor's signature, upright and centred on his line.
   const signImg = await embedPng(doc, SIGN_URL)
   if (signImg) {
-    const h = 74, w = (signImg.width / signImg.height) * h
-    page.drawImage(signImg, { x: W - PAD - 120 - w / 2, y: sigY - 3, width: w, height: h })
+    const h = 54, w = Math.min(190, (signImg.width / signImg.height) * h)
+    page.drawImage(signImg, { x: sigX - w / 2, y: sigY + 1, width: w, height: (signImg.height / signImg.width) * w })
   }
 
   // Seal: the church's stamp; a drawn seal stands in if the image can't load.

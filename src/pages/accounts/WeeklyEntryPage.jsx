@@ -26,7 +26,6 @@ import { getDepartmentRole } from '../../utils/access'
 import { isMonthClosedForEntry, monthKeyOf, monthKeyLabel } from '../../utils/financeEntryLock'
 import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
 import { isExpenseDisputed } from '../../utils/expenseDispute'
-import FinanceMonthLockBanner from '../../components/finance/FinanceMonthLockBanner'
 
 const WEEK_START = { weekStartsOn: 1 }
 
@@ -90,12 +89,16 @@ function AddedBadge({ entry }) {
     <span className="inline-flex items-center gap-1">
       {isManualEntry(entry) && <ManualTag />}
       {byDept ? (
-        <span className="text-xs font-medium text-sky-700 bg-sky-100 px-2 py-0.5 rounded-full whitespace-nowrap" title={`Approved by the department · ${entry.approvedBy}`}>Dept approved</span>
+        <span className="text-xs font-semibold text-teal-800 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full whitespace-nowrap" title={`Approved by the department · ${entry.approvedBy}`}>✓ Dept approved</span>
       ) : (
-        <span className="text-xs font-medium text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full" title="Added to accounts by the Finance Assistant">Added</span>
+        <span className="text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full whitespace-nowrap" title="Added to accounts by the Finance Assistant">✓ Added</span>
       )}
     </span>
   )
+}
+
+function PendingBadge() {
+  return <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full whitespace-nowrap">Pending</span>
 }
 
 function ManualTag() {
@@ -133,6 +136,7 @@ export default function WeeklyEntryPage() {
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
+  const [formOpen, setFormOpen] = useState(false) // Add / Edit Entry popup
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [saveError, setSaveError] = useState('')
@@ -188,7 +192,7 @@ export default function WeeklyEntryPage() {
 
   // Months past the 10th of the following month are locked for the finance team
   // unless the Founder reopened them (firestore.rules enforces the same).
-  const { unlocks: monthUnlocks, isLocked: isMonthLocked, now: lockNow } = useFinanceMonthLocks(isFounder)
+  const { isLocked: isMonthLocked } = useFinanceMonthLocks(isFounder)
 
   if (!canAccess) return <Navigate to="/" replace />
 
@@ -419,6 +423,7 @@ export default function WeeklyEntryPage() {
       }
       setForm(EMPTY_FORM)
       setEditingId(null)
+      setFormOpen(false)
       await load()
     } catch {
       setSaveError('Failed to save. Please try again.')
@@ -439,13 +444,23 @@ export default function WeeklyEntryPage() {
       billNo: entry.billNo || '',
       amount: String(entry.amount ?? ''),
     })
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    setFormError('')
+    setFormOpen(true)
+  }
+
+  function handleAddNew() {
+    setView('entries')
+    setEditingId(null)
+    setForm(EMPTY_FORM)
+    setFormError('')
+    setFormOpen(true)
   }
 
   function handleCancelEdit() {
     setEditingId(null)
     setForm(EMPTY_FORM)
     setFormError('')
+    setFormOpen(false)
   }
 
   async function handleDelete(id) {
@@ -528,6 +543,7 @@ export default function WeeklyEntryPage() {
         return
       }
       setXlsxRows(rows)
+      setFormOpen(false)
     } catch (err) {
       console.error(err)
       setXlsxError('Failed to read file. Make sure it is a valid .xlsx or .xls file.')
@@ -564,15 +580,15 @@ export default function WeeklyEntryPage() {
     <div className="mx-auto w-full max-w-[230mm] space-y-5 pb-12">
 
       {/* Period: Week / Month toggle + picker */}
-      <div className="flex flex-col items-center gap-2 py-2">
-        <div className="flex bg-slate-100 rounded-xl p-1">
+      <div className="flex flex-col items-center gap-2 py-3 px-4 rounded-2xl border border-white/70 bg-gradient-to-br from-white/85 via-emerald-50/60 to-teal-50/70 backdrop-blur-md shadow-[0_10px_30px_-14px_rgba(0,80,68,0.35)]">
+        <div className="flex bg-white/70 backdrop-blur border border-emerald-100 rounded-xl p-1 shadow-sm">
           {[{ key: 'week', label: 'Week' }, { key: 'month', label: 'Month' }].map(p => (
             <button
               key={p.key}
               type="button"
               onClick={() => setPeriod(p.key)}
               className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-all ${
-                period === p.key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                period === p.key ? 'bg-gradient-to-r from-[#005044] to-teal-600 text-white shadow-md shadow-emerald-900/20' : 'text-slate-500 hover:text-[#005044]'
               }`}
             >
               {p.label}
@@ -584,19 +600,28 @@ export default function WeeklyEntryPage() {
             type="button"
             onClick={prevPeriod}
             disabled={atMinPeriod}
-            className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none disabled:opacity-30 disabled:cursor-not-allowed"
+            className="p-2 rounded-lg hover:bg-white/80 text-[#005044] transition text-lg leading-none disabled:opacity-30 disabled:cursor-not-allowed"
             aria-label={`Previous ${period}`}
           >
             ‹
           </button>
-          <span className="text-base font-semibold text-slate-800 text-center">{periodLabel}</span>
+          <span className="text-base font-semibold text-slate-900 text-center tracking-tight">{periodLabel}</span>
           <button
             type="button"
             onClick={nextPeriod}
-            className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none"
+            className="p-2 rounded-lg hover:bg-white/80 text-[#005044] transition text-lg leading-none"
             aria-label={`Next ${period}`}
           >
             ›
+          </button>
+          <button
+            type="button"
+            onClick={handleAddNew}
+            title="Add New Expense"
+            aria-label="Add New Expense"
+            className="ml-2 w-12 h-12 rounded-full bg-gradient-to-br from-[#005044] via-emerald-600 to-teal-500 hover:brightness-110 active:scale-95 text-white text-3xl font-light leading-none shadow-lg shadow-emerald-900/30 ring-4 ring-white/80 flex items-center justify-center transition"
+          >
+            +
           </button>
         </div>
       </div>
@@ -612,18 +637,13 @@ export default function WeeklyEntryPage() {
             type="button"
             onClick={() => setView(v.key)}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition ${
-              view === v.key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+              view === v.key ? 'border-[#005044] text-[#005044] font-semibold' : 'border-transparent text-slate-500 hover:text-[#005044]'
             }`}
           >
             {v.label}
           </button>
         ))}
       </div>
-
-      {/* Lock state of the month(s) in view — page tint + lock icon */}
-      {[...new Set([monthKeyOf(rangeStart), monthKeyOf(rangeEnd)])].map(mk => (
-        <FinanceMonthLockBanner key={mk} monthKey={mk} unlock={monthUnlocks[mk]} now={lockNow} />
-      ))}
 
       {view === 'departments' && (
         <div className="space-y-3">
@@ -662,7 +682,7 @@ export default function WeeklyEntryPage() {
                   <select
                     value={unlockDept}
                     onChange={e => setUnlockDept(e.target.value)}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
                   >
                     <option value="">Select department…</option>
                     {unlockDeptOptions.map(d => <option key={d} value={d}>{d}</option>)}
@@ -837,13 +857,14 @@ export default function WeeklyEntryPage() {
       )}
 
       {view === 'entries' && (<>
-      {/* Department filter */}
+      {/* Department filter + month total, tucked right under the sub-tabs */}
+      <div className="-mt-2 space-y-3">
       <div className="flex items-center gap-3">
         <label className="text-xs font-medium text-slate-600 shrink-0">Department</label>
         <select
           value={filterDept}
           onChange={e => setFilterDept(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
         >
           <option value="all">All Departments</option>
           {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
@@ -851,19 +872,20 @@ export default function WeeklyEntryPage() {
       </div>
 
       {/* Summary card */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex items-center justify-between">
-        <p className="text-sm font-medium text-slate-500">
+      <div className="relative overflow-hidden rounded-2xl border border-emerald-200/70 border-l-4 border-l-[#005044] bg-gradient-to-br from-white via-emerald-50/70 to-teal-50 backdrop-blur shadow-[0_12px_30px_-14px_rgba(0,80,68,0.45)] px-5 py-4 flex items-center justify-between gap-3">
+        <div aria-hidden className="pointer-events-none absolute -right-10 -top-12 w-40 h-40 rounded-full bg-gradient-to-br from-teal-300/30 to-emerald-500/10 blur-2xl" />
+        <p className="relative text-xs font-semibold uppercase tracking-[0.12em] text-emerald-900/70">
           Total This {period === 'month' ? 'Month' : 'Week'}
           {missingReceiptCount > 0 && (
-            <span className="block text-xs text-amber-600 mt-0.5">{missingReceiptCount} bill{missingReceiptCount === 1 ? '' : 's'} not yet handed over</span>
+            <span className="block normal-case tracking-normal text-xs font-medium text-amber-700 mt-1">{missingReceiptCount} bill{missingReceiptCount === 1 ? '' : 's'} not yet handed over</span>
           )}
         </p>
-        <p className="text-2xl font-bold text-rose-600">
+        <p className="relative text-3xl font-extrabold tracking-tight tabular-nums text-[#005044]">
           ₹{totalExpense.toLocaleString('en-IN')}
         </p>
       </div>
+      </div>
 
-      {/* Entry form */}
       {/* Excel upload result toast */}
       {xlsxResult && (
         <div className="flex items-center justify-between gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
@@ -876,101 +898,16 @@ export default function WeeklyEntryPage() {
         </div>
       )}
 
-      <form
-        onSubmit={handleSave}
-        className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-4"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-slate-700">
-            {editingId ? 'Edit Entry' : 'Add Entry'}
-          </h3>
-          <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
-            <span>📊</span> Upload Excel
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsxFile} />
-          </label>
-        </div>
-        {xlsxError && <p className="text-xs font-medium text-red-600">{xlsxError}</p>}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Date</label>
-            <input
-              type="date"
-              value={form.date}
-              onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Item</label>
-            <input
-              type="text"
-              value={form.item}
-              onChange={e => setForm(f => ({ ...f, item: e.target.value }))}
-              placeholder="Item description"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Bill No</label>
-            <input
-              type="text"
-              value={form.billNo}
-              onChange={e => setForm(f => ({ ...f, billNo: e.target.value }))}
-              placeholder="Bill number"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-slate-600">Amount (₹)</label>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              value={form.amount}
-              onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
-              placeholder="0"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-        </div>
-
-        {formError && (
-          <p className="text-red-600 text-xs font-medium">{formError}</p>
-        )}
-
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-4 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium disabled:opacity-50 transition-colors"
-          >
-            {saving ? 'Saving…' : editingId ? 'Update' : 'Save'}
-          </button>
-          {editingId && (
-            <button
-              type="button"
-              onClick={handleCancelEdit}
-              className="text-sm text-slate-500 hover:text-slate-700 hover:underline"
-            >
-              Cancel
-            </button>
-          )}
-        </div>
-
-        {saveError && (
-          <p className="text-xs font-medium text-red-600">{saveError}</p>
-        )}
-      </form>
-
-      {/* Review list */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Review list — hidden until the period has entries */}
+      {(loading || visibleEntries.length > 0) && (
+      <div className="bg-white/85 backdrop-blur rounded-2xl border border-slate-200/70 shadow-[0_10px_30px_-14px_rgba(15,23,42,0.25)] overflow-hidden">
         {/* List header with Add All */}
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <p className="text-sm font-semibold text-slate-700">
+        <div className="px-4 py-3 border-b border-emerald-100 bg-gradient-to-r from-emerald-50/80 via-white to-teal-50/60 flex items-center justify-between">
+          <p className="text-sm font-semibold text-[#005044]">
             {period === 'month' ? 'Monthly' : 'Weekly'} Entries
             {pendingEntries.length > 0 && (
-              <span className="ml-2 text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+              <span className="ml-2 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full">
                 {pendingEntries.length} ready to add
               </span>
             )}
@@ -985,7 +922,7 @@ export default function WeeklyEntryPage() {
               type="button"
               onClick={handleApproveAll}
               disabled={approvingAll}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium disabled:opacity-50 transition"
+              className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-[#005044] to-teal-600 hover:brightness-110 text-white text-xs font-semibold shadow-sm shadow-emerald-900/20 disabled:opacity-50 transition"
             >
               {approvingAll ? 'Adding…' : 'Add All'}
             </button>
@@ -994,12 +931,6 @@ export default function WeeklyEntryPage() {
 
         {loading ? (
           <div className="p-6 text-center text-slate-500 text-sm">Loading…</div>
-        ) : visibleEntries.length === 0 ? (
-          <div className="p-6 text-center text-slate-400 text-sm">
-            {filterDept === 'all'
-              ? `No entries for ${periodLabel}.`
-              : `No entries for ${filterDept} in ${periodLabel}.`}
-          </div>
         ) : (
           <>
             {/* Mobile cards */}
@@ -1007,7 +938,7 @@ export default function WeeklyEntryPage() {
               {visibleEntries.map((entry, idx) => {
                 const isApproved = entry.status === 'approved'
                 return (
-                  <div key={entry.id} className={`p-4 space-y-2 ${isApproved ? 'bg-emerald-50/40' : ''}`}>
+                  <div key={entry.id} className={`p-4 space-y-2 transition-colors ${isApproved ? 'bg-emerald-50/40' : 'active:bg-emerald-50/50'}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="font-semibold text-slate-800 text-sm">
@@ -1023,7 +954,7 @@ export default function WeeklyEntryPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="flex items-center gap-2">
-                        {isApproved ? <AddedBadge entry={entry} /> : isManualEntry(entry) && <ManualTag />}
+                        {isApproved ? <AddedBadge entry={entry} /> : <><PendingBadge />{isManualEntry(entry) && <ManualTag />}</>}
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
                           {normalizeDepartmentName(entry.department || entry.category)}
                         </span>
@@ -1047,7 +978,7 @@ export default function WeeklyEntryPage() {
                       ) : (
                         <div className="flex items-center gap-2 pt-1">
                           {canAddEntry(entry) && (
-                            <button type="button" onClick={() => handleApprove(entry.id)} disabled={approvingId === entry.id} className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium disabled:opacity-50 transition">{approvingId === entry.id ? '…' : 'Add'}</button>
+                            <button type="button" onClick={() => handleApprove(entry.id)} disabled={approvingId === entry.id} className="px-2.5 py-1 rounded-lg bg-[#005044] hover:bg-[#00695a] text-white text-xs font-semibold disabled:opacity-50 transition">{approvingId === entry.id ? '…' : 'Add'}</button>
                           )}
                           <button type="button" onClick={() => handleEdit(entry)} className="text-xs text-indigo-600 font-medium hover:underline">Edit</button>
                           <button type="button" onClick={() => setDeletingId(entry.id)} className="text-xs text-red-500 hover:underline">Delete</button>
@@ -1062,7 +993,7 @@ export default function WeeklyEntryPage() {
             <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  <tr className="border-b border-slate-200/80 bg-slate-50/80 text-left text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                     <th className="px-4 py-3 text-center w-10">No.</th>
                     <th className="px-4 py-3">Date</th>
                     <th className="px-4 py-3">Department</th>
@@ -1077,7 +1008,7 @@ export default function WeeklyEntryPage() {
                   {visibleEntries.map((entry, idx) => {
                     const isApproved = entry.status === 'approved'
                     return (
-                      <tr key={entry.id} className={`transition ${isApproved ? 'bg-emerald-50/40' : 'hover:bg-slate-50'}`}>
+                      <tr key={entry.id} className={`transition-colors ${isApproved ? 'bg-emerald-50/30 hover:bg-emerald-50/70' : 'hover:bg-teal-50/50'}`}>
                         <td className="px-4 py-3 text-center text-xs text-slate-400 font-medium">{idx + 1}</td>
                         <td className="px-4 py-3 text-slate-700">
                           {entry.date instanceof Date
@@ -1091,7 +1022,7 @@ export default function WeeklyEntryPage() {
                           {!isApproved && blockedByDept(entry) && <div className="mt-1"><DeptConfirmBadge entry={entry} /></div>}
                         </td>
                         <td className="px-4 py-3 text-slate-500">{entry.billNo || '—'}</td>
-                        <td className="px-4 py-3 text-right font-medium text-slate-800">
+                        <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-900">
                           ₹{Number(entry.amount).toLocaleString('en-IN')}
                         </td>
                         <td className="px-4 py-3 text-right">
@@ -1101,7 +1032,7 @@ export default function WeeklyEntryPage() {
                           {isApproved ? (
                             <AddedBadge entry={entry} />
                           ) : entryLocked(entry) ? (
-                            <span className="text-xs text-slate-400">🔒 Locked</span>
+                            <span className="inline-flex items-center gap-2"><PendingBadge /><span className="text-xs text-slate-400">🔒 Locked</span></span>
                           ) : deletingId === entry.id ? (
                             <span className="flex items-center justify-end gap-2 text-xs text-slate-600">
                               <span>Confirm delete?</span>
@@ -1110,8 +1041,9 @@ export default function WeeklyEntryPage() {
                             </span>
                           ) : (
                             <span className="flex items-center justify-end gap-2">
+                              <PendingBadge />
                               {canAddEntry(entry) && (
-                                <button type="button" onClick={() => handleApprove(entry.id)} disabled={approvingId === entry.id} className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium disabled:opacity-50 transition">{approvingId === entry.id ? '…' : 'Add'}</button>
+                                <button type="button" onClick={() => handleApprove(entry.id)} disabled={approvingId === entry.id} className="px-2.5 py-1 rounded-lg bg-[#005044] hover:bg-[#00695a] text-white text-xs font-semibold disabled:opacity-50 transition">{approvingId === entry.id ? '…' : 'Add'}</button>
                               )}
                               <button type="button" onClick={() => handleEdit(entry)} className="p-1.5 rounded hover:bg-indigo-50 text-indigo-500 hover:text-indigo-700 transition" aria-label="Edit">✏️</button>
                               <button type="button" onClick={() => setDeletingId(entry.id)} className="p-1.5 rounded hover:bg-red-50 text-red-400 hover:text-red-600 transition" aria-label="Delete">🗑️</button>
@@ -1127,7 +1059,113 @@ export default function WeeklyEntryPage() {
           </>
         )}
       </div>
+      )}
       </>)}
+
+      {/* Add / Edit Entry popup */}
+      {formOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4" onClick={handleCancelEdit}>
+          <form
+            onSubmit={handleSave}
+            onClick={e => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label={editingId ? 'Edit Entry' : 'Add New Expense'}
+            className="bg-white/95 backdrop-blur-xl w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl border border-white/70 border-t-4 border-t-[#005044] shadow-2xl shadow-emerald-950/20 p-5 space-y-4 max-h-[92vh] overflow-y-auto"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-semibold text-[#005044]">
+                {editingId ? 'Edit Entry' : 'Add New Expense'}
+              </h3>
+              <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-slate-600 hover:border-indigo-400 hover:text-indigo-700 transition-colors">
+                <span>📊</span> Upload Excel
+                <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleXlsxFile} />
+              </label>
+            </div>
+            {xlsxError && <p className="text-xs font-medium text-red-600">{xlsxError}</p>}
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="flex flex-col gap-1 sm:col-span-2">
+                <label className="text-xs font-medium text-slate-600">Department</label>
+                <select
+                  value={filterDept}
+                  onChange={e => setFilterDept(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option value="all">Select department…</option>
+                  {deptOptions.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-600">Date</label>
+                <input
+                  type="date"
+                  value={form.date}
+                  onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-600">Item</label>
+                <input
+                  type="text"
+                  value={form.item}
+                  onChange={e => setForm(f => ({ ...f, item: e.target.value }))}
+                  placeholder="Item description"
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-600">Bill No</label>
+                <input
+                  type="text"
+                  value={form.billNo}
+                  onChange={e => setForm(f => ({ ...f, billNo: e.target.value }))}
+                  placeholder="Bill number"
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-slate-600">Amount (₹)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={form.amount}
+                  onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+                  placeholder="0"
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+            </div>
+
+            {formError && (
+              <p className="text-red-600 text-xs font-medium">{formError}</p>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="px-4 min-h-[44px] py-2 rounded-lg border border-slate-300 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 min-h-[44px] py-2 rounded-lg bg-gradient-to-r from-[#005044] to-teal-600 hover:brightness-110 text-white text-sm font-semibold shadow-md shadow-emerald-900/20 disabled:opacity-50 transition"
+              >
+                {saving ? 'Saving…' : editingId ? 'Update Entry' : 'Save Entry'}
+              </button>
+            </div>
+
+            {saveError && (
+              <p className="text-xs font-medium text-red-600">{saveError}</p>
+            )}
+          </form>
+        </div>
+      )}
 
       {/* Excel preview modal */}
       {xlsxRows && (

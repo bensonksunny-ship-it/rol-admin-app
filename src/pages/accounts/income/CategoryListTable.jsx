@@ -36,6 +36,10 @@ export default function CategoryListTable({
   categoryOptions,
   customCategory = false, // Other Income: any non-named category is allowed
   towardsColumn = false,
+  // Cash / Online split (IncomePage): mode given to new and pasted rows, and
+  // whether the Payment Mode column shows (the Online table hides it).
+  defaultPaymentMode = '',
+  paymentModeColumn = true,
   saveState,
   onApply,
   onPastePlan,
@@ -50,7 +54,7 @@ export default function CategoryListTable({
     towardsColumn && { key: 'towards', label: 'Towards' },
     { key: 'amount', label: 'Amount', width: 'w-32', align: 'right' },
     // Last, so an Excel block pasted as Name | Amount still lines up as before.
-    { key: 'paymentMode', label: 'Payment Mode', width: 'w-40' },
+    paymentModeColumn && { key: 'paymentMode', label: 'Payment Mode', width: 'w-40' },
   ].filter(Boolean)
   const amountCol = cols.findIndex(c => c.key === 'amount')
 
@@ -147,7 +151,7 @@ export default function CategoryListTable({
       giverName: String(values.giverName || '').trim(),
       towards: towardsColumn ? String(values.towards || '').trim() : '',
       amount: Number(values.amount) || 0,
-      paymentMode: values.paymentMode || '',
+      paymentMode: values.paymentMode || defaultPaymentMode,
     }
   }
 
@@ -206,7 +210,7 @@ export default function CategoryListTable({
     const plan = { ops: { creates: [] }, heldRows: [], invalid: [] }
     parsed.forEach(r => {
       if (r.status === 'invalid') { plan.invalid.push(`Line ${r.line}: ${r.message}`); return }
-      const create = { date: r.iso, category: r.category, giverName: r.name, towards: r.towards, amount: r.amount }
+      const create = { date: r.iso, category: r.category, giverName: r.name, towards: r.towards, amount: r.amount, paymentMode: defaultPaymentMode }
       if (r.status === 'ok') plan.ops.creates.push(create)
       else plan.heldRows.push({ key: r.key, iso: r.iso, name: r.name, amount: r.amount, status: r.status, op: { type: 'create', data: create } })
     })
@@ -351,7 +355,7 @@ export default function CategoryListTable({
                           ariaLabel={cellLabel}
                           value={row.values.paymentMode}
                           options={['', ...PAYMENT_MODES]}
-                          labels={{ '': row.blank ? '' : '— Select —' }}
+                          labels={{ '': row.entry ? '— Select —' : defaultPaymentMode }}
                           onCommit={v => commitCell(row, 'paymentMode', v)}
                         />
                       </td>
