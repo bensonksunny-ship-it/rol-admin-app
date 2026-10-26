@@ -14,7 +14,7 @@ import BaptismStagesPanel from './BaptismStagesPanel'
 const BATCH_KEY = 'rol.baptismBatch'
 const readBatch = () => { try { return localStorage.getItem(BATCH_KEY) || '' } catch { return '' } }
 const saveBatch = (v) => { try { localStorage.setItem(BATCH_KEY, v) } catch { /* private mode */ } }
-const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 
 const STATUS_CLS = {
   pending: 'bg-amber-100 text-amber-800 border-amber-200',

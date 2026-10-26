@@ -140,8 +140,8 @@ export default function WorshipUpcomingSunday({ canManage = false }) {
         ? { label: 'Roster In Progress', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 ring-amber-500/30' }
         : { label: 'Not Rostered', cls: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 ring-rose-500/30' }
 
-  const longDate = fmtDay(sunday, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const sessionLabel = (r) => [fmtDay(r.date, { weekday: 'short', day: 'numeric', month: 'short' }), fmtTime(r.time)].filter(Boolean).join(' • ')
+  const longDate = fmtDay(sunday, { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })
+  const sessionLabel = (r) => [fmtDay(r.date, { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }), fmtTime(r.time)].filter(Boolean).join(' • ')
 
   // Practice status per member: the latest practice session that has attendance.
   const practiceStatus = (memberId) => {

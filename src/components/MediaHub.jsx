@@ -87,7 +87,7 @@ export default function MediaHub({
     upcomingSundays(5).map((date) => {
       const s = scheduleByDate.get(date)
       const filled = s ? s.assignments.length : 0
-      return { label: format(new Date(date + 'T12:00:00'), 'd MMM'), filled, open: Math.max(0, totalRoles - filled) }
+      return { label: format(new Date(date + 'T12:00:00'), 'dd/MM/yyyy'), filled, open: Math.max(0, totalRoles - filled) }
     }),
   [scheduleByDate, totalRoles])
 

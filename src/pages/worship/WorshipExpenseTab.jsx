@@ -9,7 +9,7 @@ function today() {
 
 function fmtDate(d) {
   if (!d) return '—'
-  try { return format(new Date(d), 'dd MMM yyyy') } catch { return '—' }
+  try { return format(new Date(d), 'dd/MM/yyyy') } catch { return '—' }
 }
 
 function fmtAmt(n) {

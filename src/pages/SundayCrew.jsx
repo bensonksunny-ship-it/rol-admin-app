@@ -235,7 +235,7 @@ function PreServiceRow({ date, value, onChange, team, loading, canEdit, accent, 
   return (
     <tr className={`border-l-4 ${accent.border} hover:bg-indigo-50/40 transition-colors`}>
       <td className="px-5 py-4 align-top whitespace-nowrap">
-        <p className="text-base font-bold text-slate-800">{format(d, 'dd MMM yyyy')}</p>
+        <p className="text-base font-bold text-slate-800">{format(d, 'dd/MM/yyyy')}</p>
         <div className="mt-1 flex items-center gap-1.5">
           <span className="text-sm text-slate-500">{format(d, 'EEEE')}</span>
           {isNext && (
@@ -441,7 +441,7 @@ function PreServiceTab({ canEdit, userProfile }) {
         emptyLabel="Speakers not assigned"
         rows={sundaysInMonth.map((date) => ({
           key: date,
-          label: format(new Date(date + 'T12:00:00'), 'EEEE, d MMMM'),
+          label: format(new Date(date + 'T12:00:00'), 'EEEE, dd/MM/yyyy'),
           names: savedEntries[date]?.speakers || [],
           highlight: date === upcomingSunday,
         }))}
@@ -736,7 +736,7 @@ function CrewTab({ canEdit, userProfile }) {
         <ScheduleShareCard
           shareRef={crewShareRef}
           title="Weekly Crew"
-          subtitle={format(new Date(assignDate + 'T12:00:00'), 'EEEE, d MMMM yyyy')}
+          subtitle={format(new Date(assignDate + 'T12:00:00'), 'EEEE, dd/MM/yyyy')}
           rows={rows.map((r) => ({ key: r.subDeptId, label: r.role, names: (r.members || []).map((m) => m.name).filter(Boolean) }))}
         />
 
@@ -754,7 +754,7 @@ function CrewTab({ canEdit, userProfile }) {
                     : 'bg-white text-slate-600 border-slate-300 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50'
                 }`}
               >
-                {format(new Date(d), 'd MMM')}
+                {format(new Date(d), 'dd/MM/yyyy')}
               </button>
             ))}
             <input

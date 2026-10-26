@@ -9,11 +9,11 @@ import { membershipWaterBaptism, MEMBERSHIP_DEPOSIT_AMOUNT, CARING_DEPARTMENT_HE
 
 const fmt = (d) => {
   const dt = d ? (typeof d?.toDate === 'function' ? d.toDate() : new Date(d)) : null
-  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 }
 const fmtDateTime = (d) => {
   const dt = d ? (typeof d?.toDate === 'function' ? d.toDate() : new Date(d)) : null
-  return dt && !isNaN(dt.getTime()) ? dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
+  return dt && !isNaN(dt.getTime()) ? dt.toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
 }
 
 // Stage 4 checklist wording (same five items as MembershipStageModal).

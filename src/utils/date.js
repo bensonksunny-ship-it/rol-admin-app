@@ -71,24 +71,24 @@ export function parseDateToYYYYMMDD(value) {
 
 export function formatDMY(value) {
   const d = toDate(value)
-  return d ? format(d, 'dd-MM-yyyy') : '—'
+  return d ? format(d, 'dd/MM/yyyy') : '—'
 }
 
 export function formatDMYTime(value) {
   const d = toDate(value)
-  return d ? format(d, 'dd-MM-yyyy HH:mm') : '—'
+  return d ? format(d, 'dd/MM/yyyy HH:mm') : '—'
 }
 
 export function formatDisplayDate(value) {
   if (!value) return '—'
   const d = toDate(value)
-  return d ? format(d, 'dd/MMM/yyyy') : '—'
+  return d ? format(d, 'dd/MM/yyyy') : '—'
 }
 
 /** "14 Sep 2026" — '' when unparseable. */
 export function formatShortDate(value) {
   const d = toDate(value)
-  return d ? format(d, 'd MMM yyyy') : ''
+  return d ? format(d, 'dd/MM/yyyy') : ''
 }
 
 /** Length of service between two dates (end defaults to today): "1 yr 4 mos",
@@ -110,13 +110,13 @@ export function calculateTenure(startDate, endDate) {
 export function formatJoinedDate(value) {
   if (/^\d{4}$/.test(String(value ?? '').trim())) return `Joined ${String(value).trim()}`
   const d = toDate(value)
-  return d ? `Joined ${format(d, 'd MMM yyyy')}` : ''
+  return d ? `Joined ${format(d, 'dd/MM/yyyy')}` : ''
 }
 
 /** "16 Sep 2026, 04:30 PM" — full date+time for an activity/request timestamp. */
 export function formatTimestampFull(value) {
   const d = toDate(value)
-  return d ? format(d, 'd MMM yyyy, hh:mm a') : ''
+  return d ? format(d, 'dd/MM/yyyy, hh:mm a') : ''
 }
 
 /** "Just now" / "5 mins ago" / "2 hrs ago" / "3 days ago", falling back to a short
@@ -125,7 +125,7 @@ export function formatRelativeTime(value) {
   const d = toDate(value)
   if (!d) return ''
   const diffMs = Date.now() - d.getTime()
-  if (diffMs < 0) return format(d, 'd MMM yyyy')
+  if (diffMs < 0) return format(d, 'dd/MM/yyyy')
   const minutes = Math.floor(diffMs / 60000)
   if (minutes < 1) return 'Just now'
   if (minutes < 60) return `${minutes} min${minutes === 1 ? '' : 's'} ago`
@@ -133,7 +133,7 @@ export function formatRelativeTime(value) {
   if (hours < 24) return `${hours} hr${hours === 1 ? '' : 's'} ago`
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`
-  return format(d, 'd MMM yyyy')
+  return format(d, 'dd/MM/yyyy')
 }
 
 /** This coming Sunday's date (today itself if today is Sunday), as YYYY-MM-DD. */

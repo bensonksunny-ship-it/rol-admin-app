@@ -82,7 +82,7 @@ export default function BoardMeetingWorkspaceWidget() {
         <div className="w-full flex items-center justify-between gap-3 p-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white">
           <span className="min-w-0 text-sm font-bold text-white truncate">
             Hello {myFirstName}, you are invited to the Director Board Meeting on{' '}
-            {format(new Date(nextMeeting.date + 'T00:00:00'), 'd MMM yyyy')}
+            {format(new Date(nextMeeting.date + 'T00:00:00'), 'dd/MM/yyyy')}
           </span>
           <button
             type="button"

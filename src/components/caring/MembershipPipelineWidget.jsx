@@ -28,7 +28,7 @@ function priorityBadge(entry, application, cur) {
 
 const fmtDateTime = (v) => {
   const d = v ? new Date(v) : null
-  return d && !isNaN(d.getTime()) ? d.toLocaleString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
+  return d && !isNaN(d.getTime()) ? d.toLocaleString('en-IN', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
 }
 const TONES = {
   green: 'bg-emerald-600 text-white',

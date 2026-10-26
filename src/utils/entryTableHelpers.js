@@ -33,7 +33,7 @@ export function parseFlexibleDate(raw) {
 // same UTC-vs-local day-shift bug fixed in the Firestore save path.
 export function toDisplayDate(isoDate) {
   const [y, m, d] = isoDate.split('-').map(Number)
-  return format(new Date(y, m - 1, d), 'dd.MM.yyyy')
+  return format(new Date(y, m - 1, d), 'dd/MM/yyyy')
 }
 
 // Strips thousands-commas, currency symbols (₹, Rs, $), and stray whitespace before

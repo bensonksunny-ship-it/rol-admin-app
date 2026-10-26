@@ -17,7 +17,7 @@ const toDate = (d) => {
   const dt = d ? (typeof d?.toDate === 'function' ? d.toDate() : new Date(d)) : null
   return dt && !isNaN(dt.getTime()) ? dt : null
 }
-const fmt = (d) => toDate(d)?.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) || ''
+const fmt = (d) => toDate(d)?.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) || ''
 
 function Item({ label, value, wide = false }) {
   return (

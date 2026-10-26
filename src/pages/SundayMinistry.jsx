@@ -80,7 +80,7 @@ export default function SundayMinistry() {
   })
 
   const languageData = records.slice(0, 8).reverse().map((a) => ({
-    date: a.date ? format(new Date(a.date), 'dd MMM') : '',
+    date: a.date ? format(new Date(a.date), 'dd/MM/yyyy') : '',
     English: Number(a.englishService) || 0,
     Tamil: Number(a.tamilService) || 0,
     'Junior Church': Number(a.juniorChurch) || 0,

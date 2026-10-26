@@ -30,7 +30,7 @@ export default function SundayCashCount({ sundays: sundaysProp, initialIso }) {
         <label className="text-xs font-semibold text-slate-500">
           Sunday
           <select value={iso} onChange={(e) => setIso(e.target.value)} className="block mt-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800">
-            {sundays.map((s) => <option key={s} value={s}>{format(parseISO(s), 'EEE, d MMM yyyy')}</option>)}
+            {sundays.map((s) => <option key={s} value={s}>{format(parseISO(s), 'EEE, dd/MM/yyyy')}</option>)}
           </select>
         </label>
       </div>
@@ -80,7 +80,7 @@ function CashCountForm({ iso, myName, uid }) {
         submittedBy: myName,
         submittedByUid: uid,
       })
-      setMsg({ type: 'ok', text: `Submitted · ${inr(grand)} for ${format(parseISO(iso), 'd MMM yyyy')}. Accounts will confirm it.` })
+      setMsg({ type: 'ok', text: `Submitted · ${inr(grand)} for ${format(parseISO(iso), 'dd/MM/yyyy')}. Accounts will confirm it.` })
     } catch (e) {
       console.error('Cash count', e)
       setMsg({ type: 'error', text: e?.code === 'permission-denied' ? 'This count has been confirmed by Accounts or you no longer have access.' : 'Could not submit. Please try again.' })
@@ -96,8 +96,8 @@ function CashCountForm({ iso, myName, uid }) {
         <div className={`rounded-xl px-4 py-3 text-sm flex items-center gap-2 ${confirmed ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-sky-50 border border-sky-200 text-sky-800'}`}>
           {confirmed ? <Lock size={15} /> : <CheckCircle2 size={15} />}
           {confirmed
-            ? `Confirmed by Accounts${saved.confirmedBy ? ` (${saved.confirmedBy})` : ''}${saved.confirmedAt ? ` on ${format(saved.confirmedAt, 'd MMM, h:mm a')}` : ''}. It can no longer be changed here.`
-            : `Submitted${saved.submittedBy ? ` by ${saved.submittedBy}` : ''}${saved.updatedAt ? ` · last updated ${format(saved.updatedAt, 'd MMM, h:mm a')}` : ''}. Waiting for Accounts to confirm; you can still correct it.`}
+            ? `Confirmed by Accounts${saved.confirmedBy ? ` (${saved.confirmedBy})` : ''}${saved.confirmedAt ? ` on ${format(saved.confirmedAt, 'dd/MM/yyyy, h:mm a')}` : ''}. It can no longer be changed here.`
+            : `Submitted${saved.submittedBy ? ` by ${saved.submittedBy}` : ''}${saved.updatedAt ? ` · last updated ${format(saved.updatedAt, 'dd/MM/yyyy, h:mm a')}` : ''}. Waiting for Accounts to confirm; you can still correct it.`}
         </div>
       )}
 

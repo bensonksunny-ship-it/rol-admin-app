@@ -47,7 +47,7 @@ function getForthcomingSunday() {
 
 function formatDisplay(iso) {
   const [y, m, d] = iso.split('-').map(Number)
-  return format(new Date(y, m - 1, d), 'EEEE, d MMMM yyyy')
+  return format(new Date(y, m - 1, d), 'EEEE, dd/MM/yyyy')
 }
 
 // Roster cards show only the first name (e.g. "Eric" not "Eric Fernandes") to keep
@@ -201,7 +201,7 @@ export default function UpcomingWorship({ myWorshipMember, songs, onViewSong, ca
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
-              Worship Team — {format(new Date(sundayDate + 'T12:00:00'), 'EEE, d MMM')}
+              Worship Team — {format(new Date(sundayDate + 'T12:00:00'), 'EEE, dd/MM/yyyy')}
             </p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3">
@@ -308,7 +308,7 @@ export default function UpcomingWorship({ myWorshipMember, songs, onViewSong, ca
               className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-sm transition"
             >
               <UserPlus size={14} />
-              Assign Team for {format(new Date(sundayDate + 'T12:00:00'), 'd MMM')}
+              Assign Team for {format(new Date(sundayDate + 'T12:00:00'), 'dd/MM/yyyy')}
             </button>
           )}
         </div>

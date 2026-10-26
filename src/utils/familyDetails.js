@@ -29,7 +29,7 @@ export function childAgeYears(dob, today = new Date()) {
 export function childAgeText(c) {
   if (!c?.dob) return ''
   const d = new Date(String(c.dob).slice(0, 10) + 'T00:00:00')
-  const dobText = isNaN(d.getTime()) ? String(c.dob) : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  const dobText = isNaN(d.getTime()) ? String(c.dob) : d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const age = childAgeYears(c.dob)
   return age === null ? dobText : `${age} yr${age === 1 ? '' : 's'} / ${dobText}`
 }

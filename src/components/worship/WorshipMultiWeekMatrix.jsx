@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Copy, Mic2, Pencil, Plus, Share2, X } from '
 import { getAllWorshipSchedules, setWorshipScheduleByDate } from '../../services/firestore'
 import { copiedRoster, nextSunday } from '../../utils/worshipRoster'
 
-const fmtCol = (d) => format(parseISO(d), 'd MMM')
+const fmtCol = (d) => format(parseISO(d), 'dd/MM/yyyy')
 
 // Same two-letter initials the Single Week view's avatars use.
 function initialsOf(name) {

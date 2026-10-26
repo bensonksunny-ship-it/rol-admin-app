@@ -16,11 +16,11 @@ import { getMemberDisplayName } from '../../utils/displayName'
 const todayIso = () => new Date().toISOString().slice(0, 10)
 const fmt = (d) => {
   const dt = d ? new Date(d) : null
-  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 }
 const fmtDateTime = (s) => {
   const dt = s ? new Date(s) : null
-  return dt && !isNaN(dt.getTime()) ? dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
+  return dt && !isNaN(dt.getTime()) ? dt.toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''
 }
 
 // Stage 4 — every item (constants/membershipRevision.js) must be ticked before
@@ -167,7 +167,7 @@ function CellLeaderNotify({ entry, by, canNotify, onRequested }) {
 const scheduleLabel = (at) => {
   const d = at ? new Date(at) : null
   if (!d || isNaN(d.getTime())) return ''
-  const day = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+  const day = d.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })
   const time = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true }).toUpperCase()
   return `${day} at ${time}`
 }

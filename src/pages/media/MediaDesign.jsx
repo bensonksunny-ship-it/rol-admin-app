@@ -118,7 +118,7 @@ export default function MediaDesign({ canEdit }) {
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={prevSunday} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">← Prev</button>
-          <span className="text-sm font-semibold text-slate-700 min-w-[148px] text-center">{format(new Date(selectedDate), 'EEE, dd MMM yyyy')}</span>
+          <span className="text-sm font-semibold text-slate-700 min-w-[148px] text-center">{format(new Date(selectedDate), 'EEE, dd/MM/yyyy')}</span>
           <button type="button" onClick={nextSundayNav} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next →</button>
         </div>
       </div>

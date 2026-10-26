@@ -332,7 +332,7 @@ export default function SundayReportPrintView({ row, cellCols, onClose }) {
 
           {/* Footer */}
           <p style={{ fontSize: '7pt', color: '#cbd5e1', marginTop: '4mm', textAlign: 'center' }}>
-            Generated from the ROL Admin App · {format(new Date(), 'dd MMM yyyy, h:mm a')}
+            Generated from the ROL Admin App · {format(new Date(), 'dd/MM/yyyy, h:mm a')}
           </p>
         </div>
       </div>

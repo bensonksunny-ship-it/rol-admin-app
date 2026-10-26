@@ -123,7 +123,7 @@ export default function AdvancePayoutReviewer() {
                   <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{r.reason}</p>
                   <p className="text-[10px] text-slate-400 mt-1">
                     {r.requestedBy}
-                    {r.createdAt ? ` · ${format(r.createdAt, 'd MMM yyyy, h:mm a')}` : ''}
+                    {r.createdAt ? ` · ${format(r.createdAt, 'dd/MM/yyyy, h:mm a')}` : ''}
                   </p>
                 </div>
                 <span className={`shrink-0 text-[10px] font-semibold px-2 py-1 rounded-full border capitalize ${STATUS[r.status] || ''}`}>
@@ -159,7 +159,7 @@ export default function AdvancePayoutReviewer() {
                         {r.status === 'approved' ? 'Approved' : 'Disapproved'}
                       </span>
                       {r.reviewedBy ? ` by ${r.reviewedBy}` : ''}
-                      {r.reviewedAt ? ` · ${format(r.reviewedAt, 'd MMM yyyy')}` : ''}
+                      {r.reviewedAt ? ` · ${format(r.reviewedAt, 'dd/MM/yyyy')}` : ''}
                     </p>
                   )}
                 </div>

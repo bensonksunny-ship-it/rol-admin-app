@@ -412,7 +412,7 @@ const SERVICE_FLOW = [
 function WorshipStamp({ stamp, isOpen, onToggle, onEdit }) {
   const assignedRoles = stamp.assignments.filter((a) => a.memberId)
   let formattedDate = stamp.date
-  try { formattedDate = format(new Date(stamp.date), 'EEE d MMM yyyy') } catch {}
+  try { formattedDate = format(new Date(stamp.date), 'EEE, dd/MM/yyyy') } catch {}
   return (
     <motion.div
       layoutId="assign-card"
@@ -617,7 +617,7 @@ function firstNameOf(fullName) {
 function ArchiveStamp({ stamp, isOpen, onToggle, canManageWorship, onSaveTimes }) {
   const assignedRoles = (stamp.assignments || []).filter((a) => a.memberId)
   let formattedDate = stamp.date
-  try { formattedDate = format(new Date(stamp.date + 'T12:00:00'), 'EEE d MMM yyyy') } catch {}
+  try { formattedDate = format(new Date(stamp.date + 'T12:00:00'), 'EEE, dd/MM/yyyy') } catch {}
 
   // Status badge — Archives no longer only holds history, so "Published" can't be a
   // constant anymore. The forthcoming Sunday (same cutoff as the Summary tab's plan
@@ -1195,7 +1195,7 @@ function WorshipAnalyticsDashboard() {
           }, 0) / times.length
         )
         let dateLabel = s.date
-        try { dateLabel = format(new Date(s.date + 'T12:00:00'), 'd MMM') } catch { /* keep raw date */ }
+        try { dateLabel = format(new Date(s.date + 'T12:00:00'), 'dd/MM/yyyy') } catch { /* keep raw date */ }
         return { date: dateLabel, avgMins, checkIns: times.length }
       })
       .filter(Boolean)
@@ -1230,7 +1230,7 @@ function WorshipAnalyticsDashboard() {
         const arrivedIds = new Set([...Object.keys(pa.friday || {}), ...Object.keys(pa.saturday || {})])
         const arrivedCount = assigned.filter((a) => arrivedIds.has(a.memberId)).length
         let dateLabel = s.date
-        try { dateLabel = format(new Date(s.date + 'T12:00:00'), 'd MMM') } catch { /* keep raw date */ }
+        try { dateLabel = format(new Date(s.date + 'T12:00:00'), 'dd/MM/yyyy') } catch { /* keep raw date */ }
         return { date: dateLabel, pct: Math.round((arrivedCount / assigned.length) * 100) }
       })
       .filter(Boolean)
@@ -2124,7 +2124,7 @@ export default function DepartmentWorship() {
   const matrixSundays = assignView === 'month' ? sundaysInMonth(matrixStart) : consecutiveSundays(matrixStart, assignView === '4' ? 4 : 2)
   const matrixRangeLabel = assignView === 'month'
     ? format(new Date(matrixStart + 'T12:00:00'), 'MMMM yyyy')
-    : `${format(new Date(matrixSundays[0] + 'T12:00:00'), 'd MMM')} – ${format(new Date(matrixSundays[matrixSundays.length - 1] + 'T12:00:00'), 'd MMM yyyy')}`
+    : `${format(new Date(matrixSundays[0] + 'T12:00:00'), 'dd/MM/yyyy')} – ${format(new Date(matrixSundays[matrixSundays.length - 1] + 'T12:00:00'), 'dd/MM/yyyy')}`
   function shiftMatrix(dir) {
     if (assignView === 'month') {
       setMatrixStart(sundaysInMonth(format(addMonths(new Date(matrixStart + 'T12:00:00'), dir), 'yyyy-MM-01'))[0])
@@ -2142,7 +2142,7 @@ export default function DepartmentWorship() {
   async function copyRosterToNextWeek() {
     const from = selectedDate
     const to = nextSunday(from)
-    const toLabel = format(new Date(to + 'T12:00:00'), 'd MMM')
+    const toLabel = format(new Date(to + 'T12:00:00'), 'dd/MM/yyyy')
     const fromList = scheduleForDate.assignments || []
     if (!fromList.some((a) => a.memberId)) { setRosterNote('Nothing assigned on this Sunday to copy.'); setTimeout(() => setRosterNote(''), 3500); return }
     setCopyingRoster(true)
@@ -2203,7 +2203,7 @@ export default function DepartmentWorship() {
         .filter((a) => a.songName)
         .map((a) => `${a.role}: ${a.songName}${a.key ? ` (${a.key})` : ''}`)
       const notes = [
-        `Practice for Sunday ${format(new Date(selectedDate + 'T12:00:00'), 'd MMM yyyy')}`,
+        `Practice for Sunday ${format(new Date(selectedDate + 'T12:00:00'), 'dd/MM/yyyy')}`,
         ...(songLines.length ? ['', ...songLines] : []),
       ].join('\n')
       const existing = await getWorshipRehearsalByDate(DEPARTMENT, practiceDateStr)
@@ -2416,7 +2416,7 @@ export default function DepartmentWorship() {
                     : 'bg-white text-slate-600 border-slate-300 hover:border-violet-400 hover:text-violet-700'
                 }`}
               >
-                {format(new Date(d), 'd MMM')}
+                {format(new Date(d), 'dd/MM/yyyy')}
               </button>
             ))}
             <input
@@ -2475,7 +2475,7 @@ export default function DepartmentWorship() {
                       <div>
                         <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500">Weekly Worship Plan Summary</p>
                         <h2 className="text-xl font-bold text-slate-800 mt-0.5">
-                          {selectedDate ? format(new Date(selectedDate + 'T12:00:00'), 'EEEE, d MMMM yyyy') : '—'}
+                          {selectedDate ? format(new Date(selectedDate + 'T12:00:00'), 'EEEE, dd/MM/yyyy') : '—'}
                         </h2>
                         <p className="text-sm text-slate-400 mt-0.5">Worship Department</p>
                       </div>
@@ -2705,7 +2705,7 @@ export default function DepartmentWorship() {
                         onClick={() => setSelectedDate(d)}
                         className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${selectedDate === d ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-600 border-slate-300 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50'}`}
                       >
-                        {format(new Date(d), 'd MMM')}
+                        {format(new Date(d), 'dd/MM/yyyy')}
                       </button>
                     ))}
                     <input
@@ -2980,7 +2980,7 @@ export default function DepartmentWorship() {
                       Assign Worship Team
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.92)', marginTop: 4 }}>
-                      {format(new Date(selectedDate + 'T12:00:00'), 'EEEE, d MMMM yyyy')}
+                      {format(new Date(selectedDate + 'T12:00:00'), 'EEEE, dd/MM/yyyy')}
                     </div>
                   </div>
                   <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -3532,11 +3532,11 @@ export default function DepartmentWorship() {
                     const practiceAtt = schedule?.practiceAttendance || {}
 
                     let fmtSunday = sundayDate
-                    try { fmtSunday = format(new Date(sundayDate + 'T12:00:00'), 'd MMM yyyy') } catch {}
+                    try { fmtSunday = format(new Date(sundayDate + 'T12:00:00'), 'dd/MM/yyyy') } catch {}
                     let fmtFriday = fridayDate
-                    try { fmtFriday = format(new Date(fridayDate + 'T12:00:00'), 'EEE d MMM') } catch {}
+                    try { fmtFriday = format(new Date(fridayDate + 'T12:00:00'), 'EEE, dd/MM/yyyy') } catch {}
                     let fmtSaturday = saturdayDate
-                    try { fmtSaturday = format(new Date(saturdayDate + 'T12:00:00'), 'EEE d MMM') } catch {}
+                    try { fmtSaturday = format(new Date(saturdayDate + 'T12:00:00'), 'EEE, dd/MM/yyyy') } catch {}
 
                     const arriveCount = (day) =>
                       Object.values(practiceAtt[day] || {}).filter(v => v.arrivedAt).length
@@ -3685,7 +3685,7 @@ export default function DepartmentWorship() {
                               >
                                 {practiceSundayOptions.map((d) => {
                                   let label = d
-                                  try { label = format(new Date(d + 'T12:00:00'), 'd MMM yyyy') } catch {}
+                                  try { label = format(new Date(d + 'T12:00:00'), 'dd/MM/yyyy') } catch {}
                                   return <option key={d} value={d} className="text-slate-800">{label}</option>
                                 })}
                               </select>
@@ -3821,11 +3821,11 @@ export default function DepartmentWorship() {
                     <div className="space-y-3">
                       {upcoming.map((r) => {
                         let fmtDate = r.date
-                        try { fmtDate = format(new Date(r.date + 'T12:00:00'), 'EEE, d MMM yyyy') } catch {}
+                        try { fmtDate = format(new Date(r.date + 'T12:00:00'), 'EEE, dd/MM/yyyy') } catch {}
                         let practiceForLabel = ''
                         try {
                           const d = new Date(r.date + 'T12:00:00')
-                          practiceForLabel = format(addDays(d, (7 - d.getDay()) % 7), 'EEE d MMM')
+                          practiceForLabel = format(addDays(d, (7 - d.getDay()) % 7), 'EEE, dd/MM/yyyy')
                         } catch {}
                         const isAttendanceOpen = openAttendanceId === r.id
                         const isMenuOpen = openSessionMenuId === r.id
@@ -3923,7 +3923,7 @@ export default function DepartmentWorship() {
                     <div className="space-y-2">
                       {[...past].reverse().map((r) => {
                         let fmtDate = r.date
-                        try { fmtDate = format(new Date(r.date + 'T12:00:00'), 'EEE, d MMM yyyy') } catch {}
+                        try { fmtDate = format(new Date(r.date + 'T12:00:00'), 'EEE, dd/MM/yyyy') } catch {}
                         const isAttendanceOpen = openAttendanceId === r.id
                         return (
                           <div key={r.id} className="bg-slate-50 rounded-xl border border-slate-100 px-3 py-2">

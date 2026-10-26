@@ -20,7 +20,7 @@ import { formatJoinedDate } from '../utils/date'
 
 const fmt = (d) => {
   if (!d) return null
-  try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) } catch { return d }
+  try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) } catch { return d }
 }
 
 function miniDur(from, to) {
@@ -327,7 +327,7 @@ function ExpandedProfile({ p, onEdit, canEdit }) {
             </p>
             {(o.when || o.by || o.createdSource) && (
               <p className="text-slate-400 mt-0.5">
-                {[o.when ? `created ${o.when.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}` : '', o.by ? `by ${o.by}` : '', o.createdSource ? `via ${o.createdSource}` : ''].filter(Boolean).join(' · ')}
+                {[o.when ? `created ${o.when.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}` : '', o.by ? `by ${o.by}` : '', o.createdSource ? `via ${o.createdSource}` : ''].filter(Boolean).join(' · ')}
               </p>
             )}
           </div>

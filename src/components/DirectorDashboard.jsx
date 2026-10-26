@@ -15,7 +15,7 @@ import { format, subWeeks, parseISO } from 'date-fns'
 import { getCellGroups, subscribeLatestCellReports, createCellReportReminder } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole, isFounder as isFounderUser } from '../utils/access'
-import { cellWeekStart, computeMeetingDateISO, formatWeekRangeLabel, formatWeekDayRangeShort, monthSpanLabel, totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission } from '../utils/cellWeek'
+import { cellWeekStart, computeMeetingDateISO, formatWeekRangeLabel, formatWeekDayRangeShort, monthSpanLabel, totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission, pickCellWeekReport } from '../utils/cellWeek'
 
 const CELL_DEPARTMENT = 'Cell'
 const TREND_LINE_COLOR = '#6366f1'
@@ -140,7 +140,7 @@ function StatusPill({ row, isDismissed }) {
 
 // "d MMM" (e.g. 26 Aug) — mobile cards only, to keep the due date on one line.
 function compactDate(iso) {
-  return iso ? format(parseISO(iso), 'd MMM') : '—'
+  return iso ? format(parseISO(iso), 'dd/MM/yyyy') : '—'
 }
 
 // The "• Week of …" list shared by the desktop 10-week dropdown and the mobile
@@ -151,7 +151,7 @@ function MissingWeeksList({ weeks }) {
       {weeks.map((w) => (
         <li key={w.weekStart} className="px-3 py-2 text-xs text-slate-600 flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
-          Week of {format(parseISO(w.weekStart), 'd MMM yyyy')}
+          Week of {format(parseISO(w.weekStart), 'dd/MM/yyyy')}
         </li>
       ))}
     </ul>
@@ -498,8 +498,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
       // 10-week badges and the chart, so a cell that met on a different day than its
       // configured meetingDay isn't shown as not-submitted. Doc ID first, then the
       // logical cellId for legacy reports.
-      const hit = reportsByCellWeek.get(cell.id)?.get(weekKey)
-        || (cell.cellId !== cell.id ? reportsByCellWeek.get(cell.cellId)?.get(weekKey) : null)
+      const hit = pickCellWeekReport(reportsByCellWeek, cell, weekKey)
       const submitted = isRealCellReportSubmission(hit)
       const isDue = !submitted && !!expectedDate && expectedDate < todayISO
       const isMeetingToday = !submitted && !!expectedDate && expectedDate === todayISO
@@ -548,8 +547,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
     return weeks.map((ws) => {
       const wk = format(ws, 'yyyy-MM-dd')
       const total = visibleGroups.reduce((sum, cell) => {
-        const r = reportsByCellWeek.get(cell.id)?.get(wk)
-          || (cell.cellId !== cell.id ? reportsByCellWeek.get(cell.cellId)?.get(wk) : null)
+        const r = pickCellWeekReport(reportsByCellWeek, cell, wk)
         return sum + totalAttendanceFromCellReport(r)
       }, 0)
       return { weekLabel: formatWeekRangeLabel(ws), weekLabelShort: formatWeekDayRangeShort(ws), weekStart: wk, total }
@@ -565,8 +563,7 @@ export function DirectorDashboardCellWidgets({ userProfile }) {
     return visibleGroups.map((cell) => {
       const weeks = tenWeeks.map((ws) => {
         const wk = format(ws, 'yyyy-MM-dd')
-        const hit = reportsByCellWeek.get(cell.id)?.get(wk)
-          || (cell.cellId !== cell.id ? reportsByCellWeek.get(cell.cellId)?.get(wk) : null)
+        const hit = pickCellWeekReport(reportsByCellWeek, cell, wk)
         return { weekStart: wk, submitted: isRealCellReportSubmission(hit) }
       })
       return {

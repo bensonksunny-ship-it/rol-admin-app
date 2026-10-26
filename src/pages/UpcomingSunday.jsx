@@ -90,7 +90,7 @@ function getNextSundayISO() {
 
 function formatDisplay(iso) {
   const [y, m, d] = iso.split('-').map(Number)
-  return format(new Date(y, m - 1, d), 'EEEE, dd MMMM yyyy')
+  return format(new Date(y, m - 1, d), 'EEEE, dd/MM/yyyy')
 }
 
 function getElChipColor(el, customElements) {

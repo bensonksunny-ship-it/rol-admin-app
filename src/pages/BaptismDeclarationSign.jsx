@@ -6,7 +6,7 @@ import SignaturePad from '../components/SignaturePad'
 
 const fmtDate = (d) => {
   const dt = d instanceof Date ? d : d ? new Date(d) : null
-  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 }
 
 // Public, signed-out page from a Stage 4 "Baptism Self-Declaration" request: the

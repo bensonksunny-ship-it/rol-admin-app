@@ -445,7 +445,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
       // Always dd.MM.yyyy — matches the format handleEditDateBlur() converts a row to
       // once the user finishes typing, so a row looks the same whether it's freshly
       // loaded or already edited, instead of showing ISO yyyy-MM-dd until first touched.
-      date: format(r.date instanceof Date ? r.date : new Date(r.date), 'dd.MM.yyyy'),
+      date: format(r.date instanceof Date ? r.date : new Date(r.date), 'dd/MM/yyyy'),
       item: r.item || '',
       billNo: r.billNo || '',
       amount: String(r.amount ?? ''),
@@ -682,7 +682,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
         const amount = r['amount'] ?? r['amountrs'] ?? r['rs'] ?? r['total'] ?? ''
         // Auto-parsed and shown as a full dd.MM.yyyy date; falls back to the raw cell
         // text if it isn't a recognizable date, so the user can see and fix it.
-        const rawDateText = rawDate instanceof Date ? format(rawDate, 'dd.MM.yyyy') : String(rawDate).trim()
+        const rawDateText = rawDate instanceof Date ? format(rawDate, 'dd/MM/yyyy') : String(rawDate).trim()
         const parsedUploadDate = rawDate instanceof Date ? format(rawDate, 'yyyy-MM-dd') : parseFlexibleDate(rawDateText)
         const date = parsedUploadDate ? toDisplayDate(parsedUploadDate) : rawDateText
         return { date, item, billNo, amount: String(amount), _key: newRowKey() }
@@ -849,7 +849,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
               {bulkDeleteFor.entries.map(e => (
                 <div key={e.id} className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
                   <span className="min-w-0 truncate text-slate-700">
-                    {e.date ? format(e.date, 'dd.MM.yyyy') : '—'} · {e.item || '—'}
+                    {e.date ? format(e.date, 'dd/MM/yyyy') : '—'} · {e.item || '—'}
                   </span>
                   <span className="shrink-0 font-semibold text-rose-600 tabular-nums">₹{Number(e.amount).toLocaleString('en-IN')}</span>
                 </div>
@@ -1144,7 +1144,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                               className={`px-3 py-2.5 whitespace-nowrap font-medium ${isAnchoredElsewhere ? 'text-red-700' : 'text-slate-700'}`}
                               title={isAnchoredElsewhere ? `Dated outside this sheet's month — kept here until you move it` : ''}
                             >
-                              {format(entryDate, 'dd.MM.yyyy')}
+                              {format(entryDate, 'dd/MM/yyyy')}
                             </td>
                             <td className="px-3 py-2.5 text-slate-700 truncate" title={entry.item || ''}>{entry.item || '—'}</td>
                             <td className="px-3 py-2.5">

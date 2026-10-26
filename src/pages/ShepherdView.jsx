@@ -46,7 +46,7 @@ import { format } from 'date-fns'
 
 function fmt(d) {
   if (!d) return null
-  try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) } catch { return String(d) }
+  try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) } catch { return String(d) }
 }
 
 function miniDur(from, to) {
@@ -952,7 +952,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   }, [activeMembers, heatmap, pcsNames])
 
   const sundayDate = sundayAtt.date
-    ? new Date(sundayAtt.date + 'T00:00:00').toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })
+    ? new Date(sundayAtt.date + 'T00:00:00').toLocaleDateString('en-IN', { month: '2-digit', year: 'numeric', day: '2-digit' })
     : null
 
   return (

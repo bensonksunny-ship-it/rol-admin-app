@@ -39,15 +39,14 @@ function weekStartKey(dateISO) {
   return `${yyyy}-${mm}-${dd}`
 }
 
-/** "Jul 20 – Jul 26" (adds year only when the range falls outside the current year) */
+/** "19/07/2026 – 25/07/2026" (DD/MM/YYYY) */
 function formatWeekRange(weekStartISO) {
   if (!weekStartISO) return 'Unknown'
   const start = new Date(`${weekStartISO}T00:00:00`)
   if (Number.isNaN(start.getTime())) return 'Unknown'
   const end = new Date(start)
   end.setDate(start.getDate() + 6)
-  const showYear = start.getFullYear() !== new Date().getFullYear()
-  const opts = { month: 'short', day: 'numeric', ...(showYear ? { year: 'numeric' } : {}) }
+  const opts = { day: '2-digit', month: '2-digit', year: 'numeric' }
   return `${start.toLocaleDateString('en-IN', opts)} – ${end.toLocaleDateString('en-IN', opts)}`
 }
 

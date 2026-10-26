@@ -150,7 +150,7 @@ export default function SavingsPage({ activeMonth = startOfMonth(new Date()) }) 
   function editRowsFromEntries(rows) {
     return rows.map(r => ({
       id: r.id,
-      date: format(r.date instanceof Date ? r.date : new Date(r.date), 'dd.MM.yyyy'),
+      date: format(r.date instanceof Date ? r.date : new Date(r.date), 'dd/MM/yyyy'),
       amount: String(r.amount ?? ''),
       fund: SAVINGS_FUNDS.includes(r.fund) ? r.fund : SAVINGS_FUNDS[0],
     }))
@@ -439,7 +439,7 @@ export default function SavingsPage({ activeMonth = startOfMonth(new Date()) }) 
                       <td className="px-3 py-2.5">
                         <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold">{idx + 1}</span>
                       </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{format(entryDate, 'dd.MM.yyyy')}</td>
+                      <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-700">{format(entryDate, 'dd/MM/yyyy')}</td>
                       <td className="px-3 py-2.5">
                         <span className="inline-block max-w-full truncate px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[11px] font-medium" title={entry.fund}>
                           {entry.fund}

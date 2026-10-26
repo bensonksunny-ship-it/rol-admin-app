@@ -5541,8 +5541,10 @@ export async function saveMidweekSessionSummary(cellId, dateStr, { segmentTiming
  * Attendees this sync wrote (source: 'live') who are no longer present are removed,
  * so un-ticking someone mid-meeting doesn't leave them counted; attendees added any
  * other way (Cell Report page, edits) are never touched.
+ * final: false for the in-progress saves — attendance is stored but the report is
+ * only stamped submitted (submittedAt) when the meeting is ended.
  */
-export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateStr, presentMembers, updatedBy, visitors = [], children = [], awayNames = []) {
+export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateStr, presentMembers, updatedBy, visitors = [], children = [], awayNames = [], { final = true } = {}) {
   if (!db || !cellId || !dateStr || !Array.isArray(presentMembers)) return
   const d = String(dateStr).slice(0, 10)
   const visitorNames = Array.isArray(visitors) ? visitors.map((v) => v.name).filter(Boolean) : []
@@ -5626,7 +5628,7 @@ export async function syncMidweekAttendanceToCellReport(cellId, cellName, dateSt
     childrenList: childNames,
     awayNames: Array.isArray(awayNames) ? awayNames.filter(Boolean) : [],
     // Ending the live meeting is a formal submission.
-    submittedAt: serverTimestamp(),
+    ...(final ? { submittedAt: serverTimestamp() } : {}),
   })
 }
 

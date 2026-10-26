@@ -10,7 +10,7 @@ import { baptismReadyForApproval } from '../../utils/baptismProgress'
 
 const fmtD = (d) => {
   const dt = d instanceof Date ? d : d ? new Date(d) : null
-  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
 }
 const newKey = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 const personFromEntry = (e) => ({ pcsEntryId: e.id, visitorId: e.visitorId || '', personId: e.personId || '', name: e.name || '', membershipNumber: e.membershipNumber || '' })

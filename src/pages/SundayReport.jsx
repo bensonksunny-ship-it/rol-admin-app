@@ -113,7 +113,7 @@ function fmtFirstVisit(dateStr) {
   if (!dateStr) return ''
   const d = new Date(dateStr + 'T00:00:00')
   if (Number.isNaN(d.getTime())) return ''
-  return format(d, 'd MMM yyyy')
+  return format(d, 'dd/MM/yyyy')
 }
 
 function NameListSection({ title, names, canEdit, onAdd, onAddValue, onEdit, onRemove, suggestions = [], loadingSuggestions = false, suggestionsLabel = 'From D-Light this week — tap to add', onSuggestionClick = null, people = null, searchPlaceholder = 'Search people directory…', showManualAdd = true, linkDirectory = null, onLink, linkedNames = null, duplicateNorms = null, className = '' }) {
@@ -3084,7 +3084,7 @@ function FiledSummaryView({ selectedDate, sortedProgram, programLogs, summaryCom
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" /> Filed
           </p>
           <h2 className="text-xl font-extrabold text-slate-900 tracking-tight mt-0.5">
-            {format(new Date(selectedDate + 'T00:00:00'), 'EEEE, d MMM yyyy')}
+            {format(new Date(selectedDate + 'T00:00:00'), 'EEEE, dd/MM/yyyy')}
           </h2>
           <p className="text-slate-500 text-xs mt-1">This report has been saved. Tap Edit to make changes.</p>
         </div>

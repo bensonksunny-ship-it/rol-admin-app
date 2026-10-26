@@ -24,7 +24,7 @@ import { LEGAL_NAME_KEYS, legalFullName, legalNamePayload, isLegalNameComplete, 
 const fmtDate = (d) => {
   if (!d) return ''
   const dt = d instanceof Date ? d : new Date(d)
-  return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 // Everything is stored inside one Firestore doc (1 MB cap), so the scans are
@@ -569,7 +569,7 @@ export default function MembershipApply() {
           </p>
         ) : app?.revisionResponse?.submittedAt && (
           <p role="status" className="mx-5 mt-5 text-sm font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
-            ✓ Revisions received {new Date(app.revisionResponse.submittedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+            ✓ Revisions received {new Date(app.revisionResponse.submittedAt).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
           </p>
         )}
         {/* Live 8-stage progress dashboard (same stages as the PCS tracker) */}

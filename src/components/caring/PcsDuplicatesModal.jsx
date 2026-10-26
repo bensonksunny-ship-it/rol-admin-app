@@ -5,7 +5,7 @@ import { profileCompleteness } from '../../utils/pcsDedupe'
 
 const fmtD = (v) => {
   const d = v?.toDate ? v.toDate() : v instanceof Date ? v : v ? new Date(v) : null
-  return d && !isNaN(d.getTime()) ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+  return d && !isNaN(d.getTime()) ? d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
 }
 
 /**

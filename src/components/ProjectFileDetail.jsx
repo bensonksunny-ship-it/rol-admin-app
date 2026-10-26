@@ -13,7 +13,7 @@ const REMARKS_STYLES = {
 
 function formatDisplayDate(d) {
   if (!d || Number.isNaN(d.getTime())) return '—'
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 // The SL number IS the file's start date: <D|DD><MM><YYYY><running no.> — e.g.

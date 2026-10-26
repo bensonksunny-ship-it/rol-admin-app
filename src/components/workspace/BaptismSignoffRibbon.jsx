@@ -13,7 +13,7 @@ const CHECKS = [
 
 const fmtDay = (iso) => {
   const d = iso ? new Date(iso) : null
-  return d && !isNaN(d.getTime()) ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''
+  return d && !isNaN(d.getTime()) ? d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 }
 
 /** Ready / not ready, then (when ready) the exam link to pass on to the candidate. */

@@ -67,7 +67,7 @@ export function MonthLockRow({ monthKey, type = 'expense', unlock, pendingReques
           </p>
           <p className="text-xs text-slate-500 mt-0.5">
             {until
-              ? `Unlocked until ${format(until, 'd MMM, h:mm a')}${unlock?.unlockedBy ? ` · by ${unlock.unlockedBy}` : ''}`
+              ? `Unlocked until ${format(until, 'dd/MM/yyyy, h:mm a')}${unlock?.unlockedBy ? ` · by ${unlock.unlockedBy}` : ''}`
               : isMonthClosedForFinance(monthKey, now) ? `Locked since ${financeCloseLabel(monthKey)}` : 'Entry completed'}
           </p>
           {pendingRequest && (

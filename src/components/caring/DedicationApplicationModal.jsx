@@ -10,7 +10,7 @@ import {
   DEDICATION_PARENT_FIELDS, DEDICATION_BABY_FIELDS, dedicationFieldValue, dedicationDisplayName, hasValue,
 } from '../../constants/dedicationForm'
 
-const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 
 // PCS → "+ Baby Dedication Application": opens straight onto a QR code for the
 // parents' phone (the application is created on open), then shows what they

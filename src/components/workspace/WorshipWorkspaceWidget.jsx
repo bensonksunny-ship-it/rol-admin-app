@@ -340,7 +340,7 @@ export default function WorshipWorkspaceWidget() {
 
       ctx.fillStyle = 'rgba(255,255,255,0.82)'
       ctx.font = '22px Arial, sans-serif'
-      ctx.fillText(format(new Date(sunday + 'T12:00:00'), 'EEEE, d MMMM yyyy'), PAD, 140)
+      ctx.fillText(format(new Date(sunday + 'T12:00:00'), 'EEEE, dd/MM/yyyy'), PAD, 140)
 
       let y = HEADER_H + GAP
       groups.forEach((group, gi) => {
@@ -553,7 +553,7 @@ export default function WorshipWorkspaceWidget() {
                           : 'bg-white text-slate-600 border-slate-300 hover:border-violet-400 hover:text-violet-700'
                       }`}
                     >
-                      {d === forthcomingSunday ? 'Coming Sunday' : format(new Date(d + 'T12:00:00'), 'EEE d MMM')}
+                      {d === forthcomingSunday ? 'Coming Sunday' : format(new Date(d + 'T12:00:00'), 'EEE, dd/MM/yyyy')}
                     </button>
                   ))}
                 </div>

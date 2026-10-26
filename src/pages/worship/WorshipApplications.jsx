@@ -906,7 +906,7 @@ async function downloadApplicationPDF(app) {
   const fmtDate = (d) => {
     if (!d) return null
     const parsed = new Date(d)
-    return isNaN(parsed.getTime()) ? null : format(parsed, 'd MMM yyyy')
+    return isNaN(parsed.getTime()) ? null : format(parsed, 'dd/MM/yyyy')
   }
 
   const field = (label, value) => (value === '' || value === null || value === undefined) ? '' : `
@@ -1047,7 +1047,7 @@ async function downloadApplicationPDF(app) {
     <!-- Formal footer -->
     <div style="margin-top:8px;padding-top:4px;border-top:1px solid #d1d5db;display:flex;justify-content:space-between;align-items:center;page-break-inside:avoid;break-inside:avoid">
       <span style="font-size:6.5px;color:#9ca3af">River Of Life Christian Church &bull; Confidential Ministry Application Document</span>
-      <span style="font-size:6.5px;color:#9ca3af">Generated ${format(new Date(), 'd MMM yyyy, h:mm a')}</span>
+      <span style="font-size:6.5px;color:#9ca3af">Generated ${format(new Date(), 'dd/MM/yyyy, h:mm a')}</span>
     </div>
 
     <script>window.onload=function(){window.print()}<\/script>
@@ -1129,7 +1129,7 @@ async function downloadWelcomeCardJPEG(app) {
 
   ctx.fillStyle = '#6b7280'
   ctx.font = '14px Arial, sans-serif'
-  ctx.fillText(`Joined ${format(new Date(), 'd MMMM yyyy')}`, W / 2, HEADER_H + 106)
+  ctx.fillText(`Joined ${format(new Date(), 'dd/MM/yyyy')}`, W / 2, HEADER_H + 106)
 
   // Divider
   ctx.strokeStyle = '#d1fae5'
@@ -1432,7 +1432,7 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onEditScreening, onApp
             <h2 className="text-base font-bold text-slate-900 truncate">{app.fullName}</h2>
             <div className="flex items-center gap-2 text-[11px] text-slate-400">
               <span className={`px-2 py-0.5 rounded-full font-semibold ${badgeCls}`}>{badgeLabel}</span>
-              {app.applicationDate && <span className="truncate">Applied {format(new Date(app.applicationDate), 'd MMM yyyy')}</span>}
+              {app.applicationDate && <span className="truncate">Applied {format(new Date(app.applicationDate), 'dd/MM/yyyy')}</span>}
             </div>
           </div>
           <div className="hidden md:flex items-center gap-1.5 shrink-0">
@@ -1456,7 +1456,7 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onEditScreening, onApp
 
       {app.status === 'approved' && (
         <div className="mb-3 rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-[13px] text-indigo-900">
-          ✔ Approved{app.approvedBy ? ` by ${app.approvedBy}` : ''}{app.approvedAt ? ` on ${format(new Date(app.approvedAt), 'd MMM yyyy')}` : ''} and added to The Team
+          ✔ Approved{app.approvedBy ? ` by ${app.approvedBy}` : ''}{app.approvedAt ? ` on ${format(new Date(app.approvedAt), 'dd/MM/yyyy')}` : ''} and added to The Team
           {app.approvedPositions?.length ? ` as ${app.approvedPositions.join(', ')}` : ''}.
         </div>
       )}

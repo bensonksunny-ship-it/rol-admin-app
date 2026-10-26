@@ -1202,7 +1202,7 @@ function SundayLeaderRow({ date, value, onChange, onReset, pool, dirty, hasAssig
       className={`border-b border-slate-100 last:border-0 transition-colors duration-700 ${highlighted ? 'bg-amber-50 ring-2 ring-inset ring-amber-300' : 'hover:bg-slate-50/70'}`}
     >
       <td className="px-4 py-3 align-top whitespace-nowrap">
-        <p className="text-sm font-semibold text-slate-800">{format(d, 'dd MMM yyyy')}</p>
+        <p className="text-sm font-semibold text-slate-800">{format(d, 'dd/MM/yyyy')}</p>
         <p className="text-xs text-slate-400">{format(d, 'EEEE')}</p>
       </td>
       <td className="px-4 py-3 align-top">
@@ -2217,7 +2217,7 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
           onClick={() => setDateChipsOpen(v => !v)}
           className="flex items-center gap-1 text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors"
         >
-          {selectedDate ? format(new Date(selectedDate + 'T00:00:00'), 'EEE, d MMM') : 'No Date'}
+          {selectedDate ? format(new Date(selectedDate + 'T00:00:00'), 'EEE, dd/MM/yyyy') : 'No Date'}
           <ChevronDown size={13} className={`transition-transform ${dateChipsOpen ? 'rotate-180' : ''}`} />
         </button>
       </div>
@@ -2300,7 +2300,7 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
                         onClick={() => handleAssignToDate(bp.id, d)}
                         className="text-[10px] font-bold px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 disabled:opacity-50 transition-colors"
                       >
-                        {format(new Date(d + 'T00:00:00'), 'd MMM')}
+                        {format(new Date(d + 'T00:00:00'), 'dd/MM/yyyy')}
                       </button>
                     ))}
                   </div>
@@ -2321,7 +2321,7 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
             </div>
             <p className="text-sm font-bold text-slate-700">No Board Meeting Scheduled</p>
             <p className="text-xs text-slate-400 max-w-[280px]">
-              {format(new Date(selectedDate + 'T00:00:00'), 'EEEE, d MMMM yyyy')} doesn't have a scheduled Board Meeting yet.
+              {format(new Date(selectedDate + 'T00:00:00'), 'EEEE, dd/MM/yyyy')} doesn't have a scheduled Board Meeting yet.
             </p>
             {canEdit && onScheduleMeeting && (
               <button
@@ -2356,7 +2356,7 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
               </button>
             )}
             <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-300 mb-0.5">ROL Board Meeting</p>
-            <p className="text-xl font-black">{format(new Date(selectedDate + 'T00:00:00'), 'EEEE, d MMMM yyyy')}</p>
+            <p className="text-xl font-black">{format(new Date(selectedDate + 'T00:00:00'), 'EEEE, dd/MM/yyyy')}</p>
             {chairman?.name && (
               <p className="text-xs text-indigo-300 mt-1">Chaired by {chairman.name}</p>
             )}
@@ -3241,7 +3241,7 @@ export function SecCoreAnalyticsHub() {
                     onClick={(e) => { e.stopPropagation(); goTo({ tab: 'sundayLeader', date: d }) }}
                     className="text-sm text-indigo-600 font-medium hover:underline"
                   >
-                    {format(new Date(d + 'T00:00:00'), 'EEE, d MMM')} →
+                    {format(new Date(d + 'T00:00:00'), 'EEE, dd/MM/yyyy')} →
                   </button>
                 </li>
               ))}
@@ -3277,7 +3277,7 @@ export function SecCoreAnalyticsHub() {
           ) : (
             <ul className="space-y-1">
               {renewalsDue.map((m, i) => (
-                <li key={i} className="text-sm text-slate-700">{m.name} <span className="text-xs text-slate-400">({format(new Date(m.to), 'd MMM')})</span></li>
+                <li key={i} className="text-sm text-slate-700">{m.name} <span className="text-xs text-slate-400">({format(new Date(m.to), 'dd/MM/yyyy')})</span></li>
               ))}
             </ul>
           )}

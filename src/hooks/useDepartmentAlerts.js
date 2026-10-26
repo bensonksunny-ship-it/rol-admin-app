@@ -122,7 +122,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
         tone: 'rose',
         count: n,
         title: n === 1 ? `Task overdue: ${overdue[0].taskTitle || overdue[0].title || 'Untitled task'}` : `${n} department tasks overdue`,
-        detail: n === 1 ? `Due ${format(overdue[0].deadline, 'd MMM')}.` : '',
+        detail: n === 1 ? `Due ${format(overdue[0].deadline, 'dd/MM/yyyy')}.` : '',
         items: n > 1 ? overdue.map((t) => t.taskTitle || t.title).filter(Boolean) : [],
         actions: open.tasks ? [{ label: 'View tasks', onClick: open.tasks, primary: true }] : [],
       })
@@ -155,7 +155,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
           tone: 'amber',
           count: n,
           title: n === 1 ? `Cell report overdue: ${late[0].cellName} | Met on ${metOn(late[0])}` : `${n} cell reports overdue this week`,
-          badge: n === 1 ? `Met on ${metOn(late[0])}` : `Week of ${format(weekStart, 'MMM d')}`,
+          badge: n === 1 ? `Met on ${metOn(late[0])}` : `Week of ${format(weekStart, 'dd/MM/yyyy')}`,
           detail: n === 1 ? (late[0].leader ? `Leader: ${late[0].leader}` : '') : 'The meeting day has passed with no report.',
           items: n > 1 ? late.filter((g) => g.cellName).map((g) => `${g.cellName} · ${metOnShort(g)}`) : [],
           actions: open.reports ? [{ label: 'Open reports', onClick: open.reports, primary: true }] : [],
@@ -173,7 +173,7 @@ export default function useDepartmentAlerts({ department, team = [], tasks, cell
     const openFirst = (list) => () => notif?.handleNotifAction?.(list[0])
     const ignoreAll = (list) => () => list.forEach((n) => notif?.dismissNotification?.(n))
 
-    const billLabel = (e) => `₹${Number(e.amount || 0).toLocaleString('en-IN')}${e.item ? ` · ${e.item}` : ''}${e.date ? ` (${format(e.date, 'd MMM')})` : ''}`
+    const billLabel = (e) => `₹${Number(e.amount || 0).toLocaleString('en-IN')}${e.item ? ` · ${e.item}` : ''}${e.date ? ` (${format(e.date, 'dd/MM/yyyy')})` : ''}`
     const openExpenses = () => notif?.handleNotifAction?.({ type: 'expense_confirmation', department })
 
     if (toConfirm.length) {

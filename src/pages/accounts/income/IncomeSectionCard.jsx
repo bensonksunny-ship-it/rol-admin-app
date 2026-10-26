@@ -36,7 +36,7 @@ export function IncomeSectionCard({ title, accent = 'indigo', entries, breakdown
       <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
         <span>
           {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
-          {latest ? ` · last ${format(latest, 'd MMM')}` : ''}
+          {latest ? ` · last ${format(latest, 'dd/MM/yyyy')}` : ''}
         </span>
         <SaveStatus state={saveState} />
       </div>

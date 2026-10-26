@@ -11,7 +11,7 @@ import {
 } from '../../constants/marriageForm'
 import { childDisplayName, childAgeText } from '../../utils/familyDetails'
 
-const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 const isDateKey = (key) => [...MARRIAGE_APPLICANT_FIELDS, ...MARRIAGE_PARTNER_FIELDS, ...MARRIAGE_WEDDING_FIELDS].some((f) => f.key === key && f.type === 'date')
 const show = (app, key) => { const v = marriageFieldValue(app, key); return v && isDateKey(key) ? fmt(v) : v }
 

@@ -375,7 +375,7 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
                   <p className="text-xs text-slate-500">{[v.phone, v.serviceAttended].filter(Boolean).join(' · ')}</p>
                   {v.attendedDate && (
                     <p className="text-xs text-slate-400">
-                      {(() => { try { return format(new Date(v.attendedDate), 'd MMM yyyy') } catch { return v.attendedDate } })()}
+                      {(() => { try { return format(new Date(v.attendedDate), 'dd/MM/yyyy') } catch { return v.attendedDate } })()}
                     </p>
                   )}
                 </div>
@@ -405,7 +405,7 @@ export default function DLightDirectorDashboard({ visitors = [], team = [], subD
                       <td className="px-4 py-2.5 text-slate-600">{v.source || v.howKnown || '—'}</td>
                       <td className="px-4 py-2.5 text-slate-500">
                         {v.attendedDate
-                          ? (() => { try { return format(new Date(v.attendedDate), 'd MMM yyyy') } catch { return v.attendedDate } })()
+                          ? (() => { try { return format(new Date(v.attendedDate), 'dd/MM/yyyy') } catch { return v.attendedDate } })()
                           : '—'}
                       </td>
                     </tr>

@@ -8,7 +8,7 @@ export default function MessagesPanel({
 }) {
   const fmtTime = (d) => {
     if (!d) return ''
-    try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) } catch { return '' }
+    try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) } catch { return '' }
   }
   const borderClass = isDay ? 'border-slate-100' : 'border-slate-700/60'
   const inputClass = `w-full text-sm px-3 py-2 rounded-xl outline-none ${isDay ? 'bg-slate-100 text-slate-800 placeholder-slate-400' : 'bg-slate-800 text-slate-100 placeholder-slate-500'}`

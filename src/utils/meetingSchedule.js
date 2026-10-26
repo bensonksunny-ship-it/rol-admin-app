@@ -14,7 +14,7 @@ export function scheduleSummary(s) {
   if (!s?.at) return ''
   const d = new Date(s.at)
   if (isNaN(d.getTime())) return ''
-  const when = d.toLocaleString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const when = d.toLocaleString('en-IN', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' })
   const mode = MEETING_MODES.find((m) => m.value === s.mode)?.label || ''
   return [when, mode].filter(Boolean).join(' · ')
 }

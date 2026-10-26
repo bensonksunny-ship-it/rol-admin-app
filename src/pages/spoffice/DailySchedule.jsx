@@ -480,7 +480,7 @@ export default function DailySchedule({ canEdit, userProfile }) {
           </button>
           <div className="min-w-[9rem] text-center">
             <p className="font-semibold text-slate-800">{format(dateObj, 'EEEE')}</p>
-            <p className="text-xs text-slate-500">{format(dateObj, 'd MMM yyyy')}</p>
+            <p className="text-xs text-slate-500">{format(dateObj, 'dd/MM/yyyy')}</p>
           </div>
           <button type="button" onClick={() => shiftDay(1)} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600" aria-label="Next day">
             <ChevronRight className="w-5 h-5" />
@@ -585,7 +585,7 @@ export default function DailySchedule({ canEdit, userProfile }) {
             <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between gap-4">
               <div>
                 <h3 className="font-semibold text-slate-800">{editingId ? 'Edit Program' : 'Add Programs'}</h3>
-                <p className="text-xs text-slate-500">{format(dateObj, 'EEEE, d MMM yyyy')}</p>
+                <p className="text-xs text-slate-500">{format(dateObj, 'EEEE, dd/MM/yyyy')}</p>
               </div>
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => openManage()} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50">

@@ -99,7 +99,7 @@ function VisitorList({ visitors }) {
             </p>
           </div>
           <span className="shrink-0 text-xs text-slate-500">
-            {v.attendedDate ? format(new Date(v.attendedDate), 'd MMM') : ''}
+            {v.attendedDate ? format(new Date(v.attendedDate), 'dd/MM/yyyy') : ''}
           </span>
         </li>
       ))}
@@ -179,7 +179,7 @@ function CellBreakdown({ reported, missing }) {
               label={r.cellName || 'Unnamed cell'}
               value={r.membersAttended}
               sub={[
-                r.reportDate ? format(new Date(r.reportDate + 'T12:00:00'), 'd MMM yyyy') : null,
+                r.reportDate ? format(new Date(r.reportDate + 'T12:00:00'), 'dd/MM/yyyy') : null,
                 r.visitors ? `${r.visitors} visitor${r.visitors === 1 ? '' : 's'}` : null,
                 r.children ? `${r.children} child${r.children === 1 ? '' : 'ren'}` : null,
               ].filter(Boolean).join(' · ')}
@@ -288,7 +288,7 @@ export default function FounderInsightsPanel() {
   const useThisWeek = Object.keys(thisWeekReports).length > 0
   const cellWeek = useThisWeek ? thisWeek : weekWindow(subWeeks(thisWeek.monday, 1))
   const latestPerCell = useThisWeek ? thisWeekReports : reportsInWindow(cellWeek)
-  const cellWeekLabel = `${format(parseISO(cellWeek.start), 'd MMM')} – ${format(parseISO(cellWeek.end), 'd MMM yyyy')}`
+  const cellWeekLabel = `${format(parseISO(cellWeek.start), 'dd/MM/yyyy')} – ${format(parseISO(cellWeek.end), 'dd/MM/yyyy')}`
   const reportedCells = Object.values(latestPerCell).sort((a, b) => b.membersAttended - a.membersAttended)
   const cellAttendance = {
     total: reportedCells.reduce((s, r) => s + (r.membersAttended || 0), 0),
@@ -315,7 +315,7 @@ export default function FounderInsightsPanel() {
     })
     return {
       week: `Wk ${idx + 1}`,
-      range: `${format(clampedStart, 'd MMM')} – ${format(clampedEnd, 'd MMM')}`,
+      range: `${format(clampedStart, 'dd/MM/yyyy')} – ${format(clampedEnd, 'dd/MM/yyyy')}`,
       Visitors: list.length,
       list,
     }
@@ -373,7 +373,7 @@ export default function FounderInsightsPanel() {
         <div>
           <p className="text-sm font-bold text-slate-800">Total Attendance</p>
           <p className="text-xs text-slate-400">
-            {lastSunday?.date ? `Last Sunday · ${format(new Date(lastSunday.date + 'T12:00:00'), 'd MMM yyyy')}` : 'No service recorded yet'}
+            {lastSunday?.date ? `Last Sunday · ${format(new Date(lastSunday.date + 'T12:00:00'), 'dd/MM/yyyy')}` : 'No service recorded yet'}
           </p>
         </div>
         <div>
@@ -412,7 +412,7 @@ export default function FounderInsightsPanel() {
       {drill?.kind === 'sunday' && (
         <DrillDownModal
           title="Sunday Attendance Breakdown"
-          subtitle={lastSunday?.date ? format(new Date(lastSunday.date + 'T12:00:00'), 'EEEE, d MMM yyyy') : undefined}
+          subtitle={lastSunday?.date ? format(new Date(lastSunday.date + 'T12:00:00'), 'EEEE, dd/MM/yyyy') : undefined}
           link={{ label: 'Open Sunday reports', to: '/department/sunday-ministry/reports' }}
           onClose={closeDrill}
         >

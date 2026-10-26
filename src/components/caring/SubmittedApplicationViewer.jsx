@@ -3,7 +3,7 @@ import { APPLICATION_TYPES, applicationStatus, eventForApplication } from '../..
 
 const fmtStamp = (d) => {
   const dt = d instanceof Date ? d : d ? new Date(d) : null
-  return dt && !isNaN(dt.getTime()) ? dt.toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
+  return dt && !isNaN(dt.getTime()) ? dt.toLocaleString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''
 }
 
 /** Read-only view of exactly what an applicant submitted — fields, photo, signature, timestamp. */

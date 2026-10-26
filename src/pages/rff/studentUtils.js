@@ -40,7 +40,7 @@ export function formatDisplayDate(d) {
   if (!d) return '—'
   const date = d instanceof Date ? d : new Date(d)
   if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return date.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 export function studentToFormState(s) {

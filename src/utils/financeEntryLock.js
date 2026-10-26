@@ -18,7 +18,7 @@ export function entryDeadline(monthKey) {
 }
 
 export function entryDeadlineLabel(monthKey) {
-  return format(entryDeadline(monthKey), 'do MMMM yyyy')
+  return format(entryDeadline(monthKey), 'dd/MM/yyyy')
 }
 
 /** True once the 5th of the following month has passed. */
@@ -55,7 +55,7 @@ export function financeCloseDate(monthKey) {
 }
 
 export function financeCloseLabel(monthKey) {
-  return format(financeCloseDate(monthKey), 'do MMMM yyyy')
+  return format(financeCloseDate(monthKey), 'dd/MM/yyyy')
 }
 
 /** True once the 10th of the following month has passed. */

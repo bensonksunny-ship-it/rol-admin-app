@@ -20,7 +20,7 @@ function isAccountsTeam(userProfile, isFounder) {
   return role === 'DIRECTOR' || role === 'COORDINATOR'
 }
 
-const billLabel = (e) => `₹${Number(e.amount || 0).toLocaleString('en-IN')}${e.item ? ` · ${e.item}` : ''}${e.date ? ` (${format(e.date, 'd MMM')})` : ''}`
+const billLabel = (e) => `₹${Number(e.amount || 0).toLocaleString('en-IN')}${e.item ? ` · ${e.item}` : ''}${e.date ? ` (${format(e.date, 'dd/MM/yyyy')})` : ''}`
 
 /**
  * Accounts team only, on My Workspace: one amber "Expense to approve" ribbon for

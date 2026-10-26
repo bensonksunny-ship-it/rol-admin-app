@@ -17,7 +17,7 @@ import { membershipCertificateData } from '../../utils/membershipCertificate'
 import { openMembershipCertificate } from '../../utils/openMembershipCertificate'
 import { openMembershipIdCard } from '../../utils/openMembershipIdCard'
 
-const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 
 const STATUS_CLS = {
   pending: 'bg-amber-100 text-amber-800 border-amber-200',

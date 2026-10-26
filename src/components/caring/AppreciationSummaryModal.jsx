@@ -10,7 +10,7 @@ const esc = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').
 const fmtD = (d) => {
   if (!d) return ''
   const dt = new Date(d)
-  return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 const norm = (s) => String(s || '').trim().toLowerCase()
 const phoneKey = (p) => String(p || '').replace(/\D/g, '').slice(-10)

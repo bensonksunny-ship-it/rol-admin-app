@@ -39,7 +39,7 @@ function imageFileToDataUrl(file, maxSide = 480, quality = 0.8) {
 const fmtDate = (d) => {
   if (!d) return ''
   const dt = d instanceof Date ? d : new Date(d)
-  return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return isNaN(dt.getTime()) ? String(d) : dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 // Public, signed-out page opened from the PCS baptism QR code: shows what PCS

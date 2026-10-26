@@ -7,7 +7,7 @@ import BaptismStageTracker from './BaptismStageTracker'
 
 const fmt = (d) => {
   const dt = d instanceof Date ? d : d ? new Date(d) : null
-  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 }
 const box = 'rounded-xl border border-slate-200 p-3 space-y-2'
 const head = 'text-[10px] font-bold uppercase tracking-wider text-slate-500'

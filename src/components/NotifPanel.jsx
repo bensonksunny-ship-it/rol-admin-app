@@ -44,7 +44,7 @@ export default function NotifPanel({ isDay, notifications, posStyle, onAction, o
 
   const fmtDate = (d) => {
     if (!d) return ''
-    try { return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) } catch { return '' }
+    try { return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) } catch { return '' }
   }
 
   const actionLabel = (n) =>

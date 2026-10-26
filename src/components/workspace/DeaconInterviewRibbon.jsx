@@ -10,7 +10,7 @@ import { RIBBON_BAR } from '../../constants/ribbon'
 const fmtDateTime = (s) => {
   const dt = s ? new Date(s) : null
   return dt && !isNaN(dt.getTime())
-    ? dt.toLocaleString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+    ? dt.toLocaleString('en-IN', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' })
     : 'a date to be confirmed'
 }
 

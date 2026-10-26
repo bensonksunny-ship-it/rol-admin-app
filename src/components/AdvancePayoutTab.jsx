@@ -101,7 +101,7 @@ export default function AdvancePayoutTab({ departmentSlug, departmentName }) {
                   <p className="text-sm font-semibold text-slate-800">₹{Number(r.amount).toLocaleString('en-IN')}</p>
                   <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{r.reason}</p>
                   <p className="text-[10px] text-slate-400 mt-1">
-                    {r.createdAt ? format(r.createdAt, 'd MMM yyyy') : '—'} · {r.requestedBy}
+                    {r.createdAt ? format(r.createdAt, 'dd/MM/yyyy') : '—'} · {r.requestedBy}
                     {r.status !== 'pending' && r.reviewedBy ? ` · Reviewed by ${r.reviewedBy}` : ''}
                   </p>
                 </div>

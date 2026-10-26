@@ -205,11 +205,11 @@ export default function WeeklyEntryPage() {
     : `week:${format(activeWeekStart, 'yyyy-MM-dd')}`
   const periodLabel = period === 'month'
     ? format(activeMonthStart, 'MMMM yyyy')
-    : `${format(activeWeekStart, 'd MMM')} – ${format(rangeEnd, 'd MMM yyyy')}`
+    : `${format(activeWeekStart, 'dd/MM/yyyy')} – ${format(rangeEnd, 'dd/MM/yyyy')}`
   const monthKey = format(activeMonthStart, 'yyyy-MM')
   const monthLabel = format(activeMonthStart, 'MMMM yyyy')
   // Filing deadline: the 5th of the following month.
-  const dueLabel = format(new Date(activeMonthStart.getFullYear(), activeMonthStart.getMonth() + 1, 5), 'do MMMM yyyy')
+  const dueLabel = format(new Date(activeMonthStart.getFullYear(), activeMonthStart.getMonth() + 1, 5), 'dd/MM/yyyy')
   const atMinPeriod = weeklyOnly && (period === 'month' ? activeMonthStart <= minMonthStart : activeWeekStart <= minWeekStart)
 
   async function load() {
@@ -747,7 +747,7 @@ export default function WeeklyEntryPage() {
                               <p className="text-sm text-slate-800">{h.name}</p>
                               {h.reminder && (
                                 <p className="text-[11px] text-slate-400">
-                                  Reminded{h.reminder.sentAt ? ` on ${format(h.reminder.sentAt, 'd MMM')}` : ''}{h.reminder.sentBy ? ` by ${h.reminder.sentBy}` : ''}
+                                  Reminded{h.reminder.sentAt ? ` on ${format(h.reminder.sentAt, 'dd/MM/yyyy')}` : ''}{h.reminder.sentBy ? ` by ${h.reminder.sentBy}` : ''}
                                 </p>
                               )}
                             </div>
@@ -807,7 +807,7 @@ export default function WeeklyEntryPage() {
                     {g.confirmation && (
                       <p className="text-[11px] text-emerald-700 mt-2">
                         Confirmed by {g.confirmation.confirmedBy || '—'}
-                        {g.confirmation.confirmedAt ? ` on ${format(g.confirmation.confirmedAt, 'd MMM yyyy')}` : ''}
+                        {g.confirmation.confirmedAt ? ` on ${format(g.confirmation.confirmedAt, 'dd/MM/yyyy')}` : ''}
                       </p>
                     )}
                   </div>

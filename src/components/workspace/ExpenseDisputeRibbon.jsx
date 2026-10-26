@@ -44,7 +44,7 @@ function FollowUpModal({ expense, onSend, onClose }) {
         </div>
         <div className="p-5 space-y-3">
           <p className="text-sm text-slate-700">
-            <b>{inr(expense.amount)}</b> · {expense.item || 'Expense'}{expense.date ? ` · ${format(expense.date, 'd MMM yyyy')}` : ''}
+            <b>{inr(expense.amount)}</b> · {expense.item || 'Expense'}{expense.date ? ` · ${format(expense.date, 'dd/MM/yyyy')}` : ''}
           </p>
           <p className="text-xs text-slate-500">
             {dept}'s Directors/Coordinators will get this in their notifications, asking them to approve the bill or explain.
@@ -108,11 +108,11 @@ export default function ExpenseDisputeRibbon({ myName }) {
         return (
           <div key={e.id} className={`${RIBBON_BAR} rounded-xl ${TONE.head} shadow-md justify-between my-3 flex-wrap`}>
             <span className="min-w-0 flex-1 text-sm font-medium tracking-wide">
-              ⚠ <b>{dept}</b> disapproved {inr(e.amount)} — {e.item || 'an expense'}{e.date ? ` (${format(e.date, 'd MMM')})` : ''}
+              ⚠ <b>{dept}</b> disapproved {inr(e.amount)} — {e.item || 'an expense'}{e.date ? ` (${format(e.date, 'dd/MM/yyyy')})` : ''}
               {reason ? <>: <i>“{reason}”</i></> : ''}
               {f && (
                 <span className={`block text-xs mt-0.5 ${TONE.sub}`}>
-                  Followed up {f.count > 1 ? `${f.count} times` : 'once'}{f.lastAt ? ` · last ${format(f.lastAt, 'd MMM, h:mm a')}` : ''}
+                  Followed up {f.count > 1 ? `${f.count} times` : 'once'}{f.lastAt ? ` · last ${format(f.lastAt, 'dd/MM/yyyy, h:mm a')}` : ''}
                 </span>
               )}
             </span>

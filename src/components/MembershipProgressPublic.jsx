@@ -7,7 +7,7 @@ import FamilyDetailsSection from './FamilyDetailsSection'
 const fmt = (d) => {
   if (!d) return ''
   const dt = new Date(d)
-  return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+  return isNaN(dt.getTime()) ? '' : dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 /**

@@ -4,7 +4,7 @@ import { membershipFullName } from '../../constants/membershipForm'
 
 const fmt = (d) => {
   const dt = d ? new Date(d) : null
-  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+  return dt && !isNaN(dt.getTime()) ? dt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''
 }
 
 /** Save the image locally and open a print window (best effort: pop-ups may be blocked). */

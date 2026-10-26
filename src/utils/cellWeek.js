@@ -77,31 +77,45 @@ export function isRealCellReportSubmission(r) {
 }
 
 /**
+ * A cell's report for one week from a cellId → weekKey → report map. Looks under the
+ * cell doc ID and the legacy logical cellId and prefers whichever holds a real
+ * submission — a blank auto-created doc under one ID must not hide the real report
+ * filed under the other.
+ */
+export function pickCellWeekReport(reportsByCellWeek, cell, wk) {
+  const a = reportsByCellWeek.get(cell?.id)?.get(wk) || null
+  const b = cell?.cellId && cell.cellId !== cell.id ? reportsByCellWeek.get(cell.cellId)?.get(wk) || null : null
+  if (isRealCellReportSubmission(a)) return a
+  if (isRealCellReportSubmission(b)) return b
+  return a || b
+}
+
+/**
  * Sunday–Saturday range label for a Sunday-anchored week start (as produced by
  * weekStartKey / cellWeekStart) — the label covers exactly the days the week
  * bucket holds.
- * e.g. weekStart 2026-07-26 (Sun) -> "Jul 26 - Aug 01"
+ * e.g. weekStart 2026-07-26 (Sun) -> "26/07/2026 - 01/08/2026"
  */
 export function formatWeekRangeLabel(weekStart) {
   const monday = typeof weekStart === 'string' ? parseISO(weekStart) : weekStart
   const sunday = addDays(monday, 6)
-  return `${format(monday, 'MMM dd')} - ${format(sunday, 'MMM dd')}`
+  return `${format(monday, 'dd/MM/yyyy')} - ${format(sunday, 'dd/MM/yyyy')}`
 }
 
 /**
  * Day-numbers-only range for chart x-axis ticks, where repeating "Jul" on every
  * single tick (formatWeekRangeLabel's job) causes overlapping/congested text on
- * narrow viewports — e.g. "5–11" instead of "Jul 05 - Jul 11". The month itself
+ * narrow viewports — e.g. "5–11" instead of "05/07/2026 - 11/07/2026". The month itself
  * belongs in a header above the chart instead (see monthSpanLabel). Falls back to
  * including the month abbreviation just for the one week that actually crosses a
- * month boundary (e.g. "Jun 29–Jul 5"), since a bare day range would be ambiguous
+ * month boundary (e.g. "29/06–05/07"), since a bare day range would be ambiguous
  * there.
  */
 export function formatWeekDayRangeShort(weekStart) {
   const monday = typeof weekStart === 'string' ? parseISO(weekStart) : weekStart
   const sunday = addDays(monday, 6)
   if (format(monday, 'MMM') !== format(sunday, 'MMM')) {
-    return `${format(monday, 'MMM d')}–${format(sunday, 'MMM d')}`
+    return `${format(monday, 'dd/MM')}–${format(sunday, 'dd/MM')}`
   }
   return `${format(monday, 'd')}–${format(sunday, 'd')}`
 }

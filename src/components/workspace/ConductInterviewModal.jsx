@@ -11,7 +11,7 @@ import { getMemberDisplayName } from '../../utils/displayName'
 const fmtDateTime = (s) => {
   const dt = s ? new Date(s) : null
   return dt && !isNaN(dt.getTime())
-    ? dt.toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+    ? dt.toLocaleString('en-IN', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit' })
     : 'Time to be confirmed'
 }
 

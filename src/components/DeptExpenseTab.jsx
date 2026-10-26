@@ -16,7 +16,7 @@ function today() {
 
 function fmtDate(d) {
   if (!d) return '—'
-  try { return format(new Date(d), 'dd MMM yyyy') } catch { return '—' }
+  try { return format(new Date(d), 'dd/MM/yyyy') } catch { return '—' }
 }
 
 function fmtAmt(n) {
@@ -502,7 +502,7 @@ export default function DeptExpenseTab({ department }) {
                   {f && (
                     <p className="text-[11px] text-red-800 mt-1 px-1">
                       📣 Accounts followed up {f.count > 1 ? `${f.count} times` : 'once'}
-                      {f.lastAt ? ` · last ${format(f.lastAt, 'd MMM')}` : ''}
+                      {f.lastAt ? ` · last ${format(f.lastAt, 'dd/MM/yyyy')}` : ''}
                       {f.lastBy ? ` by ${f.lastBy}` : ''}
                       {f.lastNote ? `: “${f.lastNote}”` : ''}
                     </p>

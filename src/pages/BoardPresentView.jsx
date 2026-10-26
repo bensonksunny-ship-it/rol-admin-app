@@ -93,7 +93,7 @@ export default function BoardPresentView() {
           {meeting && (
             <p className="text-lg sm:text-xl text-slate-400">
               {meeting.title || 'Board Meeting'}
-              {meeting.date && ` • ${format(new Date(meeting.date + 'T00:00:00'), 'EEEE, d MMMM yyyy')}`}
+              {meeting.date && ` • ${format(new Date(meeting.date + 'T00:00:00'), 'EEEE, dd/MM/yyyy')}`}
             </p>
           )}
         </div>

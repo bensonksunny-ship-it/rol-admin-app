@@ -24,7 +24,7 @@ import {
   getDelightVisitors,
   VISITOR_REQUIRED_MESSAGE,
 } from '../services/firestore'
-import { cellWeekStart, totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission } from '../utils/cellWeek'
+import { cellWeekStart, totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission, pickCellWeekReport } from '../utils/cellWeek'
 import DirectorDashboardCellWidgets, { CellMemberGrowthChart } from './DirectorDashboard'
 
 function initials(name) {
@@ -284,16 +284,18 @@ export function CellDirectorCockpit({
     return m
   }, [weeklyReports])
 
-  const currentWeekKey = useMemo(
-    () => format(cellWeekStart(), 'yyyy-MM-dd'),
-    []
-  )
+  // Re-checked every minute (like DirectorDashboardCellWidgets) so a dashboard left
+  // open, or an installed app resumed days later, moves on to the new week.
+  const [currentWeekKey, setCurrentWeekKey] = useState(() => format(cellWeekStart(), 'yyyy-MM-dd'))
+  useEffect(() => {
+    const t = setInterval(() => setCurrentWeekKey(format(cellWeekStart(), 'yyyy-MM-dd')), 60_000)
+    return () => clearInterval(t)
+  }, [])
 
   const growthData = useMemo(
     () => cellMemberData.map(({ cellId, cellName, memberCount }) => {
       const cell = activeCells.find((c) => c.id === cellId)
-      const report = reportsByCellWeek.get(cellId)?.get(currentWeekKey)
-        || (cell && cell.cellId !== cellId ? reportsByCellWeek.get(cell.cellId)?.get(currentWeekKey) : null)
+      const report = pickCellWeekReport(reportsByCellWeek, { id: cellId, cellId: cell?.cellId }, currentWeekKey)
       return { cellName, memberCount, attended: totalAttendanceFromCellReport(report) }
     }),
     [cellMemberData, activeCells, reportsByCellWeek, currentWeekKey]
@@ -738,7 +740,7 @@ export function CellDirectorCockpit({
                       <p className="font-bold text-slate-900 text-sm">{note.memberName || 'Member'}</p>
                       <p className="text-xs text-slate-500 mt-0.5">
                         From {note.sentByName || 'Cell Leader'} · {note.cellName || '—'}
-                        {note.sentAt ? ` · ${format(note.sentAt, 'd MMM, h:mm a')}` : ''}
+                        {note.sentAt ? ` · ${format(note.sentAt, 'dd/MM/yyyy, h:mm a')}` : ''}
                       </p>
                     </div>
                   </div>

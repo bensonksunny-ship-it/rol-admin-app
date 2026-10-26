@@ -439,6 +439,34 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
     return () => clearTimeout(pushTimerRef.current)
   }, [canWrite, selectedCellId, today, segmentIdx, segmentStartedAt, presentIds, attendanceDetails, visitors, childrenAttending, askedParentIds, userProfile])
 
+  // Attendance also goes into cell_reports while the meeting is running (debounced),
+  // not only at "Save & End Meeting" — a leader who closes the app, loses signal or
+  // never ends the meeting formally no longer leaves the Cell summary empty. These
+  // saves don't mark the report submitted; ending the meeting still does.
+  const reportSyncTimerRef = useRef(null)
+  // One sync at a time — two overlapping first syncs would each create a report doc.
+  const reportSyncChainRef = useRef(Promise.resolve())
+  const queueReportSync = useCallback((...args) => {
+    const run = reportSyncChainRef.current.catch(() => {}).then(() => syncMidweekAttendanceToCellReport(...args))
+    reportSyncChainRef.current = run
+    return run
+  }, [])
+  useEffect(() => {
+    if (!canWrite || !selectedCellId || !presentIds.size || segmentIdx >= segmentOrder.length) return undefined
+    reportSyncTimerRef.current = setTimeout(() => {
+      const updatedBy = userProfile?.name || userProfile?.email || 'unknown'
+      const cellName = cellGroups.find((g) => g.id === selectedCellId)?.cellName || ''
+      const awayNames = members
+        .filter((m) => !presentIds.has(m.id) && attendanceDetails[m.id]?.status === 'away')
+        .map((m) => m.name)
+        .filter(Boolean)
+      queueReportSync(selectedCellId, cellName, today, members.filter((m) => presentIds.has(m.id)), updatedBy,
+        visitors, childrenAttending, awayNames, { final: false })
+        .catch((err) => console.warn('Live attendance → cell report sync failed (will retry on the next change / end of meeting)', err?.code || err))
+    }, 2500)
+    return () => clearTimeout(reportSyncTimerRef.current)
+  }, [canWrite, selectedCellId, today, segmentIdx, segmentOrder.length, presentIds, attendanceDetails, visitors, childrenAttending, members, cellGroups, userProfile, queueReportSync])
+
   // De-duplicate by name (case/whitespace-insensitive) — keeps the first occurrence
   // only, so a member listed twice in the underlying roster shows once in Attendance.
   const activeMembers = useMemo(() => {
@@ -695,13 +723,13 @@ function LiveControlTab({ userProfile, isDirector, isLeader, reportDate, onSwitc
         setSaveError('Session could not be saved. Please check your connection and try again.')
       })
 
-      syncMidweekAttendanceToCellReport(selectedCellId, cellName, today, presentMembers, updatedBy, visitors, childrenAttending, awayNames)
+      queueReportSync(selectedCellId, cellName, today, presentMembers, updatedBy, visitors, childrenAttending, awayNames)
         .catch((err) => {
           console.error('Failed to sync attendance to cell report:', err)
           setSaveError('Attendance could not be saved to reports. Ask your Cell Director to update your profile with the correct Cell ID.')
         })
     }
-  }, [pendingTimings, selectedCellId, today, presentIds, attendanceDetails, userProfile, segmentOrder.length, cellGroups, members, visitors, childrenAttending])
+  }, [pendingTimings, selectedCellId, today, presentIds, attendanceDetails, userProfile, segmentOrder.length, cellGroups, members, visitors, childrenAttending, queueReportSync])
 
   // Master button appearance
   let masterBg, masterText, masterIcon, masterLabel, masterSub

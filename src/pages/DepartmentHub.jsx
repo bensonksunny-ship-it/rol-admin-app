@@ -3691,7 +3691,7 @@ export default function DepartmentHub() {
                     </div>
                     <div className="flex items-center gap-2">
                       <button type="button" onClick={() => setMediaSundayDate(format(subWeeks(new Date(mediaSundayDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">← Prev</button>
-                      <span className="text-sm font-semibold text-slate-700 min-w-[140px] text-center">{format(new Date(mediaSundayDate), 'EEE, dd MMM yyyy')}</span>
+                      <span className="text-sm font-semibold text-slate-700 min-w-[140px] text-center">{format(new Date(mediaSundayDate), 'EEE, dd/MM/yyyy')}</span>
                       <button type="button" onClick={() => setMediaSundayDate(format(addWeeks(new Date(mediaSundayDate), 1), 'yyyy-MM-dd'))} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next →</button>
                     </div>
                   </div>
@@ -5348,7 +5348,7 @@ export default function DepartmentHub() {
                   <h2 className="font-semibold text-slate-800 mb-3">Back to the Bible</h2>
                   <p className="text-sm text-slate-500 mb-2">Weekly teaching content for all cells. Week cycle is Monday → Sunday. Content applies to all cell meetings in that week.</p>
                   <p className="text-sm font-medium text-slate-700 mb-4">
-                    Week: {format(btbWeekStart, 'd MMM yyyy')} – {format(btbWeekEnd, 'd MMM yyyy')} <span className="text-slate-500 font-normal">(Monday to Sunday)</span>
+                    Week: {format(btbWeekStart, 'dd/MM/yyyy')} – {format(btbWeekEnd, 'dd/MM/yyyy')} <span className="text-slate-500 font-normal">(Monday to Sunday)</span>
                   </p>
                   {canEdit && (
                     <form
@@ -5828,7 +5828,7 @@ export default function DepartmentHub() {
                           : 'bg-white text-slate-600 border-slate-300 hover:border-amber-400 hover:text-amber-700 hover:bg-amber-50'
                       }`}
                     >
-                      {format(new Date(d), 'd MMM')}
+                      {format(new Date(d), 'dd/MM/yyyy')}
                     </button>
                   ))}
                   <input
@@ -6010,7 +6010,7 @@ export default function DepartmentHub() {
                       Ministry Roster
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.92)', marginTop: 4 }}>
-                      {format(new Date(delightAssignDate + 'T12:00:00'), 'EEEE, d MMMM yyyy')}
+                      {format(new Date(delightAssignDate + 'T12:00:00'), 'EEEE, dd/MM/yyyy')}
                     </div>
                   </div>
                   <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -6148,7 +6148,7 @@ export default function DepartmentHub() {
                       (v) => String(v.attendedDate || '').slice(0, 10) === week.serviceDate
                     )
                     let dateLabel = week.serviceDate
-                    try { dateLabel = format(new Date(week.serviceDate + 'T00:00:00'), 'EEE, d MMM yyyy') } catch { /* keep raw */ }
+                    try { dateLabel = format(new Date(week.serviceDate + 'T00:00:00'), 'EEE, dd/MM/yyyy') } catch { /* keep raw */ }
                     return (
                       <div key={week.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                         <button
@@ -6292,7 +6292,7 @@ export default function DepartmentHub() {
                               onClick={() => setMediaAssignDate(d)}
                               className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${mediaAssignDate === d ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-600 border-slate-300 hover:border-indigo-400 hover:text-indigo-700 hover:bg-indigo-50'}`}
                             >
-                              {format(new Date(d), 'd MMM')}
+                              {format(new Date(d), 'dd/MM/yyyy')}
                             </button>
                           ))}
                           <input
@@ -6486,7 +6486,7 @@ export default function DepartmentHub() {
                       Assign Media Crew
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.92)', marginTop: 4 }}>
-                      {(() => { try { return format(new Date(mediaAssignDate + 'T12:00:00'), 'EEEE, d MMMM yyyy') } catch { return mediaAssignDate } })()}
+                      {(() => { try { return format(new Date(mediaAssignDate + 'T12:00:00'), 'EEEE, dd/MM/yyyy') } catch { return mediaAssignDate } })()}
                     </div>
                   </div>
                   <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -7752,7 +7752,7 @@ export default function DepartmentHub() {
               // Two columns kick in from the card's own width (container query), not
               // the viewport, since the centre pane is narrower than the window.
               if (!isEditing) {
-                const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null
+                const fmtD = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : null
                 const hasVal = (v) => v !== null && v !== undefined && String(v).trim() !== ''
 
                 // Label over value with a hairline divider — same shape as the PDF's field().
@@ -9440,7 +9440,7 @@ export default function DepartmentHub() {
               const { notes = '', history = [], kids = [], parents = [] } = extras
               const minorKids = kids.filter(c => c.childType !== 'adult')
               const adultKids = kids.filter(c => c.childType === 'adult')
-              const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null
+              const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : null
               const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
               const hasVal = (v) => v !== null && v !== undefined && String(v).trim() !== ''
 
@@ -9585,7 +9585,7 @@ export default function DepartmentHub() {
 
                 <!-- Footer -->
                 <div style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:8px 30px;display:flex;justify-content:space-between;align-items:center">
-                  <span style="font-size:8px;color:#94a3b8">Generated ${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})} · River Of Life Church, Bangalore</span>
+                  <span style="font-size:8px;color:#94a3b8">Generated ${new Date().toLocaleDateString('en-IN', {day: '2-digit',month: '2-digit',year: 'numeric'})} · River Of Life Church, Bangalore</span>
                   <span style="font-size:8px;color:#94a3b8;font-weight:600">PCS · Confidential Record</span>
                 </div>
 
@@ -10371,7 +10371,7 @@ export default function DepartmentHub() {
                                   <p className="text-xs font-semibold text-emerald-700 mt-0.5">Attended: {attended}</p>
                                   {(() => {
                                     // Recency line + hover list of the last 3 gatherings of each kind.
-                                    const fmtRec = (d) => { const dt = new Date(String(d).slice(0, 10) + 'T00:00:00'); return isNaN(dt.getTime()) ? String(d) : format(dt, 'dd MMM yyyy') }
+                                    const fmtRec = (d) => { const dt = new Date(String(d).slice(0, 10) + 'T00:00:00'); return isNaN(dt.getTime()) ? String(d) : format(dt, 'dd/MM/yyyy') }
                                     const sundays = rec.sundayDates || []
                                     const cells = rec.cellDates || []
                                     const tip = [
@@ -10445,7 +10445,7 @@ export default function DepartmentHub() {
                               {e.year && <span className="text-[10px] text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{e.year}</span>}
                               {e.removedAt && (
                                 <p className="text-[10px] text-slate-400 mt-0.5">
-                                  Removed {e.removedAt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                  Removed {e.removedAt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                                 </p>
                               )}
                             </div>
