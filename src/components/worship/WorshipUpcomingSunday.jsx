@@ -4,7 +4,7 @@ import {
   CalendarDays, Music2, Users, ChevronLeft, ChevronRight, FileDown, Share2, Plus, MapPin,
   Mic, MicVocal, Piano, Guitar, Drum, SlidersHorizontal, Music4,
 } from 'lucide-react'
-import { getWorshipScheduleByDate, getWorshipRehearsals, getWorshipSongs } from '../../services/firestore'
+import { subscribeWorshipScheduleByDate, getWorshipRehearsals, getWorshipSongs } from '../../services/firestore'
 import { sortByWorshipRole } from '../../utils/worshipRoleOrder'
 
 const DEPARTMENT = 'Worship'
@@ -75,20 +75,31 @@ export default function WorshipUpcomingSunday({ canManage = false }) {
     getWorshipSongs().then(setSongLib).catch(() => setSongLib([]))
   }, [])
 
+  // Schedule is live (onSnapshot) so a song scheduled from the Songs Directory —
+  // here or on another device — lands in the setlist without a reload.
   useEffect(() => {
     let cancelled = false
-    Promise.all([getWorshipScheduleByDate(DEPARTMENT, sunday), getWorshipRehearsals(DEPARTMENT)])
-      .then(([sched, reh]) => {
+    let schedReady = false
+    let rehReady = false
+    const done = () => { if (!cancelled && schedReady && rehReady) setLoadedFor(sunday) }
+    const fail = (e) => { console.error('WorshipUpcomingSunday', e); if (!cancelled) setError('Could not load this Sunday’s plan.') }
+    const unsub = subscribeWorshipScheduleByDate(DEPARTMENT, sunday, (sched) => {
+      if (cancelled) return
+      setSchedule(sched)
+      setError('')
+      schedReady = true
+      done()
+    }, (e) => { fail(e); schedReady = true; done() })
+    getWorshipRehearsals(DEPARTMENT)
+      .then((reh) => {
         if (cancelled) return
-        setSchedule(sched)
         // That Sunday's practice week: Monday before it up to the Sunday itself.
         const from = addDaysISO(sunday, -6)
         setRehearsals(reh.filter((r) => r.date && r.date >= from && r.date <= sunday).sort((a, b) => `${a.date}${a.time || ''}`.localeCompare(`${b.date}${b.time || ''}`)))
-        setError('')
       })
-      .catch((e) => { console.error('WorshipUpcomingSunday', e); if (!cancelled) setError('Could not load this Sunday’s plan.') })
-      .finally(() => { if (!cancelled) setLoadedFor(sunday) })
-    return () => { cancelled = true }
+      .catch(fail)
+      .finally(() => { rehReady = true; done() })
+    return () => { cancelled = true; unsub() }
   }, [sunday])
 
   const say = (msg) => { setFlash(msg); setTimeout(() => setFlash(''), 2500) }

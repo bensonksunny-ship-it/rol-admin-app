@@ -38,6 +38,7 @@ import DLightMembers from './pages/DLightMembers'
 import PeopleDirectory from './pages/PeopleDirectory'
 import WorklistSheet from './pages/WorklistSheet'
 import BoardPresentView from './pages/BoardPresentView'
+import MediaLiveControl from './pages/MediaLiveControl'
 import RFFHub from './pages/rff/RFFHub'
 import RFFProgramPage from './pages/rff/RFFProgramPage'
 import FileManager from './pages/FileManager'
@@ -63,6 +64,8 @@ function App() {
             <Route path="/baptism-declaration" element={<BaptismDeclarationSign />} />
             {/* Public — PCS marriage (Holy Matrimony) QR code (firestore.rules → marriage_applications). */}
             <Route path="/marriage-apply" element={<MarriageApply />} />
+            {/* Public — Media Control Center for the media desk; the token is the access (firestore.rules → media_live). */}
+            <Route path="/media-live/:token" element={<MediaLiveControl />} />
             <Route
               path="/board-present/:meetingId"
               element={

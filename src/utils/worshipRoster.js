@@ -1,3 +1,4 @@
+import { schedulerFields } from './songScheduler'
 import { addDays, format, parseISO, startOfMonth, endOfMonth } from 'date-fns'
 
 /** Next Sunday after a yyyy-MM-dd Sunday. */
@@ -36,6 +37,16 @@ export function copiedRoster(fromAssignments = [], toAssignments = []) {
         songName: String(t.songName || ''),
         key: String(t.key || ''),
         songId: String(t.songId || ''),
+        ...schedulerFields(t),
       }
     })
+    // Keep songs scheduled on the target Sunday that don't have a singer yet
+    // (Songs Directory → Schedule) unless the copied roster now fills that row.
+    .concat(toAssignments
+      .filter((t) => !t.memberId && (t.songId || t.songName) && !fromAssignments.some((a) => a.memberId && a.role === t.role))
+      .map((t) => ({
+        role: String(t.role || ''), memberId: '', memberName: '',
+        songName: String(t.songName || ''), key: String(t.key || ''), songId: String(t.songId || ''),
+        ...schedulerFields(t),
+      })))
 }

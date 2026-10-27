@@ -23,7 +23,7 @@ import {
   runTransaction,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
-import { db, storage, functions, httpsCallable } from '../lib/firebase'
+import { auth, db, storage, functions, httpsCallable } from '../lib/firebase'
 import { ROLES, deriveRoleFromPositions, departmentNameVariants } from '../constants/roles'
 import { categorizeMemberByAttendance } from '../utils/cellMemberCategory'
 import { unlockDocId } from '../utils/financeEntryLock'
@@ -31,6 +31,7 @@ import { normalizeEngagementType } from '../utils/pcsEngagement'
 import { subDeptMatchKey } from '../utils/subDeptMatch'
 import { mergeFamilyIntoProfile } from '../utils/familyDetails'
 import { userLinksToCellGroup } from '../utils/cellReportPermissions'
+import { SCHEDULER_FIELDS, schedulerFields, schedulerStamp } from '../utils/songScheduler'
 
 // Firestore's writes reject any `undefined` field value, including ones nested inside
 // array elements (e.g. one row of a dynamically-built assignments array). Recursively
@@ -481,6 +482,8 @@ export async function addWorshipSong(data, addedBy) {
     rawText: data.rawText || '',
     designedBy: data.designedBy || addedBy || '',
     createdBy: addedBy || '',
+    // Owner key for the Songs Directory's "My songs" view (older songs only have names).
+    createdByUid: auth?.currentUser?.uid || '',
     createdAt: serverTimestamp(),
   })
   return ref.id
@@ -1323,6 +1326,87 @@ export async function setWorshipScheduleByDate(department, date, assignments, up
   }
   const ref = await addDoc(collection(db, 'worship_schedule'), payload)
   return ref.id
+}
+
+// Live view of one Sunday's worship_schedule doc (Upcoming Sunday) so a song
+// scheduled from the Songs Directory shows up without a reload.
+export function subscribeWorshipScheduleByDate(department, date, onData, onError) {
+  if (!db) { onData({ date, assignments: [], songs: [] }); return () => {} }
+  const q = query(collection(db, 'worship_schedule'), where('department', '==', department))
+  return onSnapshot(q, (snap) => {
+    const d = snap.docs.find((x) => x.data().date === date)
+    onData(d ? { id: d.id, ...d.data() } : { date, assignments: [], songs: [] })
+  }, onError)
+}
+
+// Every worship_schedule doc for a department, live (Songs → Schedule song page).
+export function subscribeWorshipSchedules(department, onData, onError) {
+  if (!db) { onData([]); return () => {} }
+  const q = query(collection(db, 'worship_schedule'), where('department', '==', department))
+  return onSnapshot(q, (snap) => onData(snap.docs.map((d) => ({ id: d.id, ...d.data() }))), onError)
+}
+
+// Songs Directory / Schedule song → put a directory song into a Sunday setlist,
+// strictly on one worship leader's own slot. Songs live on Lead Vocal rows; `leader`
+// ({ memberId, memberName } — a worship_team_members entry) must already be rostered
+// as a Lead Vocal that Sunday. The song fills that leader's first Lead Vocal row
+// without a song; if all of theirs are taken it adds another Lead Vocal row for the
+// same leader (a leader can lead several songs). Never touches anyone else's rows.
+// Re-reads the schedule right before writing so it only adds to what's saved now.
+// `claimSlot` (a leader scheduling for themselves, ahead of the roster): when they
+// aren't rostered as a Lead Vocal that Sunday yet, a new Lead Vocal row is added
+// for them with the song, i.e. they're put on as a lead for that Sunday.
+// Returns 'added' | 'claimed' (added + leader newly put on as Lead Vocal) |
+// 'already' (song already in that Sunday's setlist) | 'not-leading'.
+const isLeadVocalRole = (r) => /^Lead Vocal(-\d+)?$/.test(String(r || ''))
+const cleanScheduleRow = (a) => ({
+  role: String(a.role ?? ''), memberId: String(a.memberId ?? ''), memberName: String(a.memberName ?? ''),
+  songName: String(a.songName ?? ''), key: String(a.key ?? ''), songId: String(a.songId ?? ''),
+  ...schedulerFields(a),
+})
+
+export async function scheduleWorshipSong(department, date, song, { leader = null, updatedBy = '', scheduler = null, claimSlot = false } = {}) {
+  const sched = await getWorshipScheduleByDate(department, normalizeToSunday(date))
+  const list = (sched.assignments || []).map((a) => ({ ...a }))
+  const title = String(song.title || '').trim()
+  if (list.some((a) => (a.songId && a.songId === song.id) || (!a.songId && title && String(a.songName || '').trim() === title))) return 'already'
+  const mine = list.filter((a) => isLeadVocalRole(a.role) && leader?.memberId && a.memberId === leader.memberId)
+  if (!mine.length && !(claimSlot && leader?.memberId)) return 'not-leading'
+  const songFields = { songName: title, songId: String(song.id || ''), key: String(song.key || ''), ...schedulerStamp(scheduler || { email: updatedBy }) }
+  const target = mine.find((a) => !a.songId && !a.songName)
+  if (target) Object.assign(target, songFields)
+  else {
+    const maxIdx = list.reduce((m, a) => {
+      if (!isLeadVocalRole(a.role)) return m
+      const n = String(a.role).match(/-(\d+)$/)
+      return Math.max(m, n ? Number(n[1]) : 1)
+    }, 0)
+    list.push({ role: `Lead Vocal-${maxIdx + 1}`, memberId: leader.memberId, memberName: mine[0]?.memberName || leader.memberName || '', ...songFields })
+  }
+  await setWorshipScheduleByDate(department, date, list.map(cleanScheduleRow), updatedBy)
+  return mine.length ? 'added' : 'claimed'
+}
+
+// Undo from the Schedule song page: takes the song off that row. A row with no
+// singer (older scheduling) goes entirely; an extra Lead Vocal row that only existed
+// to hold this leader's additional song goes too; a leader's main slot just loses
+// its song so they stay rostered.
+export async function unscheduleWorshipSong(department, date, role, updatedBy = '') {
+  const sched = await getWorshipScheduleByDate(department, normalizeToSunday(date))
+  const rows = sched.assignments || []
+  const row = rows.find((a) => a.role === role)
+  if (!row) return
+  const otherSlotsOfSameLeader = row.memberId && isLeadVocalRole(role)
+    && rows.some((a) => a.role !== role && isLeadVocalRole(a.role) && a.memberId === row.memberId)
+  const list = rows
+    .filter((a) => !(a.role === role && (!a.memberId || otherSlotsOfSameLeader)))
+    .map((a) => {
+      const r = cleanScheduleRow(a)
+      if (a.role !== role) return r
+      for (const k of SCHEDULER_FIELDS) delete r[k]
+      return { ...r, songName: '', key: '', songId: '' }
+    })
+  await setWorshipScheduleByDate(department, date, list, updatedBy)
 }
 
 // ── Media schedule ───────────────────────────────────────────────────────────
@@ -10032,4 +10116,92 @@ export async function confirmOfferingCashCount(iso, by) {
 export async function reopenOfferingCashCount(iso) {
   if (!db || !iso) return
   await updateDoc(doc(db, OFFERING_CASH_COUNTS, iso), { status: 'submitted', confirmedBy: '', confirmedAt: null, updatedAt: serverTimestamp() })
+}
+
+// ─── Media live control link (public, no login) ──────────────────────────────
+// One permanent link per Media team: media_live_links/media holds the token, and
+// media_live/{token} holds a snapshot of the upcoming Sunday (programme, Media's
+// cues, Worship's songs + lyrics) that signed-in Media members re-publish from
+// Upcoming Sunday. Holders of the link may read that one doc and change only the
+// operator fields (checks / progress / opsAt). See firestore.rules → media_live.
+
+const MEDIA_LIVE_LINKS = 'media_live_links'
+const MEDIA_LIVE = 'media_live'
+
+export async function getMediaLiveToken() {
+  if (!db) return ''
+  const snap = await getDoc(doc(db, MEDIA_LIVE_LINKS, 'media'))
+  return snap.exists() ? snap.data().token || '' : ''
+}
+
+/** The team's permanent token, created on first use. */
+export async function ensureMediaLiveToken(by) {
+  const existing = await getMediaLiveToken()
+  if (existing) return existing
+  const token = randomToken()
+  await setDoc(doc(db, MEDIA_LIVE_LINKS, 'media'), { token, createdAt: serverTimestamp(), createdBy: by || '' })
+  return token
+}
+
+/** Replace the link (the old one stops working). Returns the new token. */
+export async function rotateMediaLiveToken(by) {
+  const old = await getMediaLiveToken()
+  const token = randomToken()
+  await setDoc(doc(db, MEDIA_LIVE_LINKS, 'media'), { token, createdAt: serverTimestamp(), createdBy: by || '' })
+  if (old) await deleteDoc(doc(db, MEDIA_LIVE, old)).catch(() => {})
+  return token
+}
+
+/**
+ * Publish the upcoming Sunday's content to the public doc. A new Sunday starts
+ * with a clean checklist and timings; the same Sunday only rewrites content when
+ * it changed (contentHash), leaving the operators' ticks alone.
+ */
+export async function publishMediaLiveContent(token, content, by) {
+  if (!db || !token) return
+  const ref = doc(db, MEDIA_LIVE, token)
+  const snap = await getDoc(ref)
+  const data = snap.exists() ? snap.data() : null
+  const payload = { ...stripUndefinedDeep(content), publishedAt: serverTimestamp(), publishedBy: by || '' }
+  if (!data || data.sundayDate !== content.sundayDate) {
+    await setDoc(ref, { ...payload, checks: {}, progress: {}, opsAt: serverTimestamp() })
+  } else if (data.contentHash !== content.contentHash) {
+    await updateDoc(ref, payload)
+  }
+}
+
+export function subscribeMediaLive(token, onChange, onError) {
+  if (!db || !token) return () => {}
+  return onSnapshot(doc(db, MEDIA_LIVE, token), (snap) => {
+    onChange(snap.exists() ? { id: snap.id, ...snap.data() } : null)
+  }, (err) => onError?.(err))
+}
+
+// Keys are built from [A-Za-z0-9_] only (see utils/mediaLive.js), so a dotted
+// field path is safe here.
+export async function setMediaLiveCheck(token, key, done, by) {
+  await updateDoc(doc(db, MEDIA_LIVE, token), {
+    [`checks.${key}`]: done ? { at: Date.now(), by: String(by || '').slice(0, 60) } : deleteField(),
+    opsAt: serverTimestamp(),
+  })
+}
+
+/**
+ * One write for any number of timing changes: { [progressKey]: { start?, end? } },
+ * where a value of null clears that field.
+ */
+export async function updateMediaLiveProgress(token, changes) {
+  const upd = { opsAt: serverTimestamp() }
+  for (const [k, fields] of Object.entries(changes)) {
+    for (const [f, ms] of Object.entries(fields)) upd[`progress.${k}.${f}`] = ms == null ? deleteField() : ms
+  }
+  await updateDoc(doc(db, MEDIA_LIVE, token), upd)
+}
+
+/** Clear every check and timing whose key starts with `prefix` (e.g. 'reh__'). */
+export async function resetMediaLiveOps(token, { checks = {}, progress = {} }, prefix) {
+  const upd = { opsAt: serverTimestamp() }
+  for (const k of Object.keys(checks)) if (k.startsWith(prefix)) upd[`checks.${k}`] = deleteField()
+  for (const k of Object.keys(progress)) if (k.startsWith(prefix)) upd[`progress.${k}`] = deleteField()
+  await updateDoc(doc(db, MEDIA_LIVE, token), upd)
 }

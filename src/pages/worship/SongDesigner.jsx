@@ -40,7 +40,7 @@ const GUIDE_STEPS = [
   { Icon: ListPlus, title: 'Add sections',         body: '"+ Add Segment" for Intro, Verse, Chorus, etc.' },
   { Icon: FileText, title: 'Paste lyrics & chords', body: 'Chords above lines or [in brackets], then Parse.' },
   { Icon: Palette,  title: 'Tag who plays what',   body: 'Pick an instrument, then click/drag across words.' },
-  { Icon: Repeat,   title: 'Repeat & reorder',     body: 'Copy icon repeats a section; tabs move between them.' },
+  { Icon: Repeat,   title: 'Repeat & reorder',     body: 'Copy icon repeats a section after the last one added; drag the tabs (or ‹ › on the selected tab) to reorder.' },
   { Icon: Save,     title: 'Save',                 body: '"Save to Directory" when done — it autosaves as you go.' },
 ]
 
@@ -1056,6 +1056,13 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
   const [segments, setSegments] = useState([])
   const [activeMembers, setActiveMembers] = useState([])
   const [activeIdx, setActiveIdx] = useState(0)
+  // Id of the most recently added section (new or repeated). A repeat is inserted
+  // right after it, so building "Verse, Pre-Chorus, Chorus" and then repeating the
+  // Pre-Chorus continues the song in order instead of landing beside the original.
+  const lastAddedIdRef = useRef(null)
+  // Section-tab drag-and-drop reorder: index being dragged / index hovered over.
+  const [dragIdx, setDragIdx] = useState(null)
+  const [dragOverIdx, setDragOverIdx] = useState(null)
   const [transpose, setTranspose] = useState(0)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -1235,12 +1242,15 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
     const original = segments.find(s => s.type === type)
     if (original) {
       const repeatType = nextRepeatName(segments.map(s => s.type), type)
+      const at = insertAfterIdx() + 1
+      const cloneId = Date.now() + Math.random()
+      lastAddedIdRef.current = cloneId
       setSegments(prev => {
         const i = prev.findIndex(s => s.id === original.id)
         if (i === -1) return prev
         const clone = {
           ...prev[i],
-          id: Date.now() + Math.random(),
+          id: cloneId,
           type: repeatType,
           lines: prev[i].lines.map(line => ({
             ...line,
@@ -1249,17 +1259,26 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
           })),
         }
         const next = [...prev]
-        next.splice(i + 1, 0, clone)
+        next.splice(Math.min(at, next.length), 0, clone)
         return next
       })
-      setActiveIdx(segments.findIndex(s => s.id === original.id) + 1)
+      setActiveIdx(Math.min(at, segments.length))
       return
     }
+    const newId = Date.now() + Math.random()
+    lastAddedIdRef.current = newId
     setSegments(p => [...p, {
-      id: Date.now() + Math.random(),
+      id: newId,
       type, lead: DEFAULT_LEAD, rawText: '', lines: [], parsed: false,
     }])
     setActiveIdx(segments.length)
+  }
+
+  // Where a repeated section goes: after the most recently added section if it's
+  // still in the song, otherwise after the section currently open.
+  const insertAfterIdx = () => {
+    const i = lastAddedIdRef.current != null ? segments.findIndex(s => s.id === lastAddedIdRef.current) : -1
+    return i >= 0 ? i : Math.min(activeIdx, segments.length - 1)
   }
 
   // Paste-whole-song import — replaces the current layout with one segment per
@@ -1285,6 +1304,9 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
   const duplicateSegment = id => {
     const idx = segments.findIndex(s => s.id === id)
     if (idx === -1) return
+    const at = insertAfterIdx() + 1
+    const cloneId = Date.now() + Math.random()
+    lastAddedIdRef.current = cloneId
     setSegments(prev => {
       const i = prev.findIndex(s => s.id === id)
       if (i === -1) return prev
@@ -1294,7 +1316,7 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
       if (renamedOriginal !== original.type) next[i] = { ...next[i], type: renamedOriginal }
       const clone = {
         ...original,
-        id: Date.now() + Math.random(),
+        id: cloneId,
         type: cloneName,
         lines: original.lines.map(line => ({
           ...line,
@@ -1302,10 +1324,10 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
           words: (line.words || []).map(w => ({ ...w, annotations: { ...w.annotations } })),
         })),
       }
-      next.splice(i + 1, 0, clone)
+      next.splice(Math.min(at, next.length), 0, clone)
       return next
     })
-    setActiveIdx(idx + 1)
+    setActiveIdx(Math.min(at, segments.length))
   }
 
   const removeSegment = id => {
@@ -1332,6 +1354,18 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
       return next
     })
     setActiveIdx(j)
+  }
+
+  // Drag-and-drop on the section tabs: lift the section out of `from` and drop it
+  // at `to`. The open section stays open wherever it ends up.
+  const moveSegmentTo = (from, to) => {
+    if (from == null || to == null || from === to || from < 0 || to < 0 || from >= segments.length || to >= segments.length) return
+    const activeId = segments[activeIdx]?.id
+    const next = [...segments]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved)
+    setSegments(next)
+    setActiveIdx(Math.max(0, next.findIndex(s => s.id === activeId)))
   }
 
   const buildPayload = () => {
@@ -1632,23 +1666,48 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
             <div className="flex gap-2 overflow-x-auto pb-1 flex-1">
               {segments.map((seg, idx) => {
                 const c = getSegmentColor(seg.type)
+                const isActive = idx === activeIdx
                 return (
-                  <button
+                  <div
                     key={seg.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveIdx(idx)
-                      if (viewAll) {
-                        document.getElementById(`song-segment-${seg.id}`)
-                          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                      }
-                    }}
-                    className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all active:scale-95 ${
-                      idx === activeIdx ? c.active : c.pill
-                    }`}
+                    draggable
+                    onDragStart={(e) => { setDragIdx(idx); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)) }}
+                    onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOverIdx !== idx) setDragOverIdx(idx) }}
+                    onDrop={(e) => { e.preventDefault(); moveSegmentTo(dragIdx, idx); setDragIdx(null); setDragOverIdx(null) }}
+                    onDragEnd={() => { setDragIdx(null); setDragOverIdx(null) }}
+                    title="Drag to reorder"
+                    className={`shrink-0 flex items-center rounded-xl border transition-all cursor-grab active:cursor-grabbing ${
+                      isActive ? c.active : c.pill
+                    } ${dragIdx === idx ? 'opacity-40' : ''} ${dragOverIdx === idx && dragIdx !== null && dragIdx !== idx ? 'ring-2 ring-offset-1 ring-slate-400' : ''}`}
                   >
-                    {seg.type}
-                  </button>
+                    {isActive && (
+                      <button type="button" disabled={idx === 0} onClick={() => moveSegment(idx, 'left')}
+                        title="Move section earlier" aria-label={`Move ${seg.type} earlier`}
+                        className="pl-1.5 pr-0.5 py-1.5 opacity-80 hover:opacity-100 disabled:opacity-30">
+                        <ChevronLeft size={13} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveIdx(idx)
+                        if (viewAll) {
+                          document.getElementById(`song-segment-${seg.id}`)
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                        }
+                      }}
+                      className={`${isActive ? 'px-1' : 'px-3'} py-1.5 text-xs font-bold active:scale-95 transition-transform`}
+                    >
+                      {seg.type}
+                    </button>
+                    {isActive && (
+                      <button type="button" disabled={idx === segments.length - 1} onClick={() => moveSegment(idx, 'right')}
+                        title="Move section later" aria-label={`Move ${seg.type} later`}
+                        className="pr-1.5 pl-0.5 py-1.5 opacity-80 hover:opacity-100 disabled:opacity-30">
+                        <ChevronRight size={13} />
+                      </button>
+                    )}
+                  </div>
                 )
               })}
             </div>

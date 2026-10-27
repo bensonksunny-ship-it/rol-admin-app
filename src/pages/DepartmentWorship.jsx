@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import useModalOpenGuard from '../hooks/useModalOpenGuard'
 import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2, Copy, ClipboardList } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2, Copy, ClipboardList, CalendarPlus } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -51,6 +51,9 @@ import SongViewer from './worship/SongViewer'
 import WorshipApplications from './worship/WorshipApplications'
 import BackButton from '../components/BackButton'
 import DateInput from '../components/DateInput'
+import ScheduleSongModal from '../components/worship/ScheduleSongModal'
+import { schedulerFields } from '../utils/songScheduler'
+import WorshipSongSchedule from '../components/worship/WorshipSongSchedule'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -552,7 +555,7 @@ function RoleAssignCard({
 
           {/* Song field only appears once someone's actually assigned — an empty
               role has nothing to attach a song to yet. */}
-          {isLeadVocal && memberId && (
+          {isLeadVocal && (memberId || hasSong) && (
             <div className="mt-2">
               {hasSong ? (
                 <div className="flex items-center gap-2">
@@ -1616,7 +1619,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
 }
 
 export default function DepartmentWorship() {
-  const { userProfile, hasPermission, isFounder, hasAccess } = useAuth()
+  const { user, userProfile, hasPermission, isFounder, hasAccess } = useAuth()
   const { name: seniorPastorName } = useSeniorPastor()
   if (!hasAccess(userProfile, DEPARTMENT) && !hasWorshipRoleAccess(userProfile)) {
     return (
@@ -1732,6 +1735,18 @@ export default function DepartmentWorship() {
   // original arranger instead of themselves) — either match grants access, so
   // typing someone else's name into "Designed By" can't lock the real creator
   // out of their own song.
+  // A song is mine when it carries my uid (songs added since createdByUid existed),
+  // else when its designer/creator name is mine — including the legacy literal
+  // "Founder" credit on songs the Founder saved before their profile had a name.
+  const isMySong = (song) => {
+    if (song?.createdByUid) return !!user?.uid && song.createdByUid === user.uid
+    const names = [song?.designedBy, song?.createdBy].map((v) => String(v || '').trim().toLowerCase().replace(/^pastor\s+/, '')).filter(Boolean)
+    const myName = String(userProfile?.name || '').trim().toLowerCase().replace(/^pastor\s+/, '')
+    if (myName && names.includes(myName)) return true
+    if (isFounder && (names.includes('founder') || names.includes(String(seniorPastorName || '').trim().toLowerCase().replace(/^pastor\s+/, '')))) return true
+    return false
+  }
+
   const canEditSong = (song) => {
     if (canManageWorship) return true
     if (!isWorshipLeader(userProfile)) return false
@@ -1804,8 +1819,14 @@ export default function DepartmentWorship() {
   const [loadingSongs, setLoadingSongs] = useState(false)
   const [songSearch, setSongSearch] = useState('')
   const [songSubPage, setSongSubPage] = useState('directory')
+  // Songs Directory: 'mine' (default) = songs the signed-in user designed/added;
+  // 'all' = the whole library.
+  const [songScope, setSongScope] = useState('mine')
   const [editingSong, setEditingSong] = useState(null)
   const [viewingSong, setViewingSong] = useState(null)
+  // Songs Directory → calendar button: the song being scheduled onto a Sunday setlist.
+  const [schedulingSong, setSchedulingSong] = useState(null)
+  const [scheduleNote, setScheduleNote] = useState('')
   // Explicit view mode for the next SongViewer open ('full' | 'mine' | null to let
   // SongViewer auto-detect) — always set together with viewingSong so a stale mode
   // from a previous open (e.g. "My Part") never leaks into the next song opened.
@@ -2075,6 +2096,8 @@ export default function DepartmentWorship() {
       songName: String(a?.songName ?? ''),
       key: String(a?.key ?? ''),
       songId: String(a?.songId ?? ''),
+      // Who scheduled the song (Songs → Schedule song) — kept so the owner survives an Assign save.
+      ...schedulerFields(a),
     }
   }
 
@@ -4021,7 +4044,7 @@ export default function DepartmentWorship() {
 
           {/* Sub-nav */}
           <div className="flex items-center gap-1 border-b border-slate-200">
-            {[{ key: 'directory', label: 'Directory' }, { key: 'design', label: 'Design your song' }].map(({ key, label }) => (
+            {[{ key: 'directory', label: 'Directory' }, { key: 'design', label: 'Design your song' }, { key: 'schedule', label: 'Schedule song' }].map(({ key, label }) => (
               <button
                 key={key}
                 type="button"
@@ -4034,8 +4057,18 @@ export default function DepartmentWorship() {
           {/* ── Directory sub-page ── */}
           {songSubPage === 'directory' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-slate-400">{songs.length} song{songs.length !== 1 ? 's' : ''}</p>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex rounded-xl bg-slate-100 p-1">
+                    {[['mine', 'My songs'], ['all', 'All songs']].map(([k, label]) => (
+                      <button key={k} type="button" onClick={() => setSongScope(k)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors ${songScope === k ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {(() => { const n = songScope === 'mine' ? songs.filter(isMySong).length : songs.length; return <p className="text-xs text-slate-400">{n} song{n !== 1 ? 's' : ''}</p> })()}
+                </div>
                 {canManageWorshipSongs && (
                   <button
                     type="button"
@@ -4046,6 +4079,27 @@ export default function DepartmentWorship() {
                   </button>
                 )}
               </div>
+
+              {scheduleNote && (
+                <div className="px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-sm font-medium text-emerald-800">{scheduleNote}</div>
+              )}
+              {schedulingSong && (
+                <ScheduleSongModal
+                  song={schedulingSong}
+                  onClose={() => setSchedulingSong(null)}
+                  canManage={canManageWorship}
+                  onScheduled={(d, res, leader) => {
+                    setScheduleNote(res === 'already'
+                      ? `"${schedulingSong.title}" is already in the ${isoToDMY(d)} setlist.`
+                      : res === 'claimed'
+                        ? `"${schedulingSong.title}" added for ${isoToDMY(d)} — you're now down as a lead vocal that Sunday.`
+                      : res === 'not-leading'
+                        ? `${leader?.memberName || 'That leader'} isn't rostered as a lead vocal on ${isoToDMY(d)}.`
+                        : `"${schedulingSong.title}" added to ${leader?.memberName || 'the'}'s set on ${isoToDMY(d)}.`)
+                    setTimeout(() => setScheduleNote(''), 4000)
+                  }}
+                />
+              )}
 
               <input
                 type="text"
@@ -4062,10 +4116,12 @@ export default function DepartmentWorship() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {(() => {
-                    const filtered = songs.filter((s) => {
+                    const scoped = songScope === 'mine' ? songs.filter(isMySong) : songs
+                    const filtered = scoped.filter((s) => {
                       const q = songSearch.toLowerCase()
                       return !q || s.title?.toLowerCase().includes(q) || s.artist?.toLowerCase().includes(q)
                     })
+                    if (scoped.length === 0) return <p className="col-span-full text-center text-slate-400 text-sm py-6">You haven’t designed any songs yet — use “Design your song”, or switch to All songs.</p>
                     if (filtered.length === 0) return <p className="col-span-full text-center text-slate-400 text-sm py-6">No songs match your search.</p>
                     return filtered.map((song, i) => {
                       const theme = SONG_CARD_THEMES[i % SONG_CARD_THEMES.length]
@@ -4087,7 +4143,8 @@ export default function DepartmentWorship() {
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className={`font-bold text-base truncate ${theme.title}`}>{song.title}</p>
-                              {designerDisplay && (
+                              {/* Every card in My songs is the viewer's own, so the credit only shows in All songs. */}
+                              {songScope === 'all' && designerDisplay && (
                                 <p className="text-[11px] text-slate-400 mt-0.5 truncate">
                                   Designed by{' '}
                                   <Link
@@ -4105,8 +4162,14 @@ export default function DepartmentWorship() {
                                 </span>
                               )}
                             </div>
+                            <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                              <button type="button" onClick={() => setSchedulingSong(song)}
+                                title="Schedule for a Sunday" aria-label={`Schedule ${song.title} for a Sunday`}
+                                className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-white/70 transition-colors">
+                                <CalendarPlus size={14} />
+                              </button>
                             {canEditSong(song) && (
-                              <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                              <>
                                 <button type="button" onClick={() => { setEditingSong(song); setSongSubPage('design') }}
                                   title="Edit song"
                                   className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-white/70 transition-colors">
@@ -4121,8 +4184,9 @@ export default function DepartmentWorship() {
                                   className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-white/70 transition-colors disabled:opacity-40">
                                   {deletingId === song.id ? <span className="text-xs">…</span> : <Trash2 size={14} />}
                                 </button>
-                              </div>
+                              </>
                             )}
+                            </div>
                           </div>
                         </div>
                       )
@@ -4132,6 +4196,9 @@ export default function DepartmentWorship() {
               )}
             </div>
           )}
+
+          {/* ── Schedule song sub-page: upcoming + past setlists, schedule forward ── */}
+          {songSubPage === 'schedule' && <WorshipSongSchedule songs={songs} canManage={canManageWorship} />}
 
           {/* ── Design your song sub-page ── */}
           {songSubPage === 'design' && (

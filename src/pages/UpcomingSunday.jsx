@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
+import MediaWorshipSongs from '../components/media/MediaWorshipSongs'
+import MediaLiveLinkCard from '../components/media/MediaLiveLinkCard'
 import { useAuth } from '../context/AuthContext'
 import {
   subscribeProgramNotification,
@@ -124,6 +126,8 @@ export default function UpcomingSunday({ slug }) {
   const [programDurations, setProgramDurations] = useState({})
   const [customPrograms, setCustomPrograms] = useState([])
   const [customElements, setCustomElements] = useState([])
+  // Last saved copy — what Media's public Control Center link shows (not unsaved picks).
+  const [savedInput, setSavedInput] = useState(null)
 
   // UI state
   const [expandedProgram, setExpandedProgram] = useState(null)
@@ -166,6 +170,7 @@ export default function UpcomingSunday({ slug }) {
         setProgramDurations(deptInput?.programDurations || {})
         setCustomPrograms(deptInput?.customPrograms || [])
         setCustomElements(deptInput?.customElements || [])
+        setSavedInput(deptInput || {})
       })
       .finally(() => setLoading(false))
   }, [sundayDate, slug])
@@ -320,6 +325,7 @@ export default function UpcomingSunday({ slug }) {
         { programElements, programDurations, customPrograms, customElements },
         userProfile?.email || 'unknown'
       )
+      setSavedInput({ programElements, programDurations, customPrograms, customElements })
       setSavedOk(true)
       setExpandedProgram(null)
       setTimeout(() => setSavedOk(false), 2500)
@@ -336,6 +342,20 @@ export default function UpcomingSunday({ slug }) {
     ...notifPrograms.map((name, idx) => ({ name, idx, isCustom: false, color: CARD_COLORS[idx % CARD_COLORS.length] })),
     ...customPrograms.map((p) => ({ name: p.programName, idx: -1, isCustom: true, color: CUSTOM_CARD_COLOR })),
   ]
+
+  const livePrograms = useMemo(() => {
+    if (slug !== 'media' || !savedInput) return null
+    const tpl = (name) => defaultProgramDoc?.items?.find((i) => i.programName === name)
+    return [
+      ...notifPrograms.map((name) => ({
+        name,
+        elements: savedInput.programElements?.[name] || [],
+        duration: tpl(name)?.duration || savedInput.programDurations?.[name] || 0,
+        startTime: tpl(name)?.startTime || '',
+      })),
+      ...(savedInput.customPrograms || []).map((p) => ({ name: p.programName, elements: p.elements || [], duration: p.duration || 0, startTime: '' })),
+    ]
+  }, [slug, savedInput, notifPrograms, defaultProgramDoc])
 
   const selectedColor = allPrograms.find((p) => p.name === expandedProgram)?.color || CARD_COLORS[0]
   const selectedElements = expandedProgram ? getDesignedElements(expandedProgram) : []
@@ -369,6 +389,20 @@ export default function UpcomingSunday({ slug }) {
           </div>
         </div>
       </div>
+
+      {/* Media: Worship's scheduled songs with lyrics / chords + copy for slides. */}
+      {slug === 'media' && <MediaWorshipSongs sundayDate={sundayDate} />}
+
+      {/* Media: permanent public Control Center link for the media desk (no login). */}
+      {slug === 'media' && canEdit && livePrograms && (
+        <MediaLiveLinkCard
+          sundayDate={sundayDate}
+          serviceStartTime={defaultProgramDoc?.serviceStartTime || ''}
+          programs={livePrograms}
+          canManage={isFounder || canManageDepartment(deptName)}
+          by={userProfile?.email || ''}
+        />
+      )}
 
       {loading ? (
         <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>

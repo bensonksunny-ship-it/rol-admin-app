@@ -1115,6 +1115,20 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Media'));
     }
 
+    // Media's permanent public Control Center link: media_live_links/media holds the
+    // token (Media only); media_live/{token} is the published Sunday snapshot.
+    // Signed-out holders of the link may get that one doc (never list) and change
+    // only the operator fields — cue ticks, timings and their timestamp.
+    match /media_live_links/{docId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Media'));
+    }
+    match /media_live/{token} {
+      allow get: if true;
+      allow create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Media'));
+      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Media')))
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checks', 'progress', 'opsAt']);
+    }
+
     // Sunday Ministry crew schedule (SundayCrew.jsx Assign tab) — same convention
     // as media_schedule above. The client gates this tab on isSundayMinistryDirector
     // (AuthContext.jsx), which also admits Senior Pastor and the display-formatted
