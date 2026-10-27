@@ -6,6 +6,7 @@ import {
   publishMediaLiveContent,
   subscribeWorshipScheduleByDate,
   getWorshipSongs,
+  getMediaScheduleByDate,
 } from '../../services/firestore'
 import { sortByWorshipRole } from '../../utils/worshipRoleOrder'
 import { buildMediaLiveContent, mediaLiveUrl, songSections } from '../../utils/mediaLive'
@@ -38,6 +39,7 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
   const [error, setError] = useState('')
   const [schedule, setSchedule] = useState(null)
   const [lib, setLib] = useState(null)
+  const [crew, setCrew] = useState(null)
   const [status, setStatus] = useState('') // '' | 'publishing' | 'published'
   const [publishedAt, setPublishedAt] = useState(null)
   const [copied, setCopied] = useState(false)
@@ -48,6 +50,14 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
     ensureMediaLiveToken(by).then(setToken).catch((e) => { console.error('MediaLiveLinkCard', e); setError('Could not load the public link.') })
   }, [by])
   useEffect(() => { getWorshipSongs().then(setLib).catch(() => setLib([])) }, [])
+  // Media's crew for this Sunday (Assign tab), for the desk's attendance check-in.
+  useEffect(() => {
+    getMediaScheduleByDate(sundayDate)
+      .then((sch) => setCrew((sch.assignments || [])
+        .filter((a) => String(a.memberName || '').trim())
+        .map((a) => ({ area: a.role || 'Crew', name: a.memberName.trim() }))))
+      .catch(() => setCrew([]))
+  }, [sundayDate])
   useEffect(() => subscribeWorshipScheduleByDate('Worship', sundayDate, setSchedule,
     () => setSchedule({ assignments: [] })), [sundayDate])
 
@@ -64,8 +74,8 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
     return out
   }, [schedule, lib])
 
-  const content = useMemo(() => (songs ? buildMediaLiveContent({ sundayDate, serviceStartTime, programs, songs }) : null),
-    [sundayDate, serviceStartTime, programs, songs])
+  const content = useMemo(() => (songs && crew ? buildMediaLiveContent({ sundayDate, serviceStartTime, programs, songs, crew }) : null),
+    [sundayDate, serviceStartTime, programs, songs, crew])
 
   // Debounced so a burst of live schedule updates is one write.
   useEffect(() => {
@@ -97,7 +107,7 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold">Media Control Center</p>
-          <p className="text-xs text-slate-400">Public link for the media desk: lyrics, run sheet, rehearsal and live checklists. No login.</p>
+          <p className="text-xs text-slate-400">Public link for the media desk: lyrics, run sheet, crew check-in, rehearsal and live checklists. No login.</p>
         </div>
       </div>
       <div className="px-4 pb-3 space-y-2">

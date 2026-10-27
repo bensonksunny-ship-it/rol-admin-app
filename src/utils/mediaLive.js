@@ -48,14 +48,20 @@ export function songSections(lib) {
   return []
 }
 
-export function songPlainText(song) {
-  const out = [String(song.title || '').toUpperCase(), '']
-  for (const s of song.sections || []) {
-    const lines = s.lines.map((l) => l.lyrics.trimEnd()).filter((t) => t.trim())
-    if (lines.length) out.push(`[${s.name}]`, ...lines, '')
-  }
-  return out.join('\n').trimEnd() + '\n'
+/**
+ * Clean text for projection slides: lyrics only — no chords, title or section
+ * labels — with a blank line between sections, which ProPresenter, EasyWorship,
+ * OpenLP and PowerPoint outline import all treat as a slide break.
+ */
+export function songPresentationText(song) {
+  return (song.sections || [])
+    .map((s) => s.lines.map((l) => l.lyrics.trim()).filter(Boolean).join('\n'))
+    .filter(Boolean)
+    .join('\n\n') + '\n'
 }
+
+// Run-sheet items whose songs come from Worship's schedule.
+export const isWorshipItem = (name) => /worship|praise|song/i.test(String(name || ''))
 
 function hashString(str) {
   let h = 5381
@@ -67,7 +73,7 @@ function hashString(str) {
  * The public doc's content: programmes (with Media's cues) in service order and the
  * scheduled songs. Keys are stable per name so ticks survive a re-publish.
  */
-export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', programs = [], songs = [] }) {
+export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', programs = [], songs = [], crew = [] }) {
   const used = new Set()
   const uniq = (base) => {
     let k = base, n = 2
@@ -92,6 +98,8 @@ export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', progr
       singer: s.singer || '',
       sections: s.sections || [],
     })),
+    // Names and areas only — never contact details (this doc is publicly readable).
+    crew: crew.map((c) => ({ key: uniq(`crew_${safeKey(c.area)}_${safeKey(c.name)}`), area: c.area || 'Crew', name: c.name })),
   }
   return { ...body, contentHash: hashString(JSON.stringify(body)) }
 }
