@@ -4211,9 +4211,21 @@ export async function getSundayProgramDefault() {
     items,
     serviceStartTime: data.serviceStartTime || '',
     parallelPrograms: data.parallelPrograms && typeof data.parallelPrograms === 'object' ? data.parallelPrograms : {},
+    // { [programName]: departmentId } — who manages each item (utils/programPeople.js).
+    programOwners: data.programOwners && typeof data.programOwners === 'object' ? data.programOwners : {},
     updatedAt: toDate(data.updatedAt),
     updatedBy: data.updatedBy || '',
   }
+}
+
+/** Sets (or clears, with '') the department managing one programme item. Saved straight away. */
+export async function setSundayProgramOwner(programName, departmentId, updatedBy) {
+  if (!db || !programName) return
+  await setDoc(doc(db, SUNDAY_PROGRAM_COLLECTION, SUNDAY_PROGRAM_DEFAULT_DOC_ID), {
+    programOwners: { [programName]: departmentId ? String(departmentId) : deleteField() },
+    updatedBy: updatedBy || 'unknown',
+    updatedAt: serverTimestamp(),
+  }, { merge: true })
 }
 
 export async function setSundayProgramDefault(items, updatedBy, serviceStartTime = '', parallelPrograms = {}) {

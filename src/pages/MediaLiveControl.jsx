@@ -509,7 +509,6 @@ export default function MediaLiveControl() {
               const cuesDone = cueKeys.filter((k) => checks[k]).length
               const rv = phase === 'reh' ? rehItem(p.key) : null
               const rvDone = rv ? rv.systems.filter((x) => x.entry).length : 0
-              const rvIssue = rv ? rv.systems.some((x) => x.entry?.status === 'attention') : false
               const untimed = !p.songsOnly && !inTiming(p) // after the Invocation, on the rehearsal view
               return (
                 <button key={p.key} type="button" onClick={() => select(p.key)} aria-pressed={isSel}
@@ -530,9 +529,8 @@ export default function MediaLiveControl() {
                         p.duration ? `${p.duration} min` : '',
                         pSongs.length ? `${pSongs.length} song${pSongs.length === 1 ? '' : 's'}` : '',
                         cueKeys.length ? `${cuesDone}/${cueKeys.length} cues` : '',
-                        rv ? `${rvDone}/${rv.systems.length} verified` : '',
+                        !rv ? '' : rvDone === rv.systems.length ? '✓ Marked good' : rvDone ? 'Partly checked' : 'Not checked',
                       ].filter(Boolean).join(' · ') || 'No details'}
-                      {rvIssue && <span className="text-amber-300"> · needs attention</span>}
                     </span>
                     {p.person && (
                       <span className={`flex items-center gap-1 text-[11px] text-indigo-200 ${p.leads?.length > 1 ? '' : 'truncate'}`}>

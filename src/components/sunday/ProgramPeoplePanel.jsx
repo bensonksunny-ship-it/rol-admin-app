@@ -9,7 +9,8 @@ import {
   getSundayCrewRoster,
 } from '../../services/firestore'
 import useProgramPeople from '../../hooks/useProgramPeople'
-import { autoRuleFor, resolveProgramPeople } from '../../utils/programPeople'
+import { autoRuleFor, resolveProgramPeople, splitNames } from '../../utils/programPeople'
+import DirectoryPersonSearch from './DirectoryPersonSearch'
 
 function upcomingSundays(count = 8) {
   const d = new Date()
@@ -105,8 +106,10 @@ export default function ProgramPeoplePanel({ canEdit, userProfile }) {
         <ul className="divide-y divide-slate-100">
           {names.map((prog) => {
             const auto = resolved[prog]
-            const rule = autoRuleFor(prog)
-            const value = draft[prog]?.name || ''
+            const rule = autoRuleFor(prog, rosters.owners)
+            // Scheduled by another department → read-only (no typed override).
+            const locked = !!rule?.locked
+            const value = locked ? '' : draft[prog]?.name || ''
             const overriding = value.trim() && auto
             return (
               <li key={prog} className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -114,7 +117,7 @@ export default function ProgramPeoplePanel({ canEdit, userProfile }) {
                   <p className="text-sm font-medium text-slate-800">{prog}</p>
                   <p className="text-[11px] text-slate-500">
                     {auto
-                      ? <>{overriding ? <s>{auto.name}</s> : <b className="font-semibold text-emerald-700">{auto.name}</b>} · auto from {auto.source}</>
+                      ? <>{overriding ? <s>{auto.name}</s> : <b className="font-semibold text-emerald-700">{auto.name}</b>} · {auto.names.length ? `auto from ${auto.source}` : 'managing department'}</>
                       : rule ? `${rule.source}: nobody assigned yet` : 'Assign manually'}
                   </p>
                   {/* Worship co-leads with the songs each one leads. */}
@@ -124,15 +127,22 @@ export default function ProgramPeoplePanel({ canEdit, userProfile }) {
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 w-full sm:w-64">
-                  <input list="program-people-names" value={value} disabled={!canEdit} maxLength={200}
+                <div className="w-full sm:w-64 space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <input list="program-people-names" value={value} disabled={!canEdit || locked} maxLength={200}
                     onChange={(e) => setName(prog, e.target.value)}
-                    placeholder={auto ? `${auto.name} (auto)` : rule ? `${rule.role} — names, comma-separated` : 'Name(s), comma-separated'}
+                    placeholder={locked ? `Read-only — set in ${rule.source}` : auto ? `${auto.name} (${auto.isDefault ? 'default' : 'auto'})` : rule ? `${rule.role || rule.dept} — names, comma-separated` : 'Name(s), comma-separated'}
                     className={`flex-1 min-w-0 rounded-lg border px-2.5 py-1.5 text-sm ${overriding ? 'border-amber-300 bg-amber-50' : 'border-slate-300'} disabled:bg-slate-50`} />
                   {canEdit && value && (
                     <button type="button" onClick={() => clearName(prog)} title={auto ? 'Back to the roster name' : 'Clear'}
                       className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"><RotateCcw className="w-4 h-4" /></button>
                   )}
+                </div>
+                {/* No department roster names this item → add people from the People Directory. */}
+                {canEdit && !locked && (!auto?.names?.length || auto.isDefault) && (
+                  <DirectoryPersonSearch compact exclude={splitNames(value)} placeholder="Add from people directory…"
+                    onPick={(n) => setName(prog, [...(splitNames(value).length ? splitNames(value) : (auto?.isDefault ? auto.names : [])), n].join(', '))} />
+                )}
                 </div>
               </li>
             )

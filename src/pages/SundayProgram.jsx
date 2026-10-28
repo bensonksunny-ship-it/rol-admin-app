@@ -14,10 +14,15 @@ import {
   setDeptProgramInput,
   getSundayPlan,
   setSundayPlanSection,
+  setSundayProgramOwner,
+  setSundayProgramPeople,
 } from '../services/firestore'
 import BackButton from '../components/BackButton'
 import DateInput from '../components/DateInput'
 import ProgramPeoplePanel from '../components/sunday/ProgramPeoplePanel'
+import DirectoryPersonSearch from '../components/sunday/DirectoryPersonSearch'
+import useProgramPeople from '../hooks/useProgramPeople'
+import { PROGRAM_DEPARTMENTS, autoRuleFor, guessDepartment, programDepartment, resolveProgramPeople, splitNames } from '../utils/programPeople'
 
 function nextSunday() {
   const today = new Date()
@@ -199,6 +204,43 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
   }, [])
 
   const sorted = [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+
+  // Who is in charge of each item on the selected Sunday: the department chosen per
+  // item (or guessed from its name) fills in names from that department's schedule —
+  // Pre-Service speakers, Media's stream / video crew, Worship's leads, the Senior Pastor.
+  const people = useProgramPeople(pushDate)
+  const inCharge = resolveProgramPeople(sorted.map((x) => x.programName), people.manual, people.rosters)
+  const [ownerBusy, setOwnerBusy] = useState('')
+  const setOwner = async (programName, deptId) => {
+    setOwnerBusy(programName)
+    const next = { ...people.rosters.owners }
+    if (deptId) next[programName] = deptId
+    else delete next[programName]
+    try {
+      await setSundayProgramOwner(programName, deptId, userProfile?.email || 'unknown')
+      people.setOwners(next)
+    } catch (e) {
+      console.error('setSundayProgramOwner', e)
+      alert('Could not save the department. Please try again.')
+    }
+    setOwnerBusy('')
+  }
+  // No department roster gives a name → the Director picks people from the People
+  // Directory for the selected Sunday (same per-Sunday names as Design → People in charge).
+  const setItemPeople = async (programName, names) => {
+    setOwnerBusy(programName)
+    const next = { ...people.manual }
+    if (names.length) next[programName] = { ...(next[programName] || {}), name: names.join(', ') }
+    else delete next[programName]
+    try {
+      await setSundayProgramPeople(pushDate, next, userProfile?.email || 'unknown')
+      people.setManual(next)
+    } catch (e) {
+      console.error('setSundayProgramPeople', e)
+      alert('Could not save the name. Please try again.')
+    }
+    setOwnerBusy('')
+  }
 
   // A program name already used by another row on the schedule (case-insensitive),
   // excluding `exceptLocalId` so a row can keep its own current name while editing.
@@ -606,6 +648,12 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                               {row.programName}
                             </p>
                           )}
+                          {inCharge[row.programName] && (
+                            <span title={[inCharge[row.programName].dept, inCharge[row.programName].role].filter(Boolean).join(' · ')}
+                              style={{ fontSize: 9, fontWeight: 600, color: '#4338ca', background: '#eef2ff', borderRadius: 5, padding: '1px 6px', flexShrink: 1, minWidth: 0, maxWidth: '40%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {inCharge[row.programName].name}
+                            </span>
+                          )}
                           {dur > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: color.accent, background: color.light, borderRadius: 5, padding: '1px 5px', flexShrink: 0 }}>{dur}m</span>}
                           {deptRows.some(d => d.elements.length > 0) && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />}
                           <span style={{ fontSize: 10, color: '#94a3b8', flexShrink: 0, transition: 'transform 0.15s', display: 'inline-block', transform: isExpanded ? 'rotate(180deg)' : 'none' }}>▼</span>
@@ -698,6 +746,73 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
                               </div>
                             </div>
                           )}
+                          {/* In charge: managing department (saved straight away) + who that gives for the selected Sunday. */}
+                          {(() => {
+                            const owner = people.rosters.owners?.[row.programName] || ''
+                            const guess = guessDepartment(row.programName)
+                            const who = inCharge[row.programName]
+                            // Scheduled by another department (Pre-Service, Sec Core, Worship): read-only here.
+                            const lockedRule = autoRuleFor(row.programName, people.rosters.owners)
+                            const locked = !!lockedRule?.locked
+                            const picked = locked ? [] : splitNames(people.manual?.[row.programName]?.name)
+                            const dd = format(new Date(pushDate + 'T12:00:00'), 'dd/MM')
+                            return (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>In charge</span>
+                                {locked ? (
+                                  <span title={`Read-only — set in ${lockedRule.source}`}
+                                    style={{ fontSize: 10, fontWeight: 700, color: '#475569', background: '#f1f5f9', borderRadius: 6, padding: '3px 7px' }}>
+                                    🔒 {lockedRule.dept}
+                                  </span>
+                                ) : canEdit ? (
+                                  <select value={owner} disabled={ownerBusy === row.programName}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => setOwner(row.programName, e.target.value)}
+                                    style={{ height: 28, padding: '0 6px', borderRadius: 7, border: `1.5px solid ${color.accent}`, fontSize: 12, fontWeight: 600, background: '#fff', color: '#1e293b' }}>
+                                    <option value="">{guess ? `Auto — ${programDepartment(guess).label}` : 'Auto (by name)'}</option>
+                                    {PROGRAM_DEPARTMENTS.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+                                  </select>
+                                ) : owner && (
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#334155' }}>{programDepartment(owner)?.label}</span>
+                                )}
+                                {(() => {
+                                  // Names typed / picked for this Sunday: removable chips.
+                                  if (picked.length) {
+                                    return (
+                                      <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+                                        {picked.map((n) => (
+                                          <span key={n} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#4338ca', background: '#eef2ff', borderRadius: 6, padding: '2px 4px 2px 7px' }}>
+                                            {n}
+                                            {canEdit && (
+                                              <button type="button" disabled={ownerBusy === row.programName} aria-label={`Remove ${n}`}
+                                                onClick={(e) => { e.stopPropagation(); setItemPeople(row.programName, picked.filter((x) => x !== n)) }}
+                                                style={{ border: 'none', background: 'transparent', color: '#6366f1', cursor: 'pointer', fontWeight: 800, lineHeight: 1, padding: '0 2px' }}>×</button>
+                                            )}
+                                          </span>
+                                        ))}
+                                      </span>
+                                    )
+                                  }
+                                  return (
+                                    <span style={{ fontSize: 11, color: who?.names.length ? '#4338ca' : '#94a3b8', fontWeight: who?.names.length ? 600 : 400 }}>
+                                      {who?.names.length ? `${who.name} · ${who.isDefault ? 'default' : `from ${who.source}`}` : locked ? `Not set in ${lockedRule.source} for ${dd} yet` : who ? `${who.dept} manages this — no name on its schedule` : 'Nobody assigned for this Sunday yet'}
+                                    </span>
+                                  )
+                                })()}
+                                {/* Not filled in by a department's Assign → search the People Directory. */}
+                                {/* Defaults (Sermon → Senior Pastor, Invocation → First Lady) can be changed or added
+                                    to; picking starts from the default so a guest is added alongside. */}
+                                {canEdit && !locked && (!who?.names.length || who.source === 'manual' || who.isDefault) && (
+                                  <div style={{ width: 220, maxWidth: '100%' }}>
+                                    <DirectoryPersonSearch compact disabled={ownerBusy === row.programName}
+                                      exclude={picked.length ? picked : (who?.isDefault ? who.names : [])}
+                                      placeholder={who?.isDefault ? `Change / add (e.g. guest) for ${dd}…` : `Add person for ${dd}…`}
+                                      onPick={(n) => setItemPeople(row.programName, [...(picked.length ? picked : (who?.isDefault ? who.names : [])), n])} />
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
                           {startLabel && <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 600, color: color.accent, fontVariantNumeric: 'tabular-nums' }}>{startLabel}{endLabel ? ` → ${endLabel}` : ''}</p>}
                           {deptRows.length > 0 && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 10 }}>

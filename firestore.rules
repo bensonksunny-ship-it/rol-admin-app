@@ -1272,7 +1272,12 @@ service cloud.firestore {
     }
 
     match /sec_core_sunday_leader/{docId} {
-      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
+      // Sunday Ministry's program builder / run sheet and Media's Control Center show
+      // the Sunday Leader on Psalms Reading + Announcements (utils/programPeople.js).
+      allow read: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core')
+        || canAccessDept('Sunday Ministry') || canAccessDept('Media')
+        || getUserRole() == 'Senior Pastor'
+        || userPositions().hasAny([{'department': 'Sunday Ministry', 'position': 'Director - Sunday Ministry'}]));
       allow write: if isSignedIn() && (isFullAccess() || canAccessDept('Sec-Core'));
     }
 

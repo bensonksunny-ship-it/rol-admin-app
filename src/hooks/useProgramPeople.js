@@ -5,6 +5,8 @@ import {
   getSundayPreServiceEntry,
   subscribeSundayPreServiceEntry,
   getMediaScheduleByDate,
+  getSundayProgramDefault,
+  getSecCoreSundayLeaderEntry,
 } from '../services/firestore'
 import useSeniorPastor from './useSeniorPastor'
 import { soundEngineer } from '../utils/programPeople'
@@ -22,6 +24,10 @@ export default function useProgramPeople(date) {
   const [preServiceLeader, setPreServiceLeader] = useState('')
   const [preServiceSpeakers, setPreServiceSpeakers] = useState([])
   const [crew, setCrew] = useState([])
+  // { [programName]: departmentId } chosen in Default Program (setOwners for a local change).
+  const [owners, setOwners] = useState({})
+  // Sec Core's Sunday Leader for the date (Psalms Reading + Announcements).
+  const [sundayLeader, setSundayLeader] = useState('')
   const [loaded, setLoaded] = useState(false)
 
   // isLive guards against a slow response for a previous date landing late.
@@ -32,6 +38,8 @@ export default function useProgramPeople(date) {
       getSundayProgramPeople(date).then(put(setManual)),
       getWorshipScheduleByDate('Worship', date).then(put((s) => setWorship(s?.assignments || []))),
       getSundayPreServiceEntry(date).then(put((e) => { setPreServiceLeader(e?.leaderName || ''); setPreServiceSpeakers(e?.speakers || []) })),
+      getSecCoreSundayLeaderEntry(date).then(put((e) => setSundayLeader(String(e?.leader || '').trim()))),
+      getSundayProgramDefault().then(put((d) => setOwners(d?.programOwners || {}))),
       getMediaScheduleByDate(date).then(put((s) => setCrew((s?.assignments || [])
         .filter((a) => String(a.memberName || '').trim())
         .map((a) => ({ area: a.role || 'Crew', name: a.memberName.trim() }))))),
@@ -58,6 +66,7 @@ export default function useProgramPeople(date) {
     reload: load,
     crew,
     soundEngineer: soundEngineer(worship),
-    rosters: { worship, preServiceLeader, preServiceSpeakers, seniorPastor },
+    setOwners,
+    rosters: { worship, preServiceLeader, preServiceSpeakers, seniorPastor, mediaCrew: crew, owners, sundayLeader },
   }
 }
