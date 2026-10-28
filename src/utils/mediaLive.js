@@ -98,6 +98,7 @@ export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', progr
         startTime: String(p.startTime || ''),
         elements: [...new Set(p.elements || [])],
         ...(attached.length ? { songs: attached } : {}),
+        ...(p.parallel ? { parallel: true } : {}),
       }
     }),
     songs: songs.map((s, i) => ({
@@ -123,14 +124,26 @@ const fmtMin = (mins) => {
   return `${h12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
 }
 
-/** Planned start label per programme: its own startTime, else running on from the service start. */
+/**
+ * Planned "start – end" label per programme. The run sheet is sequential: the first
+ * item starts at the service start time and every next one at the previous item's
+ * start + its duration. Stored per-item start times are ignored (they go stale when a
+ * duration changes); only with no service start set does the first item's own time
+ * anchor the sheet. `parallel` items (a department's own add-ons) keep their own time
+ * and don't move the clock.
+ */
 export function plannedStarts(programs, serviceStartTime) {
-  let cursor = toMin(serviceStartTime)
+  let cursor = toMin(serviceStartTime) ?? toMin(programs.find((p) => !p.parallel)?.startTime)
   return programs.map((p) => {
-    const own = toMin(p.startTime)
-    const at = own ?? cursor
-    cursor = at == null ? null : at + (Number(p.duration) || 0)
-    return at == null ? '' : fmtMin(at)
+    const dur = Number(p.duration) || 0
+    let at
+    if (p.parallel) at = toMin(p.startTime)
+    else {
+      at = cursor
+      if (cursor != null) cursor += dur
+    }
+    if (at == null) return ''
+    return dur ? `${fmtMin(at)} – ${fmtMin(at + dur)}` : fmtMin(at)
   })
 }
 

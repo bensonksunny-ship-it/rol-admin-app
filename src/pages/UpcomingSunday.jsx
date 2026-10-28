@@ -380,7 +380,8 @@ export default function UpcomingSunday({ slug }) {
         songKeys: savedInput.programSongs?.[name] || [],
       })),
       ...(savedInput.customPrograms || []).map((p) => ({
-        name: p.programName, elements: p.elements || [], duration: p.duration || 0, startTime: '',
+        // Media's own add-on programmes run alongside the service, not in its sequence.
+        name: p.programName, elements: p.elements || [], duration: p.duration || 0, startTime: '', parallel: true,
         songKeys: savedInput.programSongs?.[p.programName] || [],
       })),
     ]

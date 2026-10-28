@@ -64,6 +64,20 @@ function fmt12(timeStr) {
   return `${h12}:${String(m).padStart(2, '0')} ${ampm}`
 }
 
+/**
+ * Sequential schedule: item 1 starts at the service start time, each next item at the
+ * previous start + its duration. Returns "HH:mm" per item ('' with no service start).
+ */
+function cascadeStartTimes(list, serviceStart) {
+  if (!serviceStart) return list.map(() => '')
+  let mins = timeToMins(serviceStart)
+  return list.map((x) => {
+    const st = minsToTime(mins)
+    mins += Number(x.duration) || 0
+    return st
+  })
+}
+
 function timeToMins(timeStr) {
   if (!timeStr) return 0
   const [h, m] = timeStr.split(':').map(Number)
@@ -141,12 +155,12 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
         })
         const hadDuplicates = list.length < rawList.length
         const svcStart = defaultDoc.serviceStartTime || ''
-        // Populate startTime: use saved value, or cascade-calculate from service start
-        let cascadeMins = svcStart ? timeToMins(svcStart) : 0
+        // Start times always cascade from the service start (a saved per-item time goes
+        // stale as soon as an earlier duration changes); kept as saved only without one.
+        const starts = cascadeStartTimes(list.map((x) => ({ duration: typeof x.duration === 'number' ? x.duration : 0 })), svcStart)
         const nextItems = list.map((x, i) => {
           const dur = typeof x.duration === 'number' ? x.duration : 0
-          const st = x.startTime || (svcStart ? minsToTime(cascadeMins) : '')
-          cascadeMins += dur
+          const st = svcStart ? starts[i] : (x.startTime || '')
           return {
             ...x,
             duration: dur,
@@ -242,9 +256,10 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
     })
     if (dupe) { alert(`Cannot save: "${dupe.programName}" appears more than once on the schedule.`); return }
     setSaving(true); setSavedOk(false)
+    const starts = cascadeStartTimes(itemsToSave, serviceStartTime)
     try {
       await setSundayProgramDefault(
-        itemsToSave.map((x, i) => ({ programName: x.programName, order: i, duration: x.duration || 0, startTime: x.startTime || '', programNumber: x.programNumber || '' })),
+        itemsToSave.map((x, i) => ({ programName: x.programName, order: i, duration: x.duration || 0, startTime: serviceStartTime ? starts[i] : (x.startTime || ''), programNumber: x.programNumber || '' })),
         userProfile?.email || 'unknown',
         serviceStartTime,
         parallelPrograms
@@ -277,19 +292,9 @@ function DefaultProgramTab({ canEdit, userProfile, navigate }) {
 
   const totalMinutes = sorted.reduce((sum, r) => sum + (r.duration || 0), 0)
 
-  // When service start time changes, shift all startTimes by the delta
-  const handleServiceStartChange = (newVal) => {
-    if (serviceStartTime && newVal) {
-      const delta = timeToMins(newVal) - timeToMins(serviceStartTime)
-      if (delta !== 0) {
-        setItems((prev) => prev.map((x) => ({
-          ...x,
-          startTime: x.startTime ? minsToTime(timeToMins(x.startTime) + delta) : '',
-        })))
-      }
-    }
-    setServiceStartTime(newVal)
-  }
+  // Item start times are derived from the service start (cascadeStartTimes), so
+  // changing it moves the whole schedule; they're written out on save.
+  const handleServiceStartChange = (newVal) => setServiceStartTime(newVal)
 
   const removeDeptCustomProgram = async (slug, programName) => {
     const current = deptInputs[slug] || {}
