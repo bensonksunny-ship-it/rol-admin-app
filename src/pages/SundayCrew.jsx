@@ -8,6 +8,7 @@ import { ImageDown } from 'lucide-react'
 import { shareNodeAsImage } from '../utils/shareImage'
 import {
   getSundayPreServiceEntry,
+  subscribeSundayPreServiceEntry,
   setSundayPreServiceMonth,
   getDepartmentTeamMembers,
   subscribeDepartmentSubDepartments,
@@ -574,7 +575,7 @@ function snapToSunday(dateStr) {
 // each a MemberPicker scoped to active team members explicitly assigned to
 // that sub-department, editable behind an Edit/Cancel/Save lifecycle rather
 // than always-on freeform inputs.
-function CrewTab({ canEdit, userProfile }) {
+function CrewTab({ canEdit, userProfile, onOpenPreService }) {
   const [team, setTeam] = useState([])
   const [teamLoading, setTeamLoading] = useState(true)
   const [subDepartments, setSubDepartments] = useState([])
@@ -591,6 +592,27 @@ function CrewTab({ canEdit, userProfile }) {
   const [saving, setSaving] = useState(false)
   const [toastEl, showToast] = useToast()
   const crewShareRef = useRef(null)
+  // The Pre-Service row follows the monthly Pre-Service schedule for this Sunday
+  // (live), so it is never set twice. Only when that Sunday has no speakers there
+  // does the row fall back to a name picked here.
+  const [preService, setPreService] = useState(null)
+  useEffect(() => subscribeSundayPreServiceEntry(assignDate, setPreService), [assignDate])
+  const preSpeakers = preService?.speakers || []
+  const isPreServiceRow = (r) => subDeptKey(r.role) === PRE_SERVICE_SUBDEPT_KEY
+  const fromSchedule = (r) => isPreServiceRow(r) && preSpeakers.length > 0
+  const preServiceCell = (accent) => (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1.5">
+        {preSpeakers.map((n) => (
+          <span key={n} className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{n}</span>
+        ))}
+      </div>
+      <p className="text-[11px] text-slate-500">
+        From the Pre-Service schedule
+        {onOpenPreService && <> · <button type="button" onClick={onOpenPreService} className="font-semibold text-indigo-600 hover:text-indigo-800">edit in Pre-Service</button></>}
+      </p>
+    </div>
+  )
 
   useEffect(() => {
     setTeamLoading(true)
@@ -690,7 +712,8 @@ function CrewTab({ canEdit, userProfile }) {
     if (saving) return
     setSaving(true)
     try {
-      const assignments = rows.flatMap((r) =>
+      // A Pre-Service row filled from the schedule isn't stored here — the schedule is its source.
+      const assignments = rows.filter((r) => !fromSchedule(r)).flatMap((r) =>
         (r.members || []).map((m) => ({ subDeptId: r.subDeptId || '', role: r.role, memberId: m.id, memberName: m.name || '' }))
       )
       await setSundayCrewScheduleByDate(assignDate, assignments, userProfile?.email || 'unknown')
@@ -738,7 +761,7 @@ function CrewTab({ canEdit, userProfile }) {
           shareRef={crewShareRef}
           title="Weekly Crew"
           subtitle={format(new Date(assignDate + 'T12:00:00'), 'EEEE, dd/MM/yyyy')}
-          rows={rows.map((r) => ({ key: r.subDeptId, label: r.role, names: (r.members || []).map((m) => m.name).filter(Boolean) }))}
+          rows={rows.map((r) => ({ key: r.subDeptId, label: r.role, names: fromSchedule(r) ? preSpeakers : (r.members || []).map((m) => m.name).filter(Boolean) }))}
         />
 
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -805,7 +828,7 @@ function CrewTab({ canEdit, userProfile }) {
               return (
                 <div key={r.subDeptId} className={`rounded-xl border border-slate-200 bg-white p-3 shadow-sm space-y-2 border-l-4 ${accent.border}`}>
                   <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{r.role}</span>
-                  {editing ? (
+                  {fromSchedule(r) ? preServiceCell(accent) : editing ? (
                     <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
                       {rowMembers.map((m) => (
                         <span key={m.id} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${accent.pill}`}>
@@ -859,7 +882,7 @@ function CrewTab({ canEdit, userProfile }) {
                       <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${accent.pill}`}>{r.role}</span>
                     </td>
                     <td className="px-5 py-4 align-top">
-                      {editing ? (
+                      {fromSchedule(r) ? preServiceCell(accent) : editing ? (
                         <div className="flex flex-wrap gap-2 items-center min-h-[42px] p-2 bg-slate-50 border border-slate-200 rounded-lg">
                           {rowMembers.map((m) => (
                             <span key={m.id} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${accent.pill}`}>
@@ -936,7 +959,7 @@ export default function SundayCrew() {
         {activeTab === 'preService' && (
           <PreServiceTab canEdit={canAccessPreService} userProfile={userProfile} />
         )}
-        {activeTab === 'crew' && <CrewTab canEdit={canAccessCrew} userProfile={userProfile} />}
+        {activeTab === 'crew' && <CrewTab canEdit={canAccessCrew} userProfile={userProfile} onOpenPreService={() => setSubTab('preService')} />}
       </div>
     </div>
   )

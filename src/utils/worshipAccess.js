@@ -71,13 +71,19 @@ export const RESTRICTED_WORSHIP_TABS = ['songsDirectory', 'upcomingSunday']
  * Leader/Director only, so a Member's nav grid + route guard only ever show this. */
 export const WORSHIP_MEMBER_TABS = ['upcomingSunday']
 
+/** Worship Leader's personal hub ("My Worship": their own lead dates, scheduled
+ * songs, quick actions). Not part of getDepartmentHubTabs('worship') — it exists
+ * only for whoever holds the Worship Leader position, Director or not. */
+export const MY_WORSHIP_TAB = 'myWorship'
+
 /** Given this department's full tab list, returns the subset `userProfile` may see —
  * used by both the sub-menu grid (departmentSubpages.js) and DepartmentWorship.jsx's
  * own route guard, so what's shown in the grid and what's actually reachable agree. */
 export function getAllowedWorshipTabs(userProfile, allTabs) {
-  if (hasFullWorshipAccess(userProfile)) return allTabs
+  const leaderHub = isWorshipLeader(userProfile) ? [MY_WORSHIP_TAB] : []
+  if (hasFullWorshipAccess(userProfile)) return [...leaderHub, ...allTabs]
   if (isWorshipLeader(userProfile)) {
-    return allTabs.filter(t => RESTRICTED_WORSHIP_TABS.includes(t))
+    return [...leaderHub, ...allTabs.filter(t => RESTRICTED_WORSHIP_TABS.includes(t))]
   }
   // Anyone else who can merely open this department at all (Worship Member, or a
   // legacy generic Coordinator/Associate position under Worship — not Director,
@@ -97,4 +103,10 @@ export function getAllowedWorshipTabs(userProfile, allTabs) {
 export function shouldBypassWorshipGrid(userProfile) {
   if (hasFullWorshipAccess(userProfile)) return false
   return isWorshipLeader(userProfile) || isWorshipMember(userProfile)
+}
+
+/** Where a Worship Leader/Member's Worship nav tile lands: a Leader opens their
+ * personal hub, a Member their Upcoming Sunday setlist. */
+export function getWorshipLandingTab(userProfile) {
+  return isWorshipLeader(userProfile) ? MY_WORSHIP_TAB : 'upcomingSunday'
 }

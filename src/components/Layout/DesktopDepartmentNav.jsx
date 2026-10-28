@@ -122,8 +122,11 @@ export default function DesktopDepartmentNav() {
   const items = tiles
 
   // A tile also matches a trailing-slash/query continuation, same as DepartmentDock's activeTile.
-  const isActive = (item) =>
-    pathname === item.to || pathname.startsWith(item.to + '/') || pathname.startsWith(item.to + '?')
+  // `to` may carry a ?tab= (Worship Leader/Member's landing tab) — match on its path.
+  const isActive = (item) => {
+    const to = item.to.split('?')[0]
+    return pathname === to || pathname.startsWith(to + '/')
+  }
 
   const activeItem = items.find(isActive)
   const activeSubpageKey = searchParams.get('tab')

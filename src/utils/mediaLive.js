@@ -76,7 +76,7 @@ function hashString(str) {
  * become `songs`: the published keys of those songs. `audio` ({ id, name, url })
  * is the programme's attached audio, played from the Control Center.
  */
-export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', programs = [], songs = [], crew = [] }) {
+export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', programs = [], songs = [], crew = [], stations = [] }) {
   const used = new Set()
   const uniq = (base) => {
     let k = base, n = 2
@@ -120,6 +120,8 @@ export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', progr
     })),
     // Names and areas only — never contact details (this doc is publicly readable).
     crew: crew.map((c) => ({ key: uniq(`crew_${safeKey(c.area)}_${safeKey(c.name)}`), area: c.area || 'Crew', name: c.name })),
+    // Station dropdown entries — Media's Sub-Departments (see buildStations).
+    stations,
   }
   return { ...body, contentHash: hashString(JSON.stringify(body)) }
 }
@@ -263,6 +265,36 @@ export const MEDIA_STATIONS = [
 
 export const stationById = (id) => MEDIA_STATIONS.find((s) => s.id === id) || null
 
+/**
+ * The dropdown's stations come from Media's own Sub-Departments (Settings), published
+ * with the content since the public page can't read them. Each one borrows the cue
+ * matching, checkpoints and lyrics/audio panels of the built-in station its name reads
+ * as (`kind`: "Projection & Slides" → projection); one that reads as none of them
+ * (e.g. "Graphics") gets the cues that mention its name plus the unassigned ones.
+ */
+export function buildStations(subDepts = []) {
+  const used = new Set()
+  return subDepts.map((sd) => String(sd?.name || '').trim()).filter(Boolean).flatMap((label) => {
+    const id = safeKey(label).toLowerCase()
+    if (used.has(id)) return []
+    used.add(id)
+    // Most specific first, so "Video Camera" reads as camera, not projection.
+    const kind = ['stream', 'camera', 'lighting', 'sound', 'projection'].find((k) => CREW_STATIONS[k].test(label)) || ''
+    return [{ id, label, kind }]
+  })
+}
+
+/** The station for a URL id: a published sub-department, else a built-in (older links). */
+export function resolveStation(id, published) {
+  if (!id) return null
+  const sd = (published || []).find((s) => s.id === id)
+  if (!sd) return stationById(id)
+  const base = stationById(sd.kind)
+  return base
+    ? { ...base, id: sd.id, label: sd.label, kind: sd.kind }
+    : { id: sd.id, label: sd.label, kind: '', blurb: `${sd.label} cues`, systems: [] }
+}
+
 export function mediaStationUrl(token, stationId) {
   return `${mediaLiveUrl(token)}/${stationId}`
 }
@@ -282,7 +314,12 @@ export function cueStation(el) {
 /** A programme's cues for a station: its own plus the unassigned ones. All cues when station is null. */
 export function stationCues(elements, station) {
   if (!station) return elements || []
-  return (elements || []).filter((el) => { const s = cueStation(el); return !s || s === station.id })
+  const kind = station.kind ?? station.id
+  const word = String(station.label || '').toLowerCase()
+  return (elements || []).filter((el) => {
+    const s = cueStation(el)
+    return !s || (kind ? s === kind : String(el).toLowerCase().includes(word))
+  })
 }
 
 // Crew roster areas (Media → Assign) that belong to a station.
@@ -293,4 +330,7 @@ const CREW_STATIONS = {
   stream: /stream|broadcast|obs|online|youtube/i,
   camera: /camera|\bcam\b/i,
 }
-export const crewInStation = (area, station) => !station || !!CREW_STATIONS[station.id]?.test(String(area || ''))
+// Crew areas are the sub-department names, so a sub-department station matches its own name.
+export const crewInStation = (area, station) => !station
+  || String(area || '').trim().toLowerCase() === String(station.label || '').trim().toLowerCase()
+  || !!CREW_STATIONS[station.kind ?? station.id]?.test(String(area || ''))

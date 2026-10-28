@@ -71,7 +71,11 @@ export default function DepartmentDock() {
   // Whichever department/nested category the user is currently viewing, so opening
   // the menu drills that one section straight into the matching child grid instead of
   // its own top-level tiles.
-  const activeTile = tiles.find((t) => pathname === t.to || pathname.startsWith(t.to + '/') || pathname.startsWith(t.to + '?'))
+  // `to` may carry a ?tab= (Worship Leader/Member's landing tab) — match on its path.
+  const activeTile = tiles.find((t) => {
+    const to = t.to.split('?')[0]
+    return pathname === to || pathname.startsWith(to + '/')
+  })
   const currentTab = new URLSearchParams(search).get('tab')
 
   return (

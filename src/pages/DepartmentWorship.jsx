@@ -36,7 +36,8 @@ import { useAuth } from '../context/AuthContext'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, ReferenceLine, Cell } from 'recharts'
 import { format, subMonths, subDays, addDays, differenceInDays, differenceInYears, differenceInMonths, addYears, addMonths } from 'date-fns'
 import { formatDMY, isoToDMY } from '../utils/date'
-import { isWorshipLeader, hasWorshipRoleAccess, getAllowedWorshipTabs } from '../utils/worshipAccess'
+import { isWorshipLeader, hasWorshipRoleAccess, getAllowedWorshipTabs, shouldBypassWorshipGrid, getWorshipLandingTab, MY_WORSHIP_TAB } from '../utils/worshipAccess'
+import { ALTAR_CALL_LABEL, isAltarCallRole, worshipRoleLabel } from '../utils/worshipRoleOrder'
 import { getDepartmentRole } from '../utils/access'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import WorshipMultiWeekMatrix from '../components/worship/WorshipMultiWeekMatrix'
@@ -54,6 +55,7 @@ import DateInput from '../components/DateInput'
 import ScheduleSongModal from '../components/worship/ScheduleSongModal'
 import { schedulerFields } from '../utils/songScheduler'
 import WorshipSongSchedule from '../components/worship/WorshipSongSchedule'
+import WorshipLeaderHub from '../components/worship/WorshipLeaderHub'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -147,6 +149,7 @@ const ROLE_LABEL_ABBR = {
   'Sound Engineer': 'Sound Eng',
 }
 function roleDisplayLabel(role) {
+  if (isAltarCallRole(role)) return ALTAR_CALL_LABEL
   const { category, index } = parseRoleKey(role)
   const abbr = ROLE_LABEL_ABBR[category] || category
   if (index === 1) return LEGACY_DASH_ONE_CATEGORIES.has(category) ? `${abbr}-1` : abbr
@@ -462,7 +465,7 @@ function WorshipStamp({ stamp, isOpen, onToggle, onEdit }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                   {assignedRoles.map((a) => (
                     <div key={a.role} className="flex items-center gap-2 text-sm">
-                      <span className="text-slate-400 text-xs w-36 flex-shrink-0 truncate">{a.role}</span>
+                      <span className="text-slate-400 text-xs w-36 flex-shrink-0 truncate">{worshipRoleLabel(a.role)}</span>
                       <span className="font-medium text-slate-800">{a.memberName}</span>
                     </div>
                   ))}
@@ -1641,7 +1644,8 @@ export default function DepartmentWorship() {
   // coming Sunday) rather than Hub — Worship Leader and Worship Member land here via
   // the dock's bypassed launcher (see shouldBypassWorshipGrid), Director/Founder/Admin
   // via the picker grid or by just visiting the bare department path.
-  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || 'upcomingSunday')
+  // A Worship Leader (without Director/Founder/Admin access) lands on My Worship instead.
+  const [activeTab, setActiveTab] = useState(() => searchParams.get('tab') || (shouldBypassWorshipGrid(userProfile) ? getWorshipLandingTab(userProfile) : 'upcomingSunday'))
   useEffect(() => {
     const t = searchParams.get('tab')
     if (t) setActiveTab(t)
@@ -1866,6 +1870,17 @@ export default function DepartmentWorship() {
     next.delete('newSong')
     setSearchParams(next, { replace: true })
   }, [activeTab, searchParams, canManageWorshipSongs])
+
+  // Deep link from My Worship's quick actions (?tab=songsDirectory&songSub=design|schedule)
+  // — opens that Songs sub-page directly. Consumed like newSong.
+  useEffect(() => {
+    const sub = searchParams.get('songSub')
+    if (activeTab !== 'songsDirectory' || !sub) return
+    if (sub === 'design' || sub === 'schedule') setSongSubPage(sub)
+    const next = new URLSearchParams(searchParams)
+    next.delete('songSub')
+    setSearchParams(next, { replace: true })
+  }, [activeTab, searchParams])
 
   // Deep link from the Upcoming Worship workspace widget's "Assign Team for {date}"
   // placeholder button (?tab=assign&assignDate=yyyy-mm-dd) — jumps straight to that
@@ -2225,7 +2240,7 @@ export default function DepartmentWorship() {
       const practiceDateStr = format(subDays(new Date(selectedDate + 'T12:00:00'), 1), 'yyyy-MM-dd')
       const songLines = sanitizedAssignments
         .filter((a) => a.songName)
-        .map((a) => `${a.role}: ${a.songName}${a.key ? ` (${a.key})` : ''}`)
+        .map((a) => `${worshipRoleLabel(a.role)}: ${a.songName}${a.key ? ` (${a.key})` : ''}`)
       const notes = [
         `Practice for Sunday ${format(new Date(selectedDate + 'T12:00:00'), 'dd/MM/yyyy')}`,
         ...(songLines.length ? ['', ...songLines] : []),
@@ -2370,7 +2385,7 @@ export default function DepartmentWorship() {
     // anyone else without access) hitting ?tab=songsDirectory directly — a stale link,
     // a bookmark, hand-typed URL — gets bounced to Upcoming Worship, their actual home
     // tab, instead of a dead-end 403 message.
-    if (activeTab === 'songsDirectory') {
+    if (activeTab === 'songsDirectory' || activeTab === MY_WORSHIP_TAB) {
       return <Navigate to="/department/worship?tab=upcomingSunday" replace />
     }
     return (
@@ -2417,6 +2432,9 @@ export default function DepartmentWorship() {
       {activeTab === 'upcomingSunday' && (
         <WorshipUpcomingSunday canManage={canManageWorship} />
       )}
+
+      {/* My Worship — Worship Leader's personal hub (own lead dates, songs, quick actions). */}
+      {activeTab === MY_WORSHIP_TAB && <WorshipLeaderHub />}
 
       {activeTab === 'summary' && (canManageWorship || canViewInsights) && (
         <div className="space-y-4">

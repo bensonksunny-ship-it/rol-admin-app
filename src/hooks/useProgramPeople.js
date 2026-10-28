@@ -3,6 +3,7 @@ import {
   getSundayProgramPeople,
   getWorshipScheduleByDate,
   getSundayPreServiceEntry,
+  subscribeSundayPreServiceEntry,
   getMediaScheduleByDate,
 } from '../services/firestore'
 import useSeniorPastor from './useSeniorPastor'
@@ -19,6 +20,7 @@ export default function useProgramPeople(date) {
   const [manual, setManual] = useState({})
   const [worship, setWorship] = useState([])
   const [preServiceLeader, setPreServiceLeader] = useState('')
+  const [preServiceSpeakers, setPreServiceSpeakers] = useState([])
   const [crew, setCrew] = useState([])
   const [loaded, setLoaded] = useState(false)
 
@@ -29,7 +31,7 @@ export default function useProgramPeople(date) {
     return Promise.allSettled([
       getSundayProgramPeople(date).then(put(setManual)),
       getWorshipScheduleByDate('Worship', date).then(put((s) => setWorship(s?.assignments || []))),
-      getSundayPreServiceEntry(date).then(put((e) => setPreServiceLeader(e?.leaderName || ''))),
+      getSundayPreServiceEntry(date).then(put((e) => { setPreServiceLeader(e?.leaderName || ''); setPreServiceSpeakers(e?.speakers || []) })),
       getMediaScheduleByDate(date).then(put((s) => setCrew((s?.assignments || [])
         .filter((a) => String(a.memberName || '').trim())
         .map((a) => ({ area: a.role || 'Crew', name: a.memberName.trim() }))))),
@@ -42,6 +44,13 @@ export default function useProgramPeople(date) {
     return () => { live = false }
   }, [load])
 
+  // The monthly Pre-Service schedule stays live: a speaker change there reaches the
+  // run sheet and the Media Control Center without a reload.
+  useEffect(() => subscribeSundayPreServiceEntry(date, (e) => {
+    setPreServiceLeader(e?.leaderName || '')
+    setPreServiceSpeakers(e?.speakers || [])
+  }), [date])
+
   return {
     loaded,
     manual,
@@ -49,6 +58,6 @@ export default function useProgramPeople(date) {
     reload: load,
     crew,
     soundEngineer: soundEngineer(worship),
-    rosters: { worship, preServiceLeader, seniorPastor },
+    rosters: { worship, preServiceLeader, preServiceSpeakers, seniorPastor },
   }
 }

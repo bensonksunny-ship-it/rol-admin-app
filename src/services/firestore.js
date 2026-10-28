@@ -4373,6 +4373,27 @@ export async function getSundayPreServiceEntry(dateStr) {
   }
 }
 
+/**
+ * Live Pre-Service entry for one Sunday (same shape as getSundayPreServiceEntry, null
+ * when none) — the Weekly Crew Assign tab, run sheet and Media Control Center follow
+ * the monthly Pre-Service schedule through this, so edits there show up at once.
+ */
+export function subscribeSundayPreServiceEntry(dateStr, onData, onError) {
+  if (!db || !dateStr) { onData(null); return () => {} }
+  const id = String(dateStr).slice(0, 10)
+  return onSnapshot(doc(db, SUNDAY_PRE_SERVICE_COLLECTION, id), (snap) => {
+    if (!snap.exists()) { onData(null); return }
+    const data = snap.data()
+    onData({
+      date: id,
+      speakers: Array.isArray(data.speakers) ? data.speakers.map((n) => String(n).trim()).filter(Boolean) : [],
+      topics: Array.isArray(data.topics) ? data.topics.map((t) => String(t).trim()).filter(Boolean) : [],
+      leaderMemberId: data.leaderMemberId || '',
+      leaderName: data.leaderName || '',
+    })
+  }, (e) => { console.warn('subscribeSundayPreServiceEntry', e); onError?.(e); onData(null) })
+}
+
 export async function setSundayPreServiceEntry(dateStr, { speakers, topics, leaderMemberId, leaderName }, updatedBy) {
   if (!db || !dateStr) return
   const id = String(dateStr).slice(0, 10)

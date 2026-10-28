@@ -1,14 +1,14 @@
 import {
   LayoutGrid, Users, CalendarDays, Wallet, FileBarChart2, Settings2,
   Palette, UserCircle, Database, Sun, Tv, ListMusic, FolderTree, UserCheck,
-  Music, Music2, Archive, History, PenSquare, LineChart, UserPlus, ClipboardList,
+  Music, Music2, Mic2, Archive, History, PenSquare, LineChart, UserPlus, ClipboardList,
   CheckSquare, HeartHandshake, PartyPopper, CalendarClock, Sparkles,
   CreditCard, Banknote, Building2, Landmark, Calculator,
 } from 'lucide-react'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import { DEPARTMENT_LIST, getDepartmentPath } from '../constants/departments'
 import { visibleCellTabs } from './cellTabVisibility'
-import { getAllowedWorshipTabs, shouldBypassWorshipGrid, hasFullWorshipAccess } from './worshipAccess'
+import { getAllowedWorshipTabs, shouldBypassWorshipGrid, hasFullWorshipAccess, hasWorshipRoleAccess, getWorshipLandingTab } from './worshipAccess'
 import { hasAccess } from './access'
 import { isPreServiceLeaderInPositions } from './sundayMinistryAccess'
 
@@ -29,6 +29,11 @@ export function isSundayMinistryPreServiceOnly(userProfile) {
  *  Ministry for a Pre-Service-only user, which goes straight to Pre-Service. */
 export function getDepartmentNavPath(name, userProfile) {
   if (isSundayMinistryName(name) && isSundayMinistryPreServiceOnly(userProfile)) return SUNDAY_MINISTRY_PRE_SERVICE_PATH
+  // Worship Leader/Member have no picker grid (shouldBypassWorshipGrid) — the tile
+  // lands them straight on their own home tab.
+  if (String(name || '').trim().toLowerCase() === 'worship' && shouldBypassWorshipGrid(userProfile)) {
+    return `${getDepartmentPath(name)}?tab=${getWorshipLandingTab(userProfile)}`
+  }
   return getDepartmentPath(name)
 }
 
@@ -59,13 +64,11 @@ export function myDepartmentNames(userProfile, isFounder) {
   // Coordinator-tier check (hasAccess → getDepartmentRole) the rest of the app already
   // uses for real access control, not just "was this department ever mentioned".
   return candidates.filter((n) => {
-    // Worship is stricter than every other department: Team members, Worship Leader/
-    // Member, and even a Coordinator-tier Worship position all already get everything
-    // they need (roster, setlist, "My Part") straight from the Upcoming Worship
-    // workspace widget — the dock icon is reserved exclusively for whoever actually
-    // holds Director - Worship (or a Global/System Admin), not the generic Director-
-    // or-Coordinator tier `hasAccess` grants every other department below.
-    if (String(n).trim().toLowerCase() === 'worship') return hasFullWorshipAccess(userProfile)
+    // Worship: Director - Worship (or a Global/System Admin), plus anyone holding the
+    // Worship Leader / Worship Member position — they land on their own personal tab
+    // (see getDepartmentNavPath). A Coordinator-tier Worship position alone still
+    // gets no icon; the Upcoming Worship workspace widget covers them.
+    if (String(n).trim().toLowerCase() === 'worship') return hasFullWorshipAccess(userProfile) || hasWorshipRoleAccess(userProfile)
     // Pre-Service Leader isn't a Director/Coordinator-tier position, so hasAccess
     // alone hid Sunday Ministry from them entirely — even though Pre-Service is
     // theirs to run (tile links straight there; see getDepartmentNavPath).
@@ -97,6 +100,7 @@ function getTabLabel(tab) {
     case 'assign':            return 'Assign'
     case 'theTeam':           return 'The Team'
     case 'practiceRehearsal': return 'Practice'
+    case 'myWorship':         return 'My Worship'
     case 'songsDirectory':    return 'Songs'
     case 'archives':          return 'Archives'
     case 'budget':            return 'Budget'
@@ -146,6 +150,7 @@ function getTabIcon(tab) {
     case 'assign':             return UserCheck
     case 'theTeam':            return Users
     case 'practiceRehearsal':  return Music
+    case 'myWorship':          return Mic2
     case 'songsDirectory':     return Music2
     case 'archives':           return Archive
     case 'budget':             return Wallet

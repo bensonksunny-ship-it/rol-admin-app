@@ -4,13 +4,17 @@
 //   Worship / Praise   → every worship leader / co-lead on Worship's roster (anyone
 //                        rostered as Worship Leader, then each Lead Vocal with the
 //                        songs they lead)
-//   Pre-Service        → that Sunday's Pre-Service Leader
+//   Altar Call         → the Altar Call Worship leader (Lead Vocal-4) only; while the
+//                        programme has such an item, that slot drops out of the
+//                        Worship / Praise item above
+//   Pre-Service        → that Sunday's speakers on the monthly Pre-Service schedule
+//                        (else its Pre-Service Leader)
 //   Sermon / Message   → the Senior Pastor (edit for a guest speaker)
 // An item can have several people: the Director types them comma-separated.
 // Media cues (Display Lyrics, Camera Switch…) map to Media's crew area for that
 // Sunday (Projection, Sound, Camera…), falling back to Worship's Sound Engineer for audio.
 
-import { sortByWorshipRole } from './worshipRoleOrder'
+import { sortByWorshipRole, isAltarCallRole } from './worshipRoleOrder'
 
 /** Several names typed in one box: "A, B", "A & B", "A and B" or one per line. */
 export function splitNames(value) {
@@ -22,9 +26,12 @@ export function splitNames(value) {
   return out
 }
 
-/** A Sunday's worship leaders in slot order — [{ name, songs }] (songs each one leads). */
-export function worshipLeaders(assignments = []) {
-  const named = sortByWorshipRole(assignments.filter((a) => String(a.memberName || '').trim()))
+/** A Sunday's worship leaders in slot order — [{ name, songs }] (songs each one leads).
+ * `excludeAltarCall` leaves out the Altar Call Worship slot (Lead Vocal-4) — used when
+ * the programme has its own Altar Call item, which that slot fills instead. */
+export function worshipLeaders(assignments = [], { excludeAltarCall = false } = {}) {
+  const named = sortByWorshipRole(assignments.filter((a) =>
+    String(a.memberName || '').trim() && !(excludeAltarCall && isAltarCallRole(a.role))))
   const rows = [
     ...named.filter((a) => /worship\s*leader/i.test(a.role || '')),
     ...named.filter((a) => /^lead vocal/i.test(a.role || '')),
@@ -42,9 +49,22 @@ export function worshipLeaders(assignments = []) {
 
 const asLeads = (value) => splitNames(value).map((name) => ({ name, songs: [] }))
 
+const ALTAR_CALL_ITEM = /alt[ae]r\s*call/i
+
 const AUTO_RULES = [
-  { test: /worship|praise/i, role: 'Worship Leader', source: 'Worship roster', pick: (r) => worshipLeaders(r.worship) },
-  { test: /pre[\s-]?service/i, role: 'Pre-Service Leader', source: 'Pre-Service roster', pick: (r) => asLeads(r.preServiceLeader) },
+  // Before the generic worship rule — "Altar Call Worship" would match both.
+  {
+    test: ALTAR_CALL_ITEM, role: 'Altar Call Worship Leader', source: 'Worship roster',
+    pick: (r) => worshipLeaders((r.worship || []).filter((a) => isAltarCallRole(a.role))),
+  },
+  {
+    test: /worship|praise/i, role: 'Worship Leader', source: 'Worship roster',
+    pick: (r, ctx) => worshipLeaders(r.worship, { excludeAltarCall: !!ctx?.hasAltarCallItem }),
+  },
+  {
+    test: /pre[\s-]?service/i, role: 'Pre-Service Speaker', source: 'Pre-Service schedule',
+    pick: (r) => (r.preServiceSpeakers?.length ? r.preServiceSpeakers.map((name) => ({ name, songs: [] })) : asLeads(r.preServiceLeader)),
+  },
   { test: /sermon|message|preach/i, role: 'Speaker', source: 'Senior Pastor', pick: (r) => asLeads(r.seniorPastor) },
 ]
 
@@ -64,9 +84,10 @@ const plural = (role, n) => (n > 1 && role && !/s$/i.test(role) ? `${role}s` : r
  */
 export function resolveProgramPeople(programNames, manual = {}, rosters = {}) {
   const out = {}
+  const ctx = { hasAltarCallItem: programNames.some((n) => ALTAR_CALL_ITEM.test(String(n || ''))) }
   for (const name of programNames) {
     const rule = autoRuleFor(name)
-    const autoLeads = rule ? rule.pick(rosters) : []
+    const autoLeads = rule ? rule.pick(rosters, ctx) : []
     const typed = splitNames(manual[name]?.name)
     // A typed name keeps the songs the roster has that person leading.
     const leads = typed.length

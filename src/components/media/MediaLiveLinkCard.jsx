@@ -11,9 +11,10 @@ import {
   subscribeMediaLive,
   signOffMediaRehearsal,
   clearMediaRehearsalSignoff,
+  subscribeDepartmentSubDepartments,
 } from '../../services/firestore'
 import { sortByWorshipRole } from '../../utils/worshipRoleOrder'
-import { buildMediaLiveContent, mediaLiveUrl, mediaStationUrl, MEDIA_STATIONS, songSections, rehearsalSummary } from '../../utils/mediaLive'
+import { buildMediaLiveContent, mediaLiveUrl, mediaStationUrl, MEDIA_STATIONS, buildStations, songSections, rehearsalSummary } from '../../utils/mediaLive'
 import { RehearsalSummary } from './RehearsalVerification'
 import useProgramPeople from '../../hooks/useProgramPeople'
 import { resolveProgramPeople, cueOperator } from '../../utils/programPeople'
@@ -94,6 +95,10 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
         .map((a) => ({ area: a.role || 'Crew', name: a.memberName.trim() }))))
       .catch(() => setCrew([]))
   }, [sundayDate])
+  // Media's Sub-Departments (Settings) become the desk's station views.
+  const [subDepts, setSubDepts] = useState(null)
+  useEffect(() => subscribeDepartmentSubDepartments('Media', setSubDepts, () => setSubDepts([])), [])
+  const stations = useMemo(() => buildStations(subDepts || []), [subDepts])
   useEffect(() => subscribeWorshipScheduleByDate('Worship', sundayDate, setSchedule,
     () => setSchedule({ assignments: [] })), [sundayDate])
 
@@ -125,8 +130,8 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
     }))
   }, [people.loaded, people.manual, people.rosters, people.soundEngineer, programs, crew, schedule])
 
-  const content = useMemo(() => (songs && staffedPrograms ? buildMediaLiveContent({ sundayDate, serviceStartTime, programs: staffedPrograms, songs, crew }) : null),
-    [sundayDate, serviceStartTime, staffedPrograms, songs, crew])
+  const content = useMemo(() => (songs && staffedPrograms && subDepts ? buildMediaLiveContent({ sundayDate, serviceStartTime, programs: staffedPrograms, songs, crew, stations }) : null),
+    [sundayDate, serviceStartTime, staffedPrograms, songs, crew, subDepts, stations])
 
   // Debounced so a burst of live schedule updates is one write.
   useEffect(() => {
@@ -193,7 +198,7 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
         <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-2.5">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-1 mb-1.5">Station links · the link above is the master screen</p>
           <div className="grid sm:grid-cols-2 gap-1.5">
-            {MEDIA_STATIONS.map((s) => {
+            {(stations.length ? stations.map((s) => ({ ...s, blurb: MEDIA_STATIONS.find((b) => b.id === s.kind)?.blurb || `${s.label} cues` })) : MEDIA_STATIONS).map((s) => {
               const sUrl = url ? mediaStationUrl(token, s.id) : ''
               return (
                 <div key={s.id} className="flex items-center gap-2 rounded-lg bg-slate-800/60 px-2.5 py-1.5">

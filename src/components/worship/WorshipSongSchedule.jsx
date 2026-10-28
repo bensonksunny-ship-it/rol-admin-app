@@ -5,6 +5,7 @@ import { format, parseISO } from 'date-fns'
 import { subscribeWorshipSchedules, scheduleWorshipSong, unscheduleWorshipSong } from '../../services/firestore'
 import { consecutiveSundays } from '../../utils/worshipRoster'
 import useSongScheduler from '../../hooks/useSongScheduler'
+import { ALTAR_CALL_LABEL, isAltarCallRole } from '../../utils/worshipRoleOrder'
 
 const DEPARTMENT = 'Worship'
 const FORWARD_WEEKS = 12 // shown at first; "Show later Sundays" adds 12 more each time
@@ -78,7 +79,6 @@ export default function WorshipSongSchedule({ songs, canManage = false }) {
     const all = leaderGroups(byDate.get(date) || [])
     return mineOnly ? all.filter((g) => myId && g.memberId === myId) : all
   }
-  const leadingOn = (date) => !!myId && (byDate.get(date) || []).some((a) => isLeadVocal(a.role) && a.memberId === myId)
 
   const dates = useMemo(() => {
     const all = (schedules || []).map((s) => s.date).filter(isSundayISO)
@@ -185,9 +185,6 @@ export default function WorshipSongSchedule({ songs, canManage = false }) {
                   )}
                 </div>
 
-                {isUp && mineOnly && myId && !leadingOn(d) && (
-                  <p className="text-[11px] text-slate-400 mt-2">You’re not rostered to lead yet — adding a song puts you on as a lead vocal.</p>
-                )}
                 {groups.length === 0 ? (
                   !(isUp && mineOnly && myId) && <p className="text-xs text-slate-400 mt-3">No lead vocalist rostered yet.</p>
                 ) : (
@@ -216,6 +213,7 @@ export default function WorshipSongSchedule({ songs, canManage = false }) {
                                 <Music2 size={14} className="text-indigo-400 flex-shrink-0" />
                                 <span className="font-semibold text-slate-800 truncate">{a.songName || '(untitled)'}</span>
                                 {a.key && <span className="text-xs font-bold text-indigo-600">[{a.key}]</span>}
+                                {isAltarCallRole(a.role) && <span className="text-[10px] font-bold uppercase tracking-wide text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-1.5 py-0.5 flex-shrink-0">{ALTAR_CALL_LABEL}</span>}
                                 {isUp && (canManage || (myId && a.memberId === myId)) && (
                                   <button type="button" disabled={busy === d} onClick={() => remove(d, a)} title="Remove from this Sunday"
                                     className="ml-auto w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 flex-shrink-0">

@@ -2,12 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { format } from 'date-fns'
 import { Check, ChevronRight, Copy, Crosshair, Minus, MonitorPlay, Music2, Pause, Play, Plus, RotateCcw, Square, User, UserRound, Volume2, Wifi, WifiOff, X } from 'lucide-react'
-import { subscribeMediaLive, setMediaLiveCheck, updateMediaLiveProgress, resetMediaLiveOps, setMediaLiveVerify, setMediaLiveVerifyMany } from '../services/firestore'
+import { subscribeMediaLive, setMediaLiveCheck, updateMediaLiveProgress, resetMediaLiveOps, setMediaLiveVerifyMany } from '../services/firestore'
 import {
   MEDIA_LIVE_PHASES, checkKey, chordLine, songPresentationText, isWorshipItem, plannedStarts, fmtClock, fmtElapsed,
-  rehearsalSummary, MEDIA_STATIONS, stationById, stationCues, crewInStation, scheduleWindows, dateAtMinutes,
+  rehearsalSummary, MEDIA_STATIONS, resolveStation, stationCues, crewInStation, scheduleWindows, dateAtMinutes,
 } from '../utils/mediaLive'
-import { RehearsalSummary, VerifyRow } from '../components/media/RehearsalVerification'
+import { RehearsalSummary } from '../components/media/RehearsalVerification'
 
 const OPERATOR_KEY = 'mediaLiveOperator'
 const PHASE_KEY = 'mediaLivePhase'
@@ -138,7 +138,10 @@ export default function MediaLiveControl() {
   const navigate = useNavigate()
   // Station sub-link (/media-live/:token/:station): only that station's cues, no timer
   // controls. No station = the master screen. Every screen reads the same live doc.
-  const station = stationById(stationId)
+  // Stations are Media's Sub-Departments, published with the content.
+  const [data, setData] = useState(undefined) // undefined = loading, null = gone
+  const stationList = data?.stations?.length ? data.stations : MEDIA_STATIONS
+  const station = useMemo(() => resolveStation(stationId, data?.stations), [stationId, data?.stations])
   const isMaster = !station
   const showAudio = isMaster || !!station?.audio
   const showLyrics = isMaster || !!station?.lyrics
@@ -148,7 +151,6 @@ export default function MediaLiveControl() {
   const [autoAudioPrefs, setAutoAudioPrefs] = useState({}) // this session's toggles, by station
   const autoAudio = autoAudioPrefs[autoAudioKey] ?? readLocal(autoAudioKey, station?.audio ? '1' : '0') === '1'
   const setAutoAudio = (on) => { setAutoAudioPrefs((p) => ({ ...p, [autoAudioKey]: on })); writeLocal(autoAudioKey, on ? '1' : '0') }
-  const [data, setData] = useState(undefined) // undefined = loading, null = gone
   const [phase, setPhase] = useState(() => readLocal(PHASE_KEY, '') || defaultPhase())
   const [operator, setOperator] = useState(() => readLocal(OPERATOR_KEY, ''))
   const [now, setNow] = useState(() => Date.now())
@@ -234,33 +236,12 @@ export default function MediaLiveControl() {
     setBusy('')
   }
   const toggle = (key) => run(key, () => setMediaLiveCheck(token, key, !checks[key], operator.trim()))
-  const setVerify = (key, status, note) => run(key, () => setMediaLiveVerify(token, key, status, note, operator.trim()))
   // One tap: every unchecked checkpoint shown for the item → All Good. Anything
   // already flagged (Needs Attention / Fixed) is left as it is.
   const markAllGood = (programKey, systems) => {
     const keys = systems.filter((x) => !x.entry).map((x) => x.key)
     return run(`allgood__${programKey}`, () => setMediaLiveVerifyMany(token, keys, 'good', operator.trim()))
   }
-
-  // Auto-verify (rehearsal, on by default, shared by every screen): when an item
-  // finishes, its unchecked checkpoints pass as All Good, so technicians only touch
-  // the panel to flag a problem. Stored with the timings, so Reset turns it back on.
-  const autoVerifyKey = 'reh__autoverify'
-  const autoVerify = !progress[autoVerifyKey]?.off
-  const setAutoVerify = (on) => run('autoverify', () => updateMediaLiveProgress(token, { [autoVerifyKey]: { off: on ? null : true } }))
-  const autoVerifySentRef = useRef('')
-  useEffect(() => {
-    if (phase !== 'reh' || !autoVerify) return
-    const keys = rehSummary.items
-      .filter((it) => { const w = windows[programs.findIndex((p) => p.key === it.program.key)]; return w && now >= w.end })
-      .flatMap((it) => it.systems.filter((x) => !x.entry).map((x) => x.key))
-    if (!keys.length) return
-    const sig = keys.join('|')
-    if (autoVerifySentRef.current === sig) return
-    autoVerifySentRef.current = sig
-    setMediaLiveVerifyMany(token, keys, 'good', operator.trim() ? `${operator.trim()} (auto)` : 'Auto-verify')
-      .catch((e) => console.warn('Auto-verify failed', e))
-  }, [phase, autoVerify, rehSummary, windows, now, programs, token, operator])
 
   // Called straight from a tap (not an effect) so the browser allows playback.
   function playTrack(p, track) {
@@ -396,7 +377,8 @@ export default function MediaLiveControl() {
             <select value={station?.id || ''} onChange={(e) => navigate(e.target.value ? `/media-live/${token}/${e.target.value}` : `/media-live/${token}`)}
               className="bg-transparent outline-none text-sm font-semibold [&>option]:bg-slate-900">
               <option value="">Master (all)</option>
-              {MEDIA_STATIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              {stationList.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              {station && !stationList.some((s) => s.id === station.id) && <option value={station.id}>{station.label}</option>}
             </select>
           </label>
           <div className="flex items-center gap-4 ml-auto">
@@ -689,27 +671,13 @@ export default function MediaLiveControl() {
                               </span>
                             )}
                           </div>
-                          <label className="flex items-center gap-2 mb-2 text-[11px] text-slate-400 cursor-pointer"
-                            title="Shared by every screen. Reset Saturday Rehearsal turns it back on.">
-                            <input type="checkbox" checked={autoVerify} disabled={busy === 'autoverify'} onChange={(e) => setAutoVerify(e.target.checked)} className="accent-emerald-500" />
-                            Auto-verify on item complete
-                            <span className="text-slate-500">— {autoVerify ? 'unchecked items pass as All Good when the item finishes; only tap to flag a problem' : 'off: mark each checkpoint yourself'}</span>
-                          </label>
-                          <div className="space-y-1.5">
-                            {systems.map((x) => (
-                              <VerifyRow key={x.key} label={x.label} entry={x.entry} busy={busy === x.key || allBusy}
-                                onSet={(status, note) => setVerify(x.key, status, note)} />
-                            ))}
-                          </div>
                         </div>
                       )
                     })()}
-                    {!sel.songsOnly && (
+                    {!sel.songsOnly && stationCues(sel.elements, station).length > 0 && (
                       <div className="px-4 pb-4">
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">{station ? `${station.label} cues` : 'Media cues'}</p>
-                        {stationCues(sel.elements, station).length === 0 ? (
-                          <p className="text-sm text-slate-500">{station ? `No ${station.label.toLowerCase()} cues for this item.` : 'No media cues designed for this item.'}</p>
-                        ) : (
+                        {(
                           <div className="space-y-1.5">
                             {stationCues(sel.elements, station).map((el) => {
                               const k = checkKey(phase, sel.key, el)
