@@ -4,6 +4,7 @@ import { format } from 'date-fns'
 import MediaWorshipSongs from '../components/media/MediaWorshipSongs'
 import MediaLiveLinkCard from '../components/media/MediaLiveLinkCard'
 import MediaProgramAudio from '../components/media/MediaProgramAudio'
+import { worshipRoleLabel } from '../utils/worshipRoleOrder'
 import { useAuth } from '../context/AuthContext'
 import {
   subscribeProgramNotification,
@@ -748,7 +749,7 @@ export default function UpcomingSunday({ slug }) {
                       {leadVocals.map((a) => (
                         <div key={a.role} className="flex items-center gap-2 flex-wrap">
                           <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-lg">
-                            {a.role.replace('Lead Vocal-', 'Lead Vocal ')}
+                            {worshipRoleLabel(a.role)}
                           </span>
                           {a.songName && <span className="text-xs font-semibold text-slate-800">{a.songName}</span>}
                           {a.key && <span className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">{a.key}</span>}

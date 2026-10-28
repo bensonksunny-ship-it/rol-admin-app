@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { CheckCircle2, CalendarDays, UserPlus } from 'lucide-react'
 import { getWorshipScheduleByDate } from '../../services/firestore'
-import { sortByWorshipRole } from '../../utils/worshipRoleOrder'
+import { sortByWorshipRole, worshipRoleLabel } from '../../utils/worshipRoleOrder'
 
 // Maps an assignment role's category (see ROLE_CATEGORIES/parseRoleKey in
 // DepartmentWorship.jsx — duplicated here so this page stays self-contained) to the
@@ -173,7 +173,7 @@ export default function UpcomingWorship({ myWorshipMember, songs, onViewSong, ca
             <div className="flex flex-wrap gap-1.5 mt-2">
               {myAssignments.map((a, i) => (
                 <span key={i} className="text-xs font-semibold text-emerald-700 bg-white border border-emerald-200 px-2.5 py-0.5 rounded-full shadow-sm">
-                  {a.role}
+                  {worshipRoleLabel(a.role)}
                 </span>
               ))}
             </div>

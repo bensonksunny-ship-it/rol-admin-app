@@ -5,7 +5,7 @@ import {
   Mic, MicVocal, Piano, Guitar, Drum, SlidersHorizontal, Music4,
 } from 'lucide-react'
 import { subscribeWorshipScheduleByDate, getWorshipRehearsals, getWorshipSongs } from '../../services/firestore'
-import { sortByWorshipRole } from '../../utils/worshipRoleOrder'
+import { sortByWorshipRole, worshipRoleCategoryLabel } from '../../utils/worshipRoleOrder'
 
 const DEPARTMENT = 'Worship'
 
@@ -31,13 +31,13 @@ const fmtTime = (t) => {
   const h = Number(m[1])
   return `${h % 12 || 12}:${m[2]} ${h < 12 ? 'AM' : 'PM'}`
 }
-// "Lead Vocal-2" → "Lead Vocal"
-const roleCategory = (role) => String(role || '').replace(/-\d+$/, '')
+// "Lead Vocal-2" → "Lead Vocal"; the Lead Vocal-4 slot → "Altar Call Worship"
+const roleCategory = worshipRoleCategoryLabel
 const initials = (name) => String(name || '').trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() || '').join('') || '?'
 
 // Icon + colours per role category; unknown/custom roles fall back to the last entry.
 const ROLE_STYLE = [
-  [/lead vocal/i, MicVocal, 'from-violet-500 to-fuchsia-500', 'bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200'],
+  [/lead vocal|altar call/i, MicVocal, 'from-violet-500 to-fuchsia-500', 'bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-200'],
   [/parts/i, Mic, 'from-pink-500 to-rose-500', 'bg-pink-50 text-pink-700 dark:bg-pink-500/15 dark:text-pink-200'],
   [/choir/i, Users, 'from-sky-500 to-indigo-500', 'bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-200'],
   [/key|piano/i, Piano, 'from-amber-500 to-orange-500', 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-200'],

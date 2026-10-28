@@ -28,3 +28,25 @@ export function sortByWorshipRole(assignments) {
     return catA - catB || idxA - idxB
   })
 }
+
+// The 4th Lead Vocal slot leads Altar Call Worship — same worship_schedule role key
+// ("Lead Vocal-4"), shown under this name wherever a worship role is displayed, and
+// the person the Sunday Program's Altar Call item resolves to.
+export const ALTAR_CALL_ROLE = 'Lead Vocal-4'
+export const ALTAR_CALL_LABEL = 'Altar Call Worship'
+
+export function isAltarCallRole(role) {
+  return String(role || '').trim() === ALTAR_CALL_ROLE
+}
+
+/** Display name for a worship role key: "Lead Vocal-2" → "Lead Vocal 2", the
+ * Altar Call slot → "Altar Call Worship". */
+export function worshipRoleLabel(role) {
+  return isAltarCallRole(role) ? ALTAR_CALL_LABEL : String(role || '').replace(/-(\d+)$/, ' $1')
+}
+
+/** A worship role's category with its slot number dropped ("Lead Vocal-2" → "Lead
+ * Vocal"), except the Altar Call slot, which keeps its own name. */
+export function worshipRoleCategoryLabel(role) {
+  return isAltarCallRole(role) ? ALTAR_CALL_LABEL : String(role || '').replace(/-\d+$/, '')
+}

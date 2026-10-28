@@ -144,12 +144,12 @@ function LiveRosterPreview({ selectedDate, plan, preServiceEntry }) {
       {/* Side by side instead of stacked — the full roster fits one A4 page/screen. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {/* Modal-only display mappings (see WorshipPlanSummary/SundayMinistryPlanSummary
-            in SundayPlanning.jsx): Lead Vocal-4 shows as "Altar Call Worship" here, and
-            its assignee also appears as the Intercessory Prayer leader. Scoped to this
+            in SundayPlanning.jsx): the Altar Call Worship (Lead Vocal-4)
+            assignee also appears as the Intercessory Prayer leader. Scoped to this
             modal only via the opt-in props — the standalone /sunday-planning page and
             Worship's own Assign tab are unaffected. */}
         <SundayMinistryPlanSummary plan={plan} preServiceEntry={preServiceEntry} selectedDate={selectedDate} showIntercessoryPrayer />
-        <WorshipPlanSummary selectedDate={selectedDate} altarCallMapping />
+        <WorshipPlanSummary selectedDate={selectedDate} />
         <DLitePlanSummary selectedDate={selectedDate} />
         <MediaPlanSummary selectedDate={selectedDate} />
         <div className="bg-white rounded-xl border border-teal-200 border-l-4 border-l-teal-500 p-2.5 shadow-sm">

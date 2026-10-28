@@ -15,6 +15,7 @@ import useClickOutside from '../../hooks/useClickOutside'
 import UpcomingWorship from '../../pages/worship/UpcomingWorship'
 import SongViewer from '../../pages/worship/SongViewer'
 import { RIBBON_BAR } from '../../constants/ribbon'
+import { worshipRoleLabel, worshipRoleCategoryLabel } from '../../utils/worshipRoleOrder'
 
 // Same "forthcoming Sunday" rule used by Assign/UpcomingWorship: today if it's Sunday
 // before 6pm, otherwise the next Sunday. Duplicated here (rather than imported) so this
@@ -377,7 +378,7 @@ export default function WorshipWorkspaceWidget() {
             ctx.fillStyle = '#7c3aed'
             ctx.font = '13px Arial, sans-serif'
             ctx.textAlign = 'left'
-            ctx.fillText(a.role.replace(/-\d+$/, ''), PAD, y + ROW_H - 11)
+            ctx.fillText(worshipRoleCategoryLabel(a.role), PAD, y + ROW_H - 11)
             ctx.fillStyle = '#111827'
             ctx.font = '600 16px Arial, sans-serif'
             ctx.fillText(a.memberName || '—', PAD + 220, y + ROW_H - 11)
@@ -570,7 +571,7 @@ export default function WorshipWorkspaceWidget() {
                         className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2"
                       >
                         <div className="min-w-0">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-600">{row.role}</p>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-600">{worshipRoleLabel(row.role)}</p>
                           <p className={`text-sm truncate ${row.songName ? 'font-semibold text-slate-800' : 'italic text-slate-400 font-normal'}`}>
                             {row.songName || 'No song set yet'}
                           </p>
@@ -605,7 +606,7 @@ export default function WorshipWorkspaceWidget() {
                       const linkedSong = row.songId ? songs.find(s => s.id === row.songId) : null
                       return (
                         <div key={row.role} className="rounded-xl border border-slate-200 bg-white p-3">
-                          <p className="text-[11px] font-bold uppercase tracking-wider text-violet-600 mb-2">{row.role}</p>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-violet-600 mb-2">{worshipRoleLabel(row.role)}</p>
                           <div className="flex gap-2">
                             <div className="relative flex-1">
                               <input

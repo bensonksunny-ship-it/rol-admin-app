@@ -6,6 +6,7 @@ import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, nextSundayISO } from '../utils/date'
 import DateInput from '../components/DateInput'
+import { isAltarCallRole, worshipRoleLabel } from '../utils/worshipRoleOrder'
 
 const WORSHIP_ROLES = [
   'Lead Vocal-1', 'Lead Vocal-2', 'Lead Vocal-3', 'Lead Vocal-4', 'Lead Vocal-5', 'Lead Vocal-6',
@@ -43,13 +44,9 @@ const SECTION_ACCENT = {
   [SUNDAY_PLAN_SECTIONS.RIVER_KIDS]: { border: 'border-l-teal-500', btn: 'bg-teal-500 hover:bg-teal-600' },
 }
 
-// altarCallMapping: opt-in, Sunday Plan modal only (see SundayPlanBubble.jsx) —
-// relabels the Lead Vocal-4 slot as "Altar Call Worship" everywhere else in the
-// app (the Worship department's own Assign tab, the standalone /sunday-planning
-// page) this is still shown as a generic Lead Vocal-4 slot; only the modal's
-// display remaps it. Data is untouched — same worship_schedule assignment, same
-// song/member fields, only the label shown for this one role changes.
-export function WorshipPlanSummary({ selectedDate, altarCallMapping = false }) {
+// The Lead Vocal-4 slot shows as "Altar Call Worship" (worshipRoleLabel), same as
+// everywhere else in the app.
+export function WorshipPlanSummary({ selectedDate }) {
   const [worshipPlan, setWorshipPlan] = useState(null)
   const [loading, setLoading] = useState(true)
   const [expandedRole, setExpandedRole] = useState(null)
@@ -110,7 +107,7 @@ export function WorshipPlanSummary({ selectedDate, altarCallMapping = false }) {
                 >
                   <div className="flex-1 min-w-0 flex items-center gap-1.5 flex-wrap">
                     <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide flex-shrink-0">
-                      {altarCallMapping && role === 'Lead Vocal-4' ? 'ALTAR CALL WORSHIP' : role.replace('-', ' ')}
+                      {worshipRoleLabel(role)}
                     </span>
                     <span className="text-xs font-semibold text-slate-800 truncate">{a.memberName}</span>
                     {a.songName && <span className="text-slate-300 text-xs">|</span>}
@@ -470,7 +467,7 @@ function useIntercessoryPrayerName(selectedDate, enabled) {
     getWorshipScheduleByDate('Worship', selectedDate)
       .then((worshipPlan) => {
         if (cancelled) return
-        const a = (worshipPlan?.assignments || []).find((x) => x.role === 'Lead Vocal-4')
+        const a = (worshipPlan?.assignments || []).find((x) => isAltarCallRole(x.role))
         setName(a?.memberName || '')
       })
       .catch(() => { if (!cancelled) setName('') })
@@ -669,7 +666,7 @@ function SundayProgramBlock({ plan, preServiceEntry, canEdit, selectedDate }) {
                         {worshipSongs.map((a, si) => (
                           <div key={a.role} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 44px', borderTop: si > 0 ? '1px solid #fef3c7' : 'none', flexWrap: 'wrap' }}>
                             <span style={{ fontSize: 10, color: '#92400e', fontWeight: 700, background: '#fde68a', padding: '1px 7px', borderRadius: 10, flexShrink: 0 }}>
-                              {a.role.replace('Lead Vocal-', 'Lead Vocal ')}
+                              {worshipRoleLabel(a.role)}
                             </span>
                             {a.songName && (
                               <span style={{ fontSize: 12, fontWeight: 600, color: '#1c1917', flex: 1, minWidth: 60 }}>{a.songName}</span>
@@ -895,7 +892,7 @@ export function DigitalBulletin({ plan, preServiceEntry, selectedDate, modalMapp
           also repeat as separate generic notes cards below. */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <SundayMinistryPlanSummary plan={plan} preServiceEntry={preServiceEntry} selectedDate={selectedDate} showIntercessoryPrayer={modalMappings} />
-      <WorshipPlanSummary selectedDate={selectedDate} altarCallMapping={modalMappings} />
+      <WorshipPlanSummary selectedDate={selectedDate} />
       {SECTION_ORDER.filter((k) => ![
         SUNDAY_PLAN_SECTIONS.WORSHIP,
         SUNDAY_PLAN_SECTIONS.SUNDAY_MINISTRY,
