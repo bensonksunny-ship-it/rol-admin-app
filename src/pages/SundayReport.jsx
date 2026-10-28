@@ -2937,7 +2937,7 @@ export default function SundayReport({ embedded = false }) {
                               <span className="flex items-center gap-1 min-w-0 flex-1">
                                 <span className="font-medium text-slate-800 truncate text-sm">{item.programName}</span>
                                 {programPeople[item.programName] && (
-                                  <span className="shrink-0 max-w-[45%] truncate rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 text-[11px] font-medium"
+                                  <span className={`shrink-0 rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 text-[11px] font-medium ${programPeople[item.programName].names?.length > 1 ? 'max-w-[60%] leading-snug' : 'max-w-[45%] truncate'}`}
                                     title={[programPeople[item.programName].role, programPeople[item.programName].source === 'manual' ? 'set in Program Design' : `from ${programPeople[item.programName].source}`].filter(Boolean).join(' · ')}>
                                     {programPeople[item.programName].name}
                                   </span>

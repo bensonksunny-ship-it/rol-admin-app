@@ -32,6 +32,7 @@ import { subDeptMatchKey } from '../utils/subDeptMatch'
 import { mergeFamilyIntoProfile } from '../utils/familyDetails'
 import { userLinksToCellGroup } from '../utils/cellReportPermissions'
 import { SCHEDULER_FIELDS, schedulerFields, schedulerStamp } from '../utils/songScheduler'
+import { splitNames } from '../utils/programPeople'
 
 // Firestore's writes reject any `undefined` field value, including ones nested inside
 // array elements (e.g. one row of a dynamically-built assignments array). Recursively
@@ -10247,6 +10248,15 @@ export async function setMediaLiveVerify(token, key, status, note, by) {
   })
 }
 
+/** Several rehearsal checkpoints in one write (Mark all good / auto-verify): keys → status. */
+export async function setMediaLiveVerifyMany(token, keys, status, by) {
+  if (!keys?.length) return
+  const at = Date.now()
+  const upd = { opsAt: serverTimestamp() }
+  for (const key of keys) upd[`verify.${key}`] = { status, note: '', at, by: String(by || '').slice(0, 60) }
+  await updateDoc(doc(db, MEDIA_LIVE, token), upd)
+}
+
 /**
  * Media Director's rehearsal sign-off (signed-in Media only — see firestore.rules).
  * `signature` is rehearsalSummary().signature at the moment of signing.
@@ -10271,7 +10281,8 @@ export async function resetMediaLiveOps(token, { checks = {}, progress = {}, ver
 }
 
 // ─── Sunday programme: person in charge per item, per Sunday ─────────────────
-// sunday_program/people_{date}: { date, people: { [programName]: { name, role } } }.
+// sunday_program/people_{date}: { date, people: { [programName]: { name, names, role } } }.
+// `name` may hold several people ("A, B" — worship co-leads); `names` is that list.
 // Names the Sunday Ministry Director sets in Program Design; items left blank fall
 // back to the department rosters (see utils/programPeople.js). Lives in the
 // sunday_program collection so it shares that collection's rules.
@@ -10286,8 +10297,8 @@ export async function setSundayProgramPeople(date, people, updatedBy) {
   if (!db || !date) return
   const clean = {}
   for (const [k, v] of Object.entries(people || {})) {
-    const name = String(v?.name || '').trim()
-    if (name) clean[k] = { name, role: String(v?.role || '').trim() }
+    const names = splitNames(v?.name)
+    if (names.length) clean[k] = { name: names.join(', '), names, role: String(v?.role || '').trim() }
   }
   await setDoc(doc(db, SUNDAY_PROGRAM_COLLECTION, `people_${date}`), {
     date, people: clean, updatedBy: updatedBy || '', updatedAt: serverTimestamp(),

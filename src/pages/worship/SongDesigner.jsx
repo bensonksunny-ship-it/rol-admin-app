@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { Pencil, Copy, Play, Pause, MoreVertical, Type, ListPlus, FileText, Palette, Repeat, Save, Plus, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Pencil, Copy, Play, Pause, MoreVertical, Plus, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { addWorshipSong, updateWorshipSong, getWorshipTeamMembers } from '../../services/firestore'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -33,16 +33,6 @@ const DEFAULT_LEAD = 'Lead Vocal'
 const TIME_SIGNATURES = ['4/4', '3/4', '6/8', '2/4', '12/8']
 const DEFAULT_TIME_SIGNATURE = '4/4'
 const beatsPerBarFor = ts => parseInt((ts || DEFAULT_TIME_SIGNATURE).split('/')[0], 10) || 4
-
-// ── Quick-guide steps — short, scannable cards instead of a wall of numbered text ──
-const GUIDE_STEPS = [
-  { Icon: Type,     title: 'Name it',              body: 'Title, then pick your name under "Designed by".' },
-  { Icon: ListPlus, title: 'Add sections',         body: '"+ Add Segment" for Intro, Verse, Chorus, etc.' },
-  { Icon: FileText, title: 'Paste lyrics & chords', body: 'Chords above lines or [in brackets], then Parse.' },
-  { Icon: Palette,  title: 'Tag who plays what',   body: 'Pick an instrument, then click/drag across words.' },
-  { Icon: Repeat,   title: 'Repeat & reorder',     body: 'Copy icon repeats a section after the last one added; drag the tabs (or ‹ › on the selected tab) to reorder.' },
-  { Icon: Save,     title: 'Save',                 body: '"Save to Directory" when done — it autosaves as you go.' },
-]
 
 // ── Segment color system — each structure type gets its own vibrant, soft-pill identity ──
 const SEGMENT_COLOR_MAP = {
@@ -400,7 +390,7 @@ function buildSegmentsFromBlocks(blocks) {
 
 // ── "Designed by" combobox — searchable instead of a plain <select> that either
 // overflows with long names or forces scrolling through the whole team list blind. ──
-function DesignedByCombobox({ value, options, onChange }) {
+function DesignedByCombobox({ value, options, onChange, className = 'h-9 shrink-0 w-36' }) {
   const [query, setQuery] = useState(value || '')
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
@@ -422,7 +412,7 @@ function DesignedByCombobox({ value, options, onChange }) {
   const filtered = q ? options.filter(m => m.name.toLowerCase().includes(q)) : options
 
   return (
-    <div className="relative h-9 shrink-0 w-36" ref={ref}>
+    <div className={`relative ${className}`} ref={ref}>
       <input
         value={query}
         onChange={e => {
@@ -1067,7 +1057,6 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [detectedKeys, setDetectedKeys] = useState([])
-  const [metaEditing, setMetaEditing] = useState(false)
   const [showSegmentMenu, setShowSegmentMenu] = useState(false)
   // Focus mode (one section at a time) vs. full-sheet mode (every section stacked on
   // one page) — full sheet is what you want when rehearsing or printing the whole song.
@@ -1081,7 +1070,6 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
   // In-app walkthrough for a first-time designer — open by default for a brand new
   // song (most likely someone's first time here), collapsed but always reopenable
   // when editing an existing song.
-  const [showGuide, setShowGuide] = useState(!isEditing)
   const segmentMenuRef = useRef(null)
   const draftKey = draftKeyFor(editingSong?.id)
   const tapTimesRef = useRef([])
@@ -1131,7 +1119,6 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
       setActiveIdx(0)
       setTranspose(draft.transpose ?? 0)
       setSaved(false)
-      setMetaEditing(false)
       return
     }
     if (editingSong) {
@@ -1146,14 +1133,12 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
       setActiveIdx(0)
       setTranspose(0)
       setSaved(false)
-      setMetaEditing(false)
     } else {
       setMeta({ title: '', artist: '', key: '', tempo: '', designedBy: '' })
       setSegments([])
       setActiveIdx(0)
       setTranspose(0)
       setSaved(false)
-      setMetaEditing(false)
     }
   }, [editingSong, userProfile])
 
@@ -1422,73 +1407,147 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
       setSegments([])
       setTranspose(0)
       setSaved(false)
-      setMetaEditing(false)
     }
   }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
 
-      {/* Quick walkthrough for a new designer — collapsible so it doesn't get in the
-          way once someone already knows the tool, but always one tap away. A horizontal
-          strip of small step cards (icon + short title + one line) instead of a dense
-          numbered paragraph list, so it can be scanned instead of read. */}
-      <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 overflow-hidden shadow-sm">
-        <button type="button" onClick={() => setShowGuide(v => !v)}
-          className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
-          <span className="text-xs font-semibold text-indigo-700">How to design a song</span>
-          <ChevronDown size={14} className={`text-indigo-400 transition-transform duration-200 ${showGuide ? 'rotate-180' : ''}`} />
-        </button>
-        {showGuide && (
-          <div className="flex gap-2.5 overflow-x-auto px-4 pb-4 pt-0.5">
-            {GUIDE_STEPS.map((step, i) => (
-              <div key={step.title} className="shrink-0 w-40 rounded-xl bg-white border border-indigo-100 p-3 shadow-sm">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <span className="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
-                    {i + 1}
-                  </span>
-                  <step.Icon size={14} className="text-indigo-500 shrink-0" />
-                </div>
-                <p className="text-xs font-semibold text-slate-800 leading-tight">{step.title}</p>
-                <p className="text-[11px] text-slate-500 leading-snug mt-0.5">{step.body}</p>
-              </div>
-            ))}
+      {/* One card for everything that starts a song: details, paste-and-parse, and
+          adding sections. */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+          <div className="col-span-2 sm:col-span-3">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 block mb-1">Song title</label>
+            <input value={meta.title} onChange={e => setMeta(p => ({ ...p, title: e.target.value }))}
+              placeholder="Untitled Song *"
+              className="h-9 w-full border border-slate-200 rounded-xl px-3 text-sm font-semibold text-slate-800 placeholder-slate-400 bg-white focus:outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+          <div className="col-span-2 sm:col-span-3">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 block mb-1">Designed by</label>
+            <DesignedByCombobox className="h-9 w-full" value={meta.designedBy} options={activeMembers}
+              onChange={v => setMeta(p => ({ ...p, designedBy: v }))} />
+          </div>
+          <div className="col-span-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 block mb-1">Artist</label>
+            <input value={meta.artist} onChange={e => setMeta(p => ({ ...p, artist: e.target.value }))}
+              placeholder="e.g. Hillsong"
+              className="h-9 w-full border border-slate-200 rounded-xl px-3 text-sm text-slate-700 placeholder-slate-400 bg-white focus:outline-none focus:ring-2 focus:ring-slate-300" />
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Key</label>
+              <button type="button" onClick={() => setDetectedKeys(detectKey(segments))} disabled={segments.length === 0}
+                title="Auto-detect key"
+                className="text-[10px] font-medium text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">Auto</button>
+            </div>
+            <select value={meta.key} onChange={e => { setMeta(p => ({ ...p, key: e.target.value })); setDetectedKeys([]) }}
+              className="h-9 w-full border border-slate-200 rounded-xl px-2 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-slate-300">
+              <option value="">—</option>
+              {['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B',
+                'Am','Em','Bm','F#m','C#m','Dm','Gm','Cm','Fm','Bbm'].map(k => (
+                <option key={k} value={k}>{k}</option>
+              ))}
+            </select>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 block mb-1">Tempo (BPM)</label>
+            <div className="h-9 flex items-center gap-0.5 border border-slate-200 rounded-xl bg-white pl-3 pr-1">
+              <input type="number" min="1" max="300" inputMode="numeric"
+                value={meta.tempo} onChange={e => setMeta(p => ({ ...p, tempo: e.target.value }))}
+                placeholder="BPM"
+                className="min-w-0 flex-1 text-sm text-slate-700 placeholder-slate-400 bg-transparent focus:outline-none" />
+              <button type="button" onClick={() => setMetronomeOn(v => !v)} disabled={!bpmNumber}
+                title={metronomeOn ? 'Pause metronome' : 'Play metronome'}
+                className={`w-7 h-7 shrink-0 rounded-lg flex items-center justify-center transition-all active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed ${
+                  metronomeOn ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                }`}>
+                {metronomeOn ? <Pause size={13} /> : <Play size={13} />}
+              </button>
+              <button type="button" onClick={handleTapTempo} title="Tap tempo"
+                className="px-1.5 h-7 shrink-0 rounded-lg text-[10px] font-semibold text-slate-500 hover:bg-slate-100 active:scale-95 transition-all">
+                Tap
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 block mb-1">Time sig.</label>
+            <select value={timeSignature} onChange={e => setTimeSignature(e.target.value)}
+              className="h-9 w-full border border-slate-200 rounded-xl px-2 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-slate-300">
+              {TIME_SIGNATURES.map(ts => <option key={ts} value={ts}>{ts}</option>)}
+            </select>
+          </div>
+          {(detectedKeys.length > 0 || (meta.key && transpose !== 0)) && (
+            <div className="col-span-2 sm:col-span-6 flex flex-wrap items-center gap-1.5 -mt-1">
+              {detectedKeys.length > 0 && <span className="text-[10px] text-slate-400">Detected key:</span>}
+              {detectedKeys.map((k, i) => (
+                <button key={k} type="button" onClick={() => { setMeta(p => ({ ...p, key: k })); setDetectedKeys([]) }}
+                  className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-all active:scale-95 ${
+                    i === 0 ? 'bg-slate-500 text-white border-slate-500' : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-100'
+                  }`}>{k}</button>
+              ))}
+              {meta.key && transpose !== 0 && <span className="text-[10px] text-slate-400">{meta.key} → {transposedKey}</span>}
+            </div>
+          )}
+        </div>
+
+        {(segments.length === 0 || showBulkPaste) && (
+          <div className="space-y-2 pt-4 border-t border-slate-100">
+            <textarea
+              value={bulkText}
+              onChange={e => setBulkText(e.target.value)}
+              placeholder={'Paste the whole song here\n\n[Verse 1]\nG              D\nAmazing grace, how sweet the sound'}
+              rows={8}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-violet-300 bg-slate-50/50 text-slate-700 placeholder-slate-400"
+            />
+            <div className="flex items-center gap-3">
+              <button type="button" disabled={!bulkText.trim()} onClick={handleBulkParse}
+                className="px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-semibold shadow-sm hover:bg-violet-700 disabled:opacity-40 disabled:shadow-none transition-all active:scale-95">
+                Parse Song
+              </button>
+              {segments.length > 0 && (
+                <button type="button" onClick={() => { setShowBulkPaste(false); setBulkText('') }}
+                  className="text-xs font-medium text-slate-400 hover:text-slate-600 transition-colors">
+                  Cancel
+                </button>
+              )}
+            </div>
           </div>
         )}
-      </div>
 
-      {/* Meta — a single consolidated header row (Title, Designed by, BPM, Transpose,
-          Metronome, Edit) keeps everything glanceable in one strip, leaving the rest
-          of the card's height for the song editor below. Artist/Key are secondary
-          details tucked behind Edit rather than fighting for room in the row itself. */}
-      <div className="bg-gradient-to-br from-indigo-50/40 via-white to-purple-50/30 rounded-2xl border border-indigo-100/60 shadow-sm p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Title — inline-editable, takes up whatever space the other controls leave.
-              min-w-0 lets it actually shrink below its content width instead of forcing
-              the row to overflow; truncate keeps a long title from blowing out the box. */}
-          <input value={meta.title} onChange={e => setMeta(p => ({ ...p, title: e.target.value }))}
-            placeholder="Untitled Song *"
-            className="h-9 flex-1 min-w-[140px] truncate border border-slate-200 rounded-xl px-3 text-sm font-semibold text-slate-800 placeholder-slate-400 bg-white focus:outline-none focus:ring-2 focus:ring-slate-300" />
-
-          {/* Designed by — searchable combobox instead of a plain <select> */}
-          <DesignedByCombobox
-            value={meta.designedBy}
-            options={activeMembers}
-            onChange={v => setMeta(p => ({ ...p, designedBy: v }))}
-          />
-
-          {/* BPM */}
-          <input type="number" min="1" max="300" inputMode="numeric"
-            value={meta.tempo} onChange={e => setMeta(p => ({ ...p, tempo: e.target.value }))}
-            placeholder="BPM" title="Tempo (BPM)"
-            className="h-9 shrink-0 w-16 border border-slate-200 rounded-xl px-2 text-xs text-center font-medium text-slate-500 bg-white focus:outline-none focus:ring-2 focus:ring-slate-300" />
-
-          {/* Transpose — compact −/+ pill */}
-          <div className="h-9 shrink-0 flex items-center gap-0.5 border border-slate-200 rounded-xl bg-white px-1">
+        <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-slate-100">
+          <div className="relative" ref={segmentMenuRef}>
+            <button
+              type="button"
+              onClick={() => setShowSegmentMenu(v => !v)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-violet-200 bg-violet-50 text-violet-700 text-sm font-semibold hover:bg-violet-100 active:scale-95 transition-all"
+            >
+              <Plus size={16} /> Add Segment
+            </button>
+            {showSegmentMenu && (
+              <div className="absolute z-10 mt-2 p-2 rounded-2xl border border-slate-200 bg-white shadow-lg grid grid-cols-2 gap-2 w-max">
+                {SEGMENT_TYPES.map(type => (
+                  <button key={type} type="button"
+                    onClick={() => { addSegment(type); setShowSegmentMenu(false) }}
+                    className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-xs font-medium bg-slate-50 hover:bg-slate-100 hover:text-slate-700 active:scale-95 transition-all whitespace-nowrap">
+                    + {type}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {segments.length > 0 && !showBulkPaste && (
+            <button type="button" onClick={() => setShowBulkPaste(true)}
+              className="text-xs font-medium text-slate-400 hover:text-slate-600 underline underline-offset-2 transition-colors">
+              Paste whole song instead
+            </button>
+          )}
+          {/* Transpose */}
+          <div className="ml-auto h-9 shrink-0 flex items-center gap-0.5 border border-slate-200 rounded-xl bg-white px-1" title="Transpose (semitones)">
             <button type="button" onClick={() => setTranspose(t => Math.max(t - 1, -11))} title="Transpose down"
               className="w-7 h-7 rounded-lg text-slate-400 font-bold hover:bg-slate-100 hover:text-slate-600 active:scale-90 transition-all flex items-center justify-center text-sm">−</button>
-            <span className="text-xs font-medium text-slate-500 w-7 text-center" title="Transpose (semitones)">
-              {transpose === 0 ? '0' : (transpose > 0 ? `+${transpose}` : transpose)}
+            <span className="text-xs font-medium text-slate-500 w-16 text-center">
+              {transpose === 0 ? 'Transpose' : (transpose > 0 ? `+${transpose}` : transpose)}
             </span>
             <button type="button" onClick={() => setTranspose(t => Math.min(t + 1, 11))} title="Transpose up"
               className="w-7 h-7 rounded-lg text-slate-400 font-bold hover:bg-slate-100 hover:text-slate-600 active:scale-90 transition-all flex items-center justify-center text-sm">+</button>
@@ -1497,167 +1556,13 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
                 className="w-7 h-7 rounded-lg text-slate-300 hover:text-slate-500 hover:bg-slate-100 transition-colors flex items-center justify-center text-xs font-bold">↺</button>
             )}
           </div>
-
-          {/* Metronome */}
-          <div className="h-9 shrink-0 flex items-center gap-0.5 border border-slate-200 rounded-xl bg-white px-1">
-            <button type="button" onClick={() => setMetronomeOn(v => !v)}
-              disabled={!bpmNumber}
-              title={metronomeOn ? 'Pause metronome' : 'Play metronome'}
-              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all active:scale-90 disabled:opacity-30 disabled:cursor-not-allowed ${
-                metronomeOn ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
-              }`}>
-              {metronomeOn ? <Pause size={13} /> : <Play size={13} />}
-            </button>
-            <button type="button" onClick={handleTapTempo} title="Tap tempo"
-              className="px-1.5 h-7 rounded-lg text-[10px] font-semibold text-slate-500 hover:bg-slate-100 active:scale-95 transition-all">
-              Tap
-            </button>
-            <select value={timeSignature} onChange={e => setTimeSignature(e.target.value)}
-              title="Time signature"
-              className="h-7 text-[11px] font-medium text-slate-500 border-0 bg-transparent focus:outline-none">
-              {TIME_SIGNATURES.map(ts => <option key={ts} value={ts}>{ts}</option>)}
-            </select>
-          </div>
-
-          {/* Edit — icon-only toggle that reveals Artist / Key below, so they don't
-              crowd the row above; sized to match the row (h-9) but a touch larger
-              than the other icon buttons since it's the row's primary action. */}
-          <button type="button" onClick={() => setMetaEditing(v => !v)}
-            title={metaEditing ? 'Done editing details' : 'Edit song details'}
-            className={`h-9 w-9 shrink-0 flex items-center justify-center rounded-xl border transition-colors ${
-              metaEditing ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-200 bg-white text-slate-400 hover:bg-slate-100 hover:text-slate-600'
-            }`}>
-            <Pencil size={16} />
-          </button>
         </div>
-
-        {/* Artist / Key — secondary details, expanded via the Edit button above */}
-        {metaEditing && (
-          <div className="flex gap-3 mt-3 pt-3 border-t border-slate-200">
-            <div className="flex-1">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500 block mb-1">Artist</label>
-              <input value={meta.artist} onChange={e => setMeta(p => ({ ...p, artist: e.target.value }))}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white text-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-300" placeholder="e.g. Hillsong" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Key</label>
-                <button
-                  type="button"
-                  onClick={() => setDetectedKeys(detectKey(segments))}
-                  disabled={segments.length === 0}
-                  className="text-[10px] font-medium text-slate-400 hover:text-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                >Auto-detect</button>
-              </div>
-              <select value={meta.key} onChange={e => { setMeta(p => ({ ...p, key: e.target.value })); setDetectedKeys([]) }}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-300 bg-white text-slate-600">
-                <option value="">—</option>
-                {['C','Db','D','Eb','E','F','F#','G','Ab','A','Bb','B',
-                  'Am','Em','Bm','F#m','C#m','Dm','Gm','Cm','Fm','Bbm'].map(k => (
-                  <option key={k} value={k}>{k}</option>
-                ))}
-              </select>
-              {detectedKeys.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  <span className="text-[10px] text-slate-400 self-center">Detected:</span>
-                  {detectedKeys.map((k, i) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => { setMeta(p => ({ ...p, key: k })); setDetectedKeys([]) }}
-                      className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-all active:scale-95 ${
-                        i === 0
-                          ? 'bg-slate-500 text-white border-slate-500'
-                          : 'bg-white text-slate-400 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >{k}</button>
-                  ))}
-                </div>
-              )}
-              {meta.key && transpose !== 0 && (
-                <p className="text-[10px] text-slate-400 mt-1.5">{meta.key} → {transposedKey}</p>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Paste-whole-song import — the fastest way to start: paste an entire chord
-          chart at once and every section (with its chords) gets created and parsed
-          automatically, instead of adding and pasting into one segment at a time.
-          Open by default while the song has no segments yet; collapsible once it does,
-          re-openable via the "Paste whole song" link next to Add Segment below. */}
-      {(segments.length === 0 || showBulkPaste) && (
-        <div className="rounded-2xl border border-violet-100 bg-violet-50/50 p-4 space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-violet-700">Paste your whole song</p>
-            {segments.length > 0 && (
-              <button type="button" onClick={() => { setShowBulkPaste(false); setBulkText('') }}
-                className="text-[11px] font-medium text-slate-400 hover:text-slate-600 transition-colors">
-                Cancel
-              </button>
-            )}
-          </div>
-          <p className="text-[11px] text-slate-500 leading-snug">
-            Use section labels like <span className="font-mono">[Verse 1]</span> / <span className="font-mono">[Chorus]</span> (or bare <span className="font-mono">Bridge</span>/<span className="font-mono">Outro</span> lines), chords above the lyric line or <span className="font-mono">[G]inline</span> — we'll split it into sections and parse the chords for you. No labels at all also works: repeated stanzas (usually the chorus) are detected and tagged as repeats.
-          </p>
-          <textarea
-            value={bulkText}
-            onChange={e => setBulkText(e.target.value)}
-            placeholder={'[Verse 1]\nG              D\nAmazing grace, how sweet the sound\n\n[Chorus]\nEm            C\nMy chains are gone, I’ve been set free'}
-            rows={8}
-            className="w-full border border-violet-200 rounded-xl px-3 py-2.5 font-mono text-sm resize-y focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white text-slate-600 placeholder-slate-400"
-          />
-          <div className="flex justify-end">
-            <button type="button" disabled={!bulkText.trim()} onClick={handleBulkParse}
-              className="px-4 py-2 rounded-xl bg-violet-600 text-white text-xs font-semibold shadow-sm hover:bg-violet-700 disabled:opacity-40 disabled:shadow-none transition-all active:scale-95">
-              Parse Song
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Segment picker — button reveals a popover of segment types. Styled as a
-          primary action (solid, icon) rather than a muted ghost link, since adding
-          sections is core to building a song, not a secondary/incidental control. */}
-      <div className="flex items-center gap-3">
-        <div className="relative" ref={segmentMenuRef}>
-          <button
-            type="button"
-            onClick={() => setShowSegmentMenu(v => !v)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-semibold shadow-sm hover:bg-violet-700 active:scale-95 transition-all"
-          >
-            <Plus size={16} /> Add Segment
-          </button>
-          {showSegmentMenu && (
-            <div className="absolute z-10 mt-2 p-2 rounded-2xl border border-slate-200 bg-white shadow-lg grid grid-cols-2 gap-2 w-max">
-              {SEGMENT_TYPES.map(type => (
-                <button key={type} type="button"
-                  onClick={() => { addSegment(type); setShowSegmentMenu(false) }}
-                  className="px-3 py-1.5 rounded-xl border border-slate-200 text-slate-500 text-xs font-medium bg-slate-50 hover:bg-slate-100 hover:text-slate-700 active:scale-95 transition-all whitespace-nowrap">
-                  + {type}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {segments.length > 0 && !showBulkPaste && (
-          <button type="button" onClick={() => setShowBulkPaste(true)}
-            className="text-xs font-medium text-slate-400 hover:text-slate-600 underline underline-offset-2 transition-colors">
-            Paste whole song instead
-          </button>
-        )}
       </div>
 
       {/* Song document — the readable chord/lyric sheet, kept narrow (see max-w-3xl
           on the outer container) since chord/lyric lines are short text blocks that
           look lost and hard to scan when stretched full-width on a wide screen. */}
-      {segments.length === 0 ? (
-        <p className="text-center text-slate-400 text-sm py-6">
-          No segments yet — tap a segment button above to start building your song.
-        </p>
-      ) : (
+      {segments.length === 0 ? null : (
         <div className="space-y-2">
           {/* Section navigation tabs — color-coded per type. In focus mode a tab swaps
               which section renders below; in full-sheet mode every section is already

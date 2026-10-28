@@ -89,7 +89,7 @@ export default function ProgramPeoplePanel({ canEdit, userProfile }) {
         <span className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0"><UserRound className="w-5 h-5" /></span>
         <div className="min-w-[12rem] flex-1">
           <p className="font-semibold text-slate-800">People in charge</p>
-          <p className="text-xs text-slate-500">Who conducts each item. Worship, Pre-Service and Sermon fill in from their rosters; type a name to override.</p>
+          <p className="text-xs text-slate-500">Who conducts each item. Worship (all co-leads), Pre-Service and Sermon fill in from their rosters; type names to override — separate several people with commas.</p>
         </div>
         <select value={date} onChange={(e) => setDate(e.target.value)}
           className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm bg-white">
@@ -117,11 +117,17 @@ export default function ProgramPeoplePanel({ canEdit, userProfile }) {
                       ? <>{overriding ? <s>{auto.name}</s> : <b className="font-semibold text-emerald-700">{auto.name}</b>} · auto from {auto.source}</>
                       : rule ? `${rule.source}: nobody assigned yet` : 'Assign manually'}
                   </p>
+                  {/* Worship co-leads with the songs each one leads. */}
+                  {!overriding && auto?.leads?.some((l) => l.songs.length) && (
+                    <p className="text-[11px] text-slate-400">
+                      {auto.leads.filter((l) => l.songs.length).map((l) => `${l.name}: ${l.songs.join(', ')}`).join(' · ')}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 w-full sm:w-64">
-                  <input list="program-people-names" value={value} disabled={!canEdit} maxLength={80}
+                  <input list="program-people-names" value={value} disabled={!canEdit} maxLength={200}
                     onChange={(e) => setName(prog, e.target.value)}
-                    placeholder={auto ? `${auto.name} (auto)` : rule?.role || 'Name'}
+                    placeholder={auto ? `${auto.name} (auto)` : rule ? `${rule.role} — names, comma-separated` : 'Name(s), comma-separated'}
                     className={`flex-1 min-w-0 rounded-lg border px-2.5 py-1.5 text-sm ${overriding ? 'border-amber-300 bg-amber-50' : 'border-slate-300'} disabled:bg-slate-50`} />
                   {canEdit && value && (
                     <button type="button" onClick={() => clearName(prog)} title={auto ? 'Back to the roster name' : 'Clear'}

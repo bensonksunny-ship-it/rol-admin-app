@@ -104,6 +104,10 @@ export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', progr
         ...(p.audio?.length ? { audio: p.audio.filter((t) => t?.url).map((t) => ({ id: String(t.id || ''), name: String(t.name || 'Audio'), url: String(t.url) })) } : {}),
         // Person in charge (utils/programPeople.js) and the Media crew operating each cue.
         ...(p.person ? { person: String(p.person), personRole: String(p.personRole || '') } : {}),
+        // Several people (worship co-leads): each with the songs they lead.
+        ...(p.leads?.length > 1 || p.leads?.some((l) => l.songs?.length)
+          ? { leads: p.leads.map((l) => ({ name: String(l.name), songs: (l.songs || []).map(String) })) }
+          : {}),
         ...(p.cueOps && Object.keys(p.cueOps).length ? { cueOps: p.cueOps } : {}),
       }
     }),
@@ -151,6 +155,34 @@ export function plannedStarts(programs, serviceStartTime) {
     if (at == null) return ''
     return dur ? `${fmtMin(at)} – ${fmtMin(at + dur)}` : fmtMin(at)
   })
+}
+
+/**
+ * The run sheet as minute windows, same rules as plannedStarts: items follow each
+ * other from the service start; a parallel item keeps its own start time.
+ * { hasClock, firstMin, items: [{ startMin, endMin } | null] } — without any start
+ * time the windows are offsets from 0 (hasClock false).
+ */
+export function scheduleWindows(programs, serviceStartTime) {
+  const clockStart = toMin(serviceStartTime) ?? toMin(programs.find((p) => !p.parallel)?.startTime)
+  let cursor = clockStart ?? 0
+  const items = programs.map((p) => {
+    const dur = Number(p.duration) || 0
+    if (p.parallel) {
+      const at = toMin(p.startTime)
+      return at == null || clockStart == null ? null : { startMin: at, endMin: at + dur }
+    }
+    const w = { startMin: cursor, endMin: cursor + dur }
+    cursor += dur
+    return w
+  })
+  return { hasClock: clockStart != null, firstMin: clockStart ?? 0, items }
+}
+
+/** Epoch ms of a local time (minutes after midnight) on an ISO date. */
+export function dateAtMinutes(iso, mins) {
+  const [y, m, d] = String(iso).split('-').map(Number)
+  return new Date(y, m - 1, d, 0, mins).getTime()
 }
 
 export function fmtClock(ms) {

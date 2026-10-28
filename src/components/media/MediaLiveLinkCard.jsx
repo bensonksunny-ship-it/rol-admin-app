@@ -120,6 +120,7 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
       ...p,
       person: resolved[p.name]?.name || '',
       personRole: resolved[p.name]?.role || '',
+      leads: resolved[p.name]?.leads || [],
       cueOps: Object.fromEntries((p.elements || []).map((el) => [el, cueOperator(el, crew, people.soundEngineer)]).filter(([, v]) => v)),
     }))
   }, [people.loaded, people.manual, people.rosters, people.soundEngineer, programs, crew, schedule])
