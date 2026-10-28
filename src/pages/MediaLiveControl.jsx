@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { format } from 'date-fns'
-import { Check, ChevronRight, Copy, Minus, MonitorPlay, Music2, Pause, Play, Plus, RotateCcw, Square, User, Volume2, Wifi, WifiOff, X } from 'lucide-react'
+import { Check, ChevronRight, Copy, Crosshair, Minus, MonitorPlay, Music2, Pause, Play, Plus, RotateCcw, Square, User, UserRound, Volume2, Wifi, WifiOff, X } from 'lucide-react'
 import { subscribeMediaLive, setMediaLiveCheck, updateMediaLiveProgress, resetMediaLiveOps, setMediaLiveVerify } from '../services/firestore'
 import {
   MEDIA_LIVE_PHASES, checkKey, chordLine, songPresentationText, isWorshipItem, plannedStarts, fmtClock, fmtElapsed,
-  rehearsalSummary,
+  rehearsalSummary, MEDIA_STATIONS, stationById, stationCues, crewInStation,
 } from '../utils/mediaLive'
 import { RehearsalSummary, VerifyRow } from '../components/media/RehearsalVerification'
 
@@ -60,32 +60,58 @@ function CheckRow({ label, sub, check, onToggle, busy, doneLabel, notDoneLabel =
   )
 }
 
-// Elapsed / remaining for the running item. Vertical on wide screens (beside the
-// run sheet); a horizontal strip on phones. Emerald → amber in the last fifth (or
-// last minute) → rose once over time.
-function TimerRail({ program, start, now, next, auto, vertical }) {
-  const dur = (program?.duration || 0) * 60000
-  const elapsed = start ? now - start : 0
-  const remaining = dur - elapsed
-  const pct = dur ? Math.min(100, (elapsed / dur) * 100) : 0
-  const tone = !program ? 'bg-slate-700' : remaining < 0 ? 'bg-rose-500' : dur && (remaining < 60000 || remaining < dur * 0.2) ? 'bg-amber-400' : 'bg-emerald-500'
-  const left = !program ? '—' : !dur ? 'No limit' : remaining < 0 ? `+${fmtElapsed(-remaining)}` : fmtElapsed(remaining)
-  const leftTone = remaining < 0 && program && dur ? 'text-rose-300' : 'text-white'
-  const nextLine = auto && next && dur ? `Next: ${next.name}` : ''
+/**
+ * Whole-programme timer: fills from the first item's start to the end of the last,
+ * against the total planned duration of the run sheet (items set to run alongside
+ * others don't add time). Ticks mark where each item is planned to hand over.
+ * Vertical on wide screens (beside the run sheet); a horizontal strip on phones.
+ * Emerald → amber in the last tenth (or last minute) → rose once over time.
+ */
+function TimerRail({ programs, progress, phase, serviceStart, now, running, next, auto, vertical }) {
+  const seq = programs.filter((p) => !p.parallel && !p.songsOnly)
+  const total = seq.reduce((sum, p) => sum + (Number(p.duration) || 0), 0) * 60000
+  const starts = seq.map((p) => progress[`${phase}__${p.key}`]?.start).filter(Boolean)
+  const start = serviceStart || (starts.length ? Math.min(...starts) : null)
+  const last = seq[seq.length - 1]
+  const endedAt = !running && last ? progress[`${phase}__${last.key}`]?.end || null : null
+  const elapsed = start ? Math.max(0, (endedAt || now) - start) : 0
+  const remaining = total - elapsed
+  const pct = total ? Math.min(100, (elapsed / total) * 100) : 0
+  const ticks = []
+  let cum = 0
+  for (const p of seq.slice(0, -1)) {
+    cum += (Number(p.duration) || 0) * 60000
+    if (total) ticks.push({ key: p.key, at: (cum / total) * 100 })
+  }
+  const tone = !start ? 'bg-slate-700' : endedAt ? 'bg-emerald-600' : remaining < 0 ? 'bg-rose-500' : remaining < Math.max(60000, total * 0.1) ? 'bg-amber-400' : 'bg-emerald-500'
+  const left = !total ? 'No timings' : !start ? fmtElapsed(total) : endedAt ? 'Done' : remaining < 0 ? `+${fmtElapsed(-remaining)}` : fmtElapsed(remaining)
+  const leftTone = start && !endedAt && total && remaining < 0 ? 'text-rose-300' : 'text-white'
+  const endsAt = start && total ? fmtClock(start + total) : ''
+  const nowLine = running ? running.name : endedAt ? 'Finished' : start ? 'Paused' : 'Not started'
+  const nextName = auto && next ? next.name : ''
+  const fill = total ? pct : start ? 100 : 0
   if (vertical) {
     return (
-      <div className="sticky top-24 flex flex-col items-center gap-1.5 rounded-xl bg-slate-900 border border-slate-800 py-3 px-1" title={program ? program.name : 'Nothing running'}>
+      <div className="sticky top-24 flex flex-col items-center gap-1.5 rounded-xl bg-slate-900 border border-slate-800 py-3 px-1"
+        title={`Whole programme · ${total ? `${Math.round(total / 60000)} min planned` : 'no durations set'}`}>
         <p className="text-[10px] uppercase tracking-wider text-slate-400">Left</p>
         <p className={`text-sm font-bold tabular-nums ${leftTone}`}>{left}</p>
         <div className="relative w-3 h-[52vh] rounded-full bg-slate-800 overflow-hidden my-1">
-          <div className={`absolute top-0 inset-x-0 rounded-full transition-all duration-1000 ${tone}`} style={{ height: `${dur ? pct : program ? 100 : 0}%`, opacity: dur ? 1 : 0.35 }} />
+          <div className={`absolute top-0 inset-x-0 rounded-full transition-all duration-1000 ${tone}`} style={{ height: `${fill}%`, opacity: total ? 1 : 0.35 }} />
+          {ticks.map((t) => <span key={t.key} className="absolute inset-x-0 h-px bg-slate-950/80" style={{ top: `${t.at}%` }} />)}
         </div>
         <p className="text-[10px] uppercase tracking-wider text-slate-400">Elapsed</p>
-        <p className="text-sm font-bold tabular-nums text-slate-200">{program ? fmtElapsed(elapsed) : '—'}</p>
-        {nextLine && (
-          <div className="w-full px-1 text-center text-[10px] leading-tight text-slate-500" title={nextLine}>
+        <p className="text-sm font-bold tabular-nums text-slate-200">{start ? fmtElapsed(elapsed) : '—'}</p>
+        {endsAt && (
+          <div className="w-full px-1 text-center text-[10px] leading-tight text-slate-500">
+            <p>Ends</p>
+            <p className="text-slate-300 tabular-nums">{endsAt}</p>
+          </div>
+        )}
+        {nextName && (
+          <div className="w-full px-1 text-center text-[10px] leading-tight text-slate-500" title={`Next: ${nextName}`}>
             <p>Next</p>
-            <p className="truncate text-slate-300">{next.name}</p>
+            <p className="truncate text-slate-300">{nextName}</p>
           </div>
         )}
       </div>
@@ -94,13 +120,19 @@ function TimerRail({ program, start, now, next, auto, vertical }) {
   return (
     <div className="rounded-xl bg-slate-900 border border-slate-800 px-4 py-3">
       <div className="flex items-baseline justify-between gap-3 text-sm">
-        <span className="font-semibold truncate">{program ? program.name : 'Nothing running'}</span>
-        <span className="tabular-nums shrink-0"><span className="text-slate-400">{program ? fmtElapsed(elapsed) : ''}{program && ' · '}</span><b className={leftTone}>{left}</b>{program && dur ? <span className="text-slate-400"> left</span> : null}</span>
+        <span className="min-w-0 truncate"><span className="text-slate-400">Programme · </span><span className="font-semibold">{nowLine}</span></span>
+        <span className="tabular-nums shrink-0">
+          <span className="text-slate-400">{start ? `${fmtElapsed(elapsed)} · ` : ''}</span><b className={leftTone}>{left}</b>
+          {total && !endedAt && remaining >= 0 ? <span className="text-slate-400"> left</span> : null}
+        </span>
       </div>
-      <div className="mt-2 h-2.5 rounded-full bg-slate-800 overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-1000 ${tone}`} style={{ width: `${dur ? pct : program ? 100 : 0}%`, opacity: dur ? 1 : 0.35 }} />
+      <div className="relative mt-2 h-2.5 rounded-full bg-slate-800 overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-1000 ${tone}`} style={{ width: `${fill}%`, opacity: total ? 1 : 0.35 }} />
+        {ticks.map((t) => <span key={t.key} className="absolute inset-y-0 w-px bg-slate-950/80" style={{ left: `${t.at}%` }} />)}
       </div>
-      {nextLine && <p className="mt-1 text-[11px] text-slate-500 truncate">{nextLine}</p>}
+      {(endsAt || nextName) && (
+        <p className="mt-1 text-[11px] text-slate-500 truncate">{[endsAt && `Planned end ${endsAt}`, nextName && `Next: ${nextName}`].filter(Boolean).join(' · ')}</p>
+      )}
     </div>
   )
 }
@@ -111,7 +143,20 @@ function TimerRail({ program, start, now, next, auto, vertical }) {
  * operators tick cues and record timings, and every open desk sees them live.
  */
 export default function MediaLiveControl() {
-  const { token } = useParams()
+  const { token, station: stationId } = useParams()
+  const navigate = useNavigate()
+  // Station sub-link (/media-live/:token/:station): only that station's cues, no timer
+  // controls. No station = the master screen. Every screen reads the same live doc.
+  const station = stationById(stationId)
+  const isMaster = !station
+  const showAudio = isMaster || !!station?.audio
+  const showLyrics = isMaster || !!station?.lyrics
+  const autoAudioKey = `mediaLiveAutoAudio:${station?.id || 'master'}`
+  // Per screen: play an item's first track when it goes live. On by default only at
+  // the Sound station, so two screens don't play the same track at once.
+  const [autoAudioPrefs, setAutoAudioPrefs] = useState({}) // this session's toggles, by station
+  const autoAudio = autoAudioPrefs[autoAudioKey] ?? readLocal(autoAudioKey, station?.audio ? '1' : '0') === '1'
+  const setAutoAudio = (on) => { setAutoAudioPrefs((p) => ({ ...p, [autoAudioKey]: on })); writeLocal(autoAudioKey, on ? '1' : '0') }
   const [data, setData] = useState(undefined) // undefined = loading, null = gone
   const [phase, setPhase] = useState(() => readLocal(PHASE_KEY, '') || defaultPhase())
   const [operator, setOperator] = useState(() => readLocal(OPERATOR_KEY, ''))
@@ -139,7 +184,7 @@ export default function MediaLiveControl() {
     window.addEventListener('online', up); window.addEventListener('offline', down)
     return () => { window.removeEventListener('online', up); window.removeEventListener('offline', down) }
   }, [])
-  useEffect(() => { document.title = 'Media Control Center' }, [])
+  useEffect(() => { document.title = station ? `${station.label} · Media Control Center` : 'Media Control Center' }, [station])
 
   const programs = useMemo(() => data?.programs || [], [data])
   const songs = useMemo(() => data?.songs || [], [data])
@@ -152,10 +197,11 @@ export default function MediaLiveControl() {
   const planned = useMemo(() => plannedStarts(programs, data?.serviceStartTime), [programs, data?.serviceStartTime])
   const phaseDef = MEDIA_LIVE_PHASES.find((p) => p.id === phase) || MEDIA_LIVE_PHASES[0]
 
+  // This screen's checklist: a station counts only its own cues (songs at Projection).
   const allKeys = useMemo(() => [
-    ...programs.flatMap((p) => p.elements.map((el) => checkKey(phase, p.key, el))),
-    ...songs.map((s) => checkKey(phase, s.key)),
-  ], [programs, songs, phase])
+    ...programs.flatMap((p) => stationCues(p.elements, station).map((el) => checkKey(phase, p.key, el))),
+    ...(isMaster || station?.lyrics ? songs.map((s) => checkKey(phase, s.key)) : []),
+  ], [programs, songs, phase, station, isMaster])
   const doneCount = allKeys.filter((k) => checks[k]).length
 
   const serviceKey = `${phase}__service`
@@ -220,10 +266,31 @@ export default function MediaLiveControl() {
     setNowPlaying(null); setPlaying(false); setAudioError('')
   }
 
+  // When the live item changes (Start on any screen, or auto timing), a screen with
+  // auto-play on plays that item's first track. The first item seen on opening the
+  // page is skipped, so reopening mid-service doesn't replay audio. Browsers allow
+  // this once the operator has tapped the page; otherwise the bar asks for a tap.
+  const runningKey = runningIdx >= 0 ? programs[runningIdx].key : ''
+  const lastRunningRef = useRef(null)
+  useEffect(() => {
+    if (data === undefined) return
+    const prev = lastRunningRef.current
+    lastRunningRef.current = runningKey
+    if (prev === null || prev === runningKey || !runningKey || !autoAudio) return
+    const p = programs.find((x) => x.key === runningKey)
+    const track = p?.audio?.[0]
+    const el = playerRef.current
+    if (!track?.url || !el || el.src === track.url) return
+    el.src = track.url
+    el.play()
+      .then(() => { setNowPlaying({ progKey: p.key, progName: p.name, track }); setAudioError('') })
+      .catch(() => { setNowPlaying({ progKey: p.key, progName: p.name, track }); setAudioError('Auto-play was blocked by the browser. Tap play to start the track.') })
+  }, [data, runningKey, autoAudio, programs])
+
   // Starting an item finishes whichever one was running, so one tap moves the service on.
-  // An item with attached audio starts its first track.
+  // An item with attached audio starts its first track when this screen auto-plays.
   function startProgram(p) {
-    if (p.audio?.length) playTrack(p, p.audio[0])
+    if (autoAudio && p.audio?.length) playTrack(p, p.audio[0])
     const key = `${phase}__${p.key}`
     const prev = runningIdx >= 0 ? programs[runningIdx] : null
     run(key, () => {
@@ -266,14 +333,16 @@ export default function MediaLiveControl() {
   const sel = items[selIdx] || null
 
   const running = runningIdx >= 0 ? programs[runningIdx] : null
-  const runningStart = running ? progress[`${phase}__${running.key}`]?.start : null
   const runningNext = runningIdx >= 0 ? programs[runningIdx + 1] || null : null
 
   // Crew attendance — one check per person per phase (rehearsal / Sunday).
+  // A station lists its own crew (by roster area), or everyone if no area matches.
   const crewKey = (c) => checkKey(phase, 'crew', c.key)
-  const crewPresent = crew.filter((c) => checks[crewKey(c)]).length
+  const ownCrew = crew.filter((c) => crewInStation(c.area, station))
+  const shownCrew = ownCrew.length ? ownCrew : crew
+  const crewPresent = shownCrew.filter((c) => checks[crewKey(c)]).length
   const crewGroups = []
-  for (const c of crew) {
+  for (const c of shownCrew) {
     const g = crewGroups.find((x) => x.area === c.area)
     if (g) g.members.push(c)
     else crewGroups.push({ area: c.area, members: [c] })
@@ -310,7 +379,7 @@ export default function MediaLiveControl() {
           <div className="flex items-center gap-3 min-w-0">
             <span className="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-300 flex items-center justify-center shrink-0"><MonitorPlay className="w-5 h-5" /></span>
             <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-widest text-slate-400">Media Control Center</p>
+              <p className="text-[11px] uppercase tracking-widest text-slate-400">Media Control Center{station ? <span className="text-emerald-300"> · {station.label}</span> : ''}</p>
               <p className="font-semibold truncate">{displayDate(data.sundayDate)}</p>
             </div>
           </div>
@@ -322,6 +391,15 @@ export default function MediaLiveControl() {
               </button>
             ))}
           </div>
+          <label className="flex items-center gap-2 rounded-lg bg-slate-800 border border-slate-700 px-2.5 py-1.5" title="Each station sees only its own cues; every screen follows the same run sheet and timer">
+            <Crosshair className="w-4 h-4 text-slate-400" />
+            <span className="sr-only">Station</span>
+            <select value={station?.id || ''} onChange={(e) => navigate(e.target.value ? `/media-live/${token}/${e.target.value}` : `/media-live/${token}`)}
+              className="bg-transparent outline-none text-sm font-semibold [&>option]:bg-slate-900">
+              <option value="">Master (all)</option>
+              {MEDIA_STATIONS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </label>
           <div className="flex items-center gap-4 ml-auto">
             <label className="flex items-center gap-2 rounded-lg bg-slate-800 border border-slate-700 px-2.5 py-1.5">
               <User className="w-4 h-4 text-slate-400" />
@@ -371,19 +449,19 @@ export default function MediaLiveControl() {
           </div>
           <div className="rounded-xl bg-slate-900 border border-slate-800 px-4 py-3 col-span-2 lg:col-span-1">
             <p className="text-[11px] uppercase tracking-wider text-slate-400">Crew present</p>
-            <p className="text-xl font-bold tabular-nums">{crewPresent} / {crew.length}</p>
+            <p className="text-xl font-bold tabular-nums">{crewPresent} / {shownCrew.length}</p>
           </div>
         </div>
 
         {phase === 'reh' && <RehearsalSummary summary={rehSummary} signoff={data.signoff} compact />}
 
         <div className="lg:hidden">
-          <TimerRail program={running} start={runningStart} now={now} next={runningNext} auto={autoMode} />
+          <TimerRail programs={programs} progress={progress} phase={phase} serviceStart={serviceStart} now={now} running={running} next={runningNext} auto={autoMode} />
         </div>
 
         <div className="grid lg:grid-cols-[76px_minmax(0,0.85fr)_minmax(0,1.15fr)] gap-4 items-start">
           <div className="hidden lg:block">
-            <TimerRail vertical program={running} start={runningStart} now={now} next={runningNext} auto={autoMode} />
+            <TimerRail vertical programs={programs} progress={progress} phase={phase} serviceStart={serviceStart} now={now} running={running} next={runningNext} auto={autoMode} />
           </div>
 
           {/* Run sheet — tap an item to open it in the main panel */}
@@ -391,14 +469,26 @@ export default function MediaLiveControl() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300">Run sheet</h2>
-                <span className="flex rounded-lg bg-slate-800 p-0.5 text-[11px] font-semibold" title="Auto: each item ends when its duration is up and the next starts. Manual: use Start / Finish.">
-                  {[[false, 'Auto'], [true, 'Manual']].map(([m, label]) => (
-                    <button key={label} type="button" disabled={busy === 'mode'} onClick={() => m !== !autoMode && setManual(m)}
-                      className={`px-2 py-0.5 rounded-md ${m === !autoMode ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>{label}</button>
-                  ))}
-                </span>
+                {isMaster ? (
+                  <span className="flex rounded-lg bg-slate-800 p-0.5 text-[11px] font-semibold" title="Auto: each item ends when its duration is up and the next starts. Manual: use Start / Finish.">
+                    {[[false, 'Auto'], [true, 'Manual']].map(([m, label]) => (
+                      <button key={label} type="button" disabled={busy === 'mode'} onClick={() => m !== !autoMode && setManual(m)}
+                        className={`px-2 py-0.5 rounded-md ${m === !autoMode ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-slate-200'}`}>{label}</button>
+                    ))}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-slate-500">Follows the master screen</span>
+                )}
               </div>
-              {confirmReset ? (
+              <span className="flex items-center gap-3">
+              {/* Tapping an item pins it here; Follow live goes back to tracking the live item. */}
+              {selected !== null && (
+                <button type="button" onClick={() => setSelected(null)}
+                  className="inline-flex items-center gap-1 rounded-md bg-rose-600/20 border border-rose-500/40 px-2 py-0.5 text-xs font-semibold text-rose-200 hover:bg-rose-600/30">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />Follow live
+                </button>
+              )}
+              {!isMaster ? null : confirmReset ? (
                 <span className="flex items-center gap-3 text-xs">
                   <span className="text-amber-300">Clear every {phaseDef.label} tick{phase === 'reh' ? ', checkpoint' : ''} and timing?</span>
                   <button type="button" onClick={resetPhase} disabled={busy === 'reset'} className="font-semibold text-amber-300 hover:text-amber-200">Clear</button>
@@ -409,6 +499,7 @@ export default function MediaLiveControl() {
                   <RotateCcw className="w-3.5 h-3.5" />Reset {phaseDef.label}
                 </button>
               )}
+              </span>
             </div>
             {items.length === 0 && <p className="text-sm text-slate-400">No programme published yet.</p>}
             {items.map((p, i) => {
@@ -418,7 +509,7 @@ export default function MediaLiveControl() {
               const over = p.duration && took > p.duration * 60000
               const isSel = p.key === selKey
               const pSongs = itemSongs(p)
-              const cueKeys = p.elements.map((el) => checkKey(phase, p.key, el))
+              const cueKeys = stationCues(p.elements, station).map((el) => checkKey(phase, p.key, el))
               const cuesDone = cueKeys.filter((k) => checks[k]).length
               const rv = phase === 'reh' ? rehItem(p.key) : null
               const rvDone = rv ? rv.systems.filter((x) => x.entry).length : 0
@@ -432,7 +523,7 @@ export default function MediaLiveControl() {
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
                       <span className="font-semibold truncate">{p.name}</span>
-                      {p.audio?.length > 0 && <Volume2 className={`w-3.5 h-3.5 shrink-0 ${nowPlaying?.progKey === p.key && playing ? 'text-sky-300' : 'text-slate-500'}`} aria-label="Has audio" />}
+                      {showAudio && p.audio?.length > 0 && <Volume2 className={`w-3.5 h-3.5 shrink-0 ${nowPlaying?.progKey === p.key && playing ? 'text-sky-300' : 'text-slate-500'}`} aria-label="Has audio" />}
                       {running &&<span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase bg-rose-600">Live</span>}
                     </span>
                     <span className="block text-[11px] text-slate-400 truncate">
@@ -445,6 +536,11 @@ export default function MediaLiveControl() {
                       ].filter(Boolean).join(' · ') || 'No details'}
                       {rvIssue && <span className="text-amber-300"> · needs attention</span>}
                     </span>
+                    {p.person && (
+                      <span className="flex items-center gap-1 text-[11px] text-indigo-200 truncate">
+                        <UserRound className="w-3 h-3 shrink-0" />{p.person}{p.personRole ? <span className="text-slate-500"> · {p.personRole}</span> : null}
+                      </span>
+                    )}
                   </span>
                   {prog.start && (
                     <span className={`text-sm font-bold tabular-nums shrink-0 ${over ? 'text-amber-300' : running ? 'text-rose-200' : 'text-emerald-300'}`}>{fmtElapsed(took)}</span>
@@ -458,7 +554,7 @@ export default function MediaLiveControl() {
             <div className="pt-3 space-y-2">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300">Crew · {phaseDef.label}</h2>
-                <span className="text-xs text-slate-400 tabular-nums">{crewPresent} / {crew.length} present</span>
+                <span className="text-xs text-slate-400 tabular-nums">{crewPresent} / {shownCrew.length} present</span>
               </div>
               {crew.length === 0 && <p className="text-sm text-slate-400">No crew assigned for this Sunday yet (Media → Assign).</p>}
               {crewGroups.map((g) => (
@@ -492,6 +588,11 @@ export default function MediaLiveControl() {
                       <div className="min-w-[12rem] flex-1">
                         <p className="text-[11px] uppercase tracking-wider text-slate-400">{sel.songsOnly ? 'Song schedule' : `Item ${selIdx + 1} of ${programs.length}`}</p>
                         <p className="text-xl font-bold">{sel.name}</p>
+                        {sel.person && (
+                          <p className="mt-0.5 flex items-center gap-1.5 text-sm text-indigo-200">
+                            <UserRound className="w-4 h-4 shrink-0" /><b className="font-semibold">{sel.person}</b>{sel.personRole ? <span className="text-slate-400">· {sel.personRole}</span> : null}
+                          </p>
+                        )}
                         {!sel.songsOnly && (
                           <p className="text-xs text-slate-400 mt-0.5">
                             {[planned[selIdx] && `Planned ${planned[selIdx]}`, sel.duration ? `${sel.duration} min` : ''].filter(Boolean).join(' · ') || 'No timing set'}
@@ -505,7 +606,7 @@ export default function MediaLiveControl() {
                           {fmtElapsed(took)}{sel.duration ? <span className="text-sm font-medium text-slate-400"> / {sel.duration}:00</span> : null}
                         </span>
                       )}
-                      {!sel.songsOnly && (
+                      {!sel.songsOnly && isMaster && (
                         <div className="flex items-center gap-1.5">
                           {running ? (
                             <button type="button" disabled={pBusy} onClick={() => finishProgram(sel)}
@@ -530,9 +631,15 @@ export default function MediaLiveControl() {
                         Auto: {programs[selIdx + 1] ? `moves to ${programs[selIdx + 1].name}` : 'ends'} at {fmtClock(prog.start + sel.duration * 60000)}
                       </p>
                     )}
-                    {sel.audio?.length > 0 && (
+                    {showAudio && sel.audio?.length > 0 && (
                       <div className="px-4 pb-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Audio</p>
+                        <div className="flex items-center justify-between gap-2 mb-1.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Audio</p>
+                          <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer" title="Play an item's first track when it goes live (on this screen only)">
+                            <input type="checkbox" checked={autoAudio} onChange={(e) => setAutoAudio(e.target.checked)} className="accent-sky-500" />
+                            Auto-play on this screen
+                          </label>
+                        </div>
                         <div className="space-y-1.5">
                           {sel.audio.map((t) => {
                             const on = nowPlaying?.track.url === t.url
@@ -549,14 +656,16 @@ export default function MediaLiveControl() {
                             )
                           })}
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-1.5">Start plays the first track automatically.</p>
+                        <p className="text-[11px] text-slate-500 mt-1.5">
+                          {autoAudio ? 'The first track plays here when this item goes live.' : 'Tap a track to play it. Auto-play is off on this screen.'}
+                        </p>
                       </div>
                     )}
                     {phase === 'reh' && rehItem(sel.key) && (
                       <div className="px-4 pb-3">
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Rehearsal checkpoints</p>
                         <div className="space-y-1.5">
-                          {rehItem(sel.key).systems.map((x) => (
+                          {rehItem(sel.key).systems.filter((x) => isMaster || station.systems.includes(x.id)).map((x) => (
                             <VerifyRow key={x.key} label={x.label} entry={x.entry} busy={busy === x.key}
                               onSet={(status, note) => setVerify(x.key, status, note)} />
                           ))}
@@ -565,14 +674,14 @@ export default function MediaLiveControl() {
                     )}
                     {!sel.songsOnly && (
                       <div className="px-4 pb-4">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Media cues</p>
-                        {sel.elements.length === 0 ? (
-                          <p className="text-sm text-slate-500">No media cues designed for this item.</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">{station ? `${station.label} cues` : 'Media cues'}</p>
+                        {stationCues(sel.elements, station).length === 0 ? (
+                          <p className="text-sm text-slate-500">{station ? `No ${station.label.toLowerCase()} cues for this item.` : 'No media cues designed for this item.'}</p>
                         ) : (
                           <div className="space-y-1.5">
-                            {sel.elements.map((el) => {
+                            {stationCues(sel.elements, station).map((el) => {
                               const k = checkKey(phase, sel.key, el)
-                              return <CheckRow key={k} label={el} check={checks[k]} busy={busy === k} doneLabel={phaseDef.cueDone} onToggle={() => toggle(k)} />
+                              return <CheckRow key={k} label={el} sub={sel.cueOps?.[el] ? `Operator: ${sel.cueOps[el]}` : undefined} check={checks[k]} busy={busy === k} doneLabel={phaseDef.cueDone} onToggle={() => toggle(k)} />
                             })}
                           </div>
                         )}
@@ -580,7 +689,26 @@ export default function MediaLiveControl() {
                     )}
                   </div>
 
-                  {worship && (
+                  {/* Sound: the item's songs as a set list (singer + key), no lyrics. */}
+                  {worship && !showLyrics && station?.songList && selSongs.length > 0 && (
+                    <div className="rounded-xl border border-slate-800 bg-slate-900 px-4 py-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Songs</p>
+                      <ol className="space-y-1.5">
+                        {selSongs.map((song, i) => (
+                          <li key={song.key} className="flex items-center gap-3">
+                            <span className="w-6 text-sm font-bold text-slate-500 tabular-nums">{i + 1}.</span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block font-semibold truncate">{song.title}</span>
+                              {song.singer && <span className="block text-[11px] text-slate-400 truncate">{song.singer}</span>}
+                            </span>
+                            {song.musicKey && <span className="rounded-md bg-amber-500/15 border border-amber-500/40 px-2 py-0.5 text-sm font-bold text-amber-300">{song.musicKey}</span>}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+
+                  {worship && showLyrics && (
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-300 flex-1">Songs &amp; lyrics</h2>

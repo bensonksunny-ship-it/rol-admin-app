@@ -66,6 +66,8 @@ function App() {
             <Route path="/marriage-apply" element={<MarriageApply />} />
             {/* Public — Media Control Center for the media desk; the token is the access (firestore.rules → media_live). */}
             <Route path="/media-live/:token" element={<MediaLiveControl />} />
+            {/* Same, filtered to one operator station (projection, sound, lighting, stream, camera). */}
+            <Route path="/media-live/:token/:station" element={<MediaLiveControl />} />
             <Route
               path="/board-present/:meetingId"
               element={

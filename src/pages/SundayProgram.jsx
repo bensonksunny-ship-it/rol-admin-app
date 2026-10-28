@@ -17,6 +17,7 @@ import {
 } from '../services/firestore'
 import BackButton from '../components/BackButton'
 import DateInput from '../components/DateInput'
+import ProgramPeoplePanel from '../components/sunday/ProgramPeoplePanel'
 
 function nextSunday() {
   const today = new Date()
@@ -1840,7 +1841,12 @@ export default function SundayProgram({ embedded = false }) {
         {!embedded && <h1 className="text-xl font-semibold text-slate-800">Program</h1>}
         <SubTabBar active={subTab} onChange={setSubTab} />
         {subTab === 'default' && <DefaultProgramTab canEdit={canEdit} userProfile={userProfile} navigate={navigate} />}
-        {subTab === 'design' && <DesignProgramTab canEdit={canEdit} userProfile={userProfile} />}
+        {subTab === 'design' && (
+          <>
+            <DesignProgramTab canEdit={canEdit} userProfile={userProfile} />
+            <ProgramPeoplePanel canEdit={canEdit} userProfile={userProfile} />
+          </>
+        )}
       </div>
     </div>
   )

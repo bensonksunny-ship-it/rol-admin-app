@@ -442,6 +442,7 @@ export default function UpcomingSunday({ slug }) {
                 programs={livePrograms}
                 canManage={isFounder || canManageDepartment(deptName)}
                 by={userProfile?.email || ''}
+                byName={userProfile?.name || userProfile?.displayName || ''}
               />
             </div>
           )}

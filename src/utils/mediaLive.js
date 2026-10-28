@@ -102,6 +102,9 @@ export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', progr
         ...(p.parallel ? { parallel: true } : {}),
         // Audio Media attached to the element (backing track / sound effect) — the desk plays it.
         ...(p.audio?.length ? { audio: p.audio.filter((t) => t?.url).map((t) => ({ id: String(t.id || ''), name: String(t.name || 'Audio'), url: String(t.url) })) } : {}),
+        // Person in charge (utils/programPeople.js) and the Media crew operating each cue.
+        ...(p.person ? { person: String(p.person), personRole: String(p.personRole || '') } : {}),
+        ...(p.cueOps && Object.keys(p.cueOps).length ? { cueOps: p.cueOps } : {}),
       }
     }),
     songs: songs.map((s, i) => ({
@@ -212,3 +215,50 @@ export function rehearsalSummary(programs, verify = {}) {
     signature,
   }
 }
+
+// ── Operator stations ────────────────────────────────────────────────────────
+// Each crew station opens its own sub-link (/media-live/:token/:station) showing
+// only its cues; the master link (no station) shows everything and runs the timer.
+// All screens read the same public doc, so the live item and timings stay in sync.
+
+export const MEDIA_STATIONS = [
+  { id: 'projection', label: 'Projection', blurb: 'Slides, lyrics & video cues', systems: ['slides', 'video'], lyrics: true },
+  { id: 'sound', label: 'Sound', blurb: 'Audio cues, tracks & song keys', systems: ['audio'], audio: true, songList: true },
+  { id: 'lighting', label: 'Lighting', blurb: 'Lighting cues', systems: ['lights'] },
+  { id: 'stream', label: 'Live Stream', blurb: 'Stream cues', systems: ['stream'] },
+  { id: 'camera', label: 'Camera', blurb: 'Camera shots & cues', systems: ['video'] },
+]
+
+export const stationById = (id) => MEDIA_STATIONS.find((s) => s.id === id) || null
+
+export function mediaStationUrl(token, stationId) {
+  return `${mediaLiveUrl(token)}/${stationId}`
+}
+
+// Which station a cue belongs to, by its wording (custom cues included); '' = everyone.
+const CUE_STATIONS = [
+  ['stream', /stream|broadcast|go live/i],
+  ['camera', /camera|shot|focus/i],
+  ['lighting', /light/i],
+  ['sound', /mic\b|microphone|audio|sound|instrument/i],
+  ['projection', /display|screen|slide|lyric|scripture|video|countdown|qr|lower third|presentation/i],
+]
+export function cueStation(el) {
+  return CUE_STATIONS.find(([, re]) => re.test(String(el || '')))?.[0] || ''
+}
+
+/** A programme's cues for a station: its own plus the unassigned ones. All cues when station is null. */
+export function stationCues(elements, station) {
+  if (!station) return elements || []
+  return (elements || []).filter((el) => { const s = cueStation(el); return !s || s === station.id })
+}
+
+// Crew roster areas (Media → Assign) that belong to a station.
+const CREW_STATIONS = {
+  projection: /project|slide|present|screen|lyric|propresenter|easyworship|video/i,
+  sound: /sound|audio|mix|foh|mic/i,
+  lighting: /light/i,
+  stream: /stream|broadcast|obs|online|youtube/i,
+  camera: /camera|\bcam\b/i,
+}
+export const crewInStation = (area, station) => !station || !!CREW_STATIONS[station.id]?.test(String(area || ''))

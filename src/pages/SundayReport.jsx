@@ -41,6 +41,8 @@ import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import BackButton from '../components/BackButton'
 import DateInput from '../components/DateInput'
+import useProgramPeople from '../hooks/useProgramPeople'
+import { resolveProgramPeople } from '../utils/programPeople'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'nonCell', title: 'Non Cell' },
@@ -2302,6 +2304,10 @@ export default function SundayReport({ embedded = false }) {
     })
   }, [report?.programList, logByName])
 
+  // Person in charge per item (Program Design → People in charge, else the rosters).
+  const programPeopleSrc = useProgramPeople(selectedDate)
+  const programPeople = resolveProgramPeople(sortedProgram.map((i) => i.programName), programPeopleSrc.manual, programPeopleSrc.rosters)
+
   const currentProgramItem = sortedProgram.find((item) => !logForItem(item)) || null
   const allProgramsTimed = sortedProgram.length > 0 && !currentProgramItem
 
@@ -2930,6 +2936,12 @@ export default function SundayReport({ embedded = false }) {
                             ) : (
                               <span className="flex items-center gap-1 min-w-0 flex-1">
                                 <span className="font-medium text-slate-800 truncate text-sm">{item.programName}</span>
+                                {programPeople[item.programName] && (
+                                  <span className="shrink-0 max-w-[45%] truncate rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 text-[11px] font-medium"
+                                    title={[programPeople[item.programName].role, programPeople[item.programName].source === 'manual' ? 'set in Program Design' : `from ${programPeople[item.programName].source}`].filter(Boolean).join(' · ')}>
+                                    {programPeople[item.programName].name}
+                                  </span>
+                                )}
                                 {canEditName && (
                                   <button
                                     type="button"

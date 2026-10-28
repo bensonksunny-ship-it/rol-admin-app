@@ -8,9 +8,15 @@ import {
   subscribeWorshipScheduleByDate,
   getWorshipSongs,
   getMediaScheduleByDate,
+  subscribeMediaLive,
+  signOffMediaRehearsal,
+  clearMediaRehearsalSignoff,
 } from '../../services/firestore'
 import { sortByWorshipRole } from '../../utils/worshipRoleOrder'
-import { buildMediaLiveContent, mediaLiveUrl, songSections } from '../../utils/mediaLive'
+import { buildMediaLiveContent, mediaLiveUrl, mediaStationUrl, MEDIA_STATIONS, songSections, rehearsalSummary } from '../../utils/mediaLive'
+import { RehearsalSummary } from './RehearsalVerification'
+import useProgramPeople from '../../hooks/useProgramPeople'
+import { resolveProgramPeople, cueOperator } from '../../utils/programPeople'
 
 async function copyText(text) {
   try {
@@ -37,7 +43,7 @@ async function copyText(text) {
  * Renders as a compact pill (in the page header); the link, copy, open and
  * new-link controls are in a pop-up. Stays mounted so publishing keeps running.
  */
-export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, programs, canManage, by }) {
+export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, programs, canManage, by, byName }) {
   const [token, setToken] = useState('')
   const [error, setError] = useState('')
   const [schedule, setSchedule] = useState(null)
@@ -46,9 +52,28 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
   const [status, setStatus] = useState('') // '' | 'publishing' | 'published'
   const [publishedAt, setPublishedAt] = useState(null)
   const [copied, setCopied] = useState(false)
+  const [copiedStation, setCopiedStation] = useState('')
   const [confirmRotate, setConfirmRotate] = useState(false)
   const [rotating, setRotating] = useState(false)
   const [open, setOpen] = useState(false)
+  // The desk's live doc, for the rehearsal summary + Director sign-off.
+  const [live, setLive] = useState(null)
+  const [signing, setSigning] = useState(false)
+  useEffect(() => (open && token ? subscribeMediaLive(token, setLive, () => setLive(null)) : undefined), [open, token])
+  const rehSummary = useMemo(() => (live && live.sundayDate === sundayDate ? rehearsalSummary(live.programs || [], live.verify || {}) : null), [live, sundayDate])
+
+  async function signOff(note) {
+    setSigning(true); setError('')
+    try {
+      await signOffMediaRehearsal(token, { signature: rehSummary.signature, counts: rehSummary.counts, name: byName, by, note })
+    } catch (e) { console.error('signOffMediaRehearsal', e); setError('Could not save the sign-off.') }
+    setSigning(false)
+  }
+  async function clearSignoff() {
+    setSigning(true); setError('')
+    try { await clearMediaRehearsalSignoff(token) } catch (e) { console.error('clearMediaRehearsalSignoff', e); setError('Could not withdraw the sign-off.') }
+    setSigning(false)
+  }
 
   useEffect(() => {
     if (!open) return
@@ -85,8 +110,22 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
     return out
   }, [schedule, lib])
 
-  const content = useMemo(() => (songs && crew ? buildMediaLiveContent({ sundayDate, serviceStartTime, programs, songs, crew }) : null),
-    [sundayDate, serviceStartTime, programs, songs, crew])
+  // Person in charge of each item and the crew operating each of its cues.
+  const people = useProgramPeople(sundayDate)
+  const staffedPrograms = useMemo(() => {
+    if (!people.loaded || !crew) return null
+    const rosters = { ...people.rosters, worship: schedule?.assignments || people.rosters.worship }
+    const resolved = resolveProgramPeople(programs.map((p) => p.name), people.manual, rosters)
+    return programs.map((p) => ({
+      ...p,
+      person: resolved[p.name]?.name || '',
+      personRole: resolved[p.name]?.role || '',
+      cueOps: Object.fromEntries((p.elements || []).map((el) => [el, cueOperator(el, crew, people.soundEngineer)]).filter(([, v]) => v)),
+    }))
+  }, [people.loaded, people.manual, people.rosters, people.soundEngineer, programs, crew, schedule])
+
+  const content = useMemo(() => (songs && staffedPrograms ? buildMediaLiveContent({ sundayDate, serviceStartTime, programs: staffedPrograms, songs, crew }) : null),
+    [sundayDate, serviceStartTime, staffedPrograms, songs, crew])
 
   // Debounced so a burst of live schedule updates is one write.
   useEffect(() => {
@@ -122,7 +161,7 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
         <div className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setOpen(false) }}>
           <div role="dialog" aria-modal="true" aria-label="Media Control Center link"
-            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl border border-slate-800 bg-slate-900 text-white shadow-2xl overflow-hidden">
+            className="w-full sm:max-w-2xl max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-2xl border border-slate-800 bg-slate-900 text-white shadow-2xl">
       <div className="px-4 py-3 flex items-center gap-3">
         <span className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-300 flex items-center justify-center shrink-0">
           <MonitorPlay className="w-5 h-5" />
@@ -149,6 +188,32 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
             <ExternalLink className="w-3.5 h-3.5" />Open
           </a>
         </div>
+        {/* Per-station sub-links: each operator sees only their own cues; all stay in sync with the master run sheet. */}
+        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-2.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 px-1 mb-1.5">Station links · the link above is the master screen</p>
+          <div className="grid sm:grid-cols-2 gap-1.5">
+            {MEDIA_STATIONS.map((s) => {
+              const sUrl = url ? mediaStationUrl(token, s.id) : ''
+              return (
+                <div key={s.id} className="flex items-center gap-2 rounded-lg bg-slate-800/60 px-2.5 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold">{s.label}</p>
+                    <p className="text-[10px] text-slate-400 truncate">{s.blurb}</p>
+                  </div>
+                  <button type="button" disabled={!sUrl} aria-label={`Copy ${s.label} link`}
+                    onClick={async () => { if (await copyText(sUrl)) { setCopiedStation(s.id); setTimeout(() => setCopiedStation((c) => (c === s.id ? '' : c)), 2000) } }}
+                    className="rounded-md p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 disabled:opacity-40">
+                    {copiedStation === s.id ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                  <a href={sUrl || undefined} target="_blank" rel="noreferrer" aria-label={`Open ${s.label} screen`}
+                    className={`rounded-md p-1.5 text-slate-300 hover:text-white hover:bg-slate-700 ${sUrl ? '' : 'pointer-events-none opacity-40'}`}>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              )
+            })}
+          </div>
+        </div>
         <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
           <span className="inline-flex items-center gap-1.5">
             {status === 'publishing'
@@ -171,6 +236,12 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
         </div>
         {error && <p className="text-xs text-red-400">{error}</p>}
       </div>
+      {rehSummary && (
+        <div className="px-4 pb-4">
+          <RehearsalSummary summary={rehSummary} signoff={live.signoff} canSignOff={canManage}
+            onSignOff={signOff} onClearSignoff={clearSignoff} busy={signing} />
+        </div>
+      )}
           </div>
         </div>,
         document.body

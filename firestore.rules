@@ -1118,7 +1118,8 @@ service cloud.firestore {
     // Media's permanent public Control Center link: media_live_links/media holds the
     // token (Media only); media_live/{token} is the published Sunday snapshot.
     // Signed-out holders of the link may get that one doc (never list) and change
-    // only the operator fields — cue ticks, timings and their timestamp.
+    // only the operator fields — cue ticks, timings, rehearsal checkpoints (verify)
+    // and their timestamp. The Director's rehearsal `signoff` is Media-only.
     match /media_live_links/{docId} {
       allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Media'));
     }
@@ -1126,7 +1127,7 @@ service cloud.firestore {
       allow get: if true;
       allow create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Media'));
       allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Media')))
-        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checks', 'progress', 'opsAt']);
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checks', 'progress', 'verify', 'opsAt']);
     }
 
     // Sunday Ministry crew schedule (SundayCrew.jsx Assign tab) — same convention
