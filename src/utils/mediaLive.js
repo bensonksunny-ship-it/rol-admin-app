@@ -71,7 +71,9 @@ function hashString(str) {
 
 /**
  * The public doc's content: programmes (with Media's cues) in service order and the
- * scheduled songs. Keys are stable per name so ticks survive a re-publish.
+ * scheduled songs. Keys are stable per name so ticks survive a re-publish. A
+ * programme's `songKeys` (songs Media attached to it, by songId / `name:<title>`)
+ * become `songs`: the published keys of those songs.
  */
 export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', programs = [], songs = [], crew = [] }) {
   const used = new Set()
@@ -81,18 +83,25 @@ export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', progr
     used.add(k)
     return k
   }
+  const progKeys = programs.map((p) => uniq(safeKey(p.name)))
+  const songKeys = songs.map((s) => uniq(`song_${safeKey(s.title)}`))
+  const publishedSongKey = new Map(songs.map((s, i) => [s.k, songKeys[i]]))
   const body = {
     sundayDate,
     serviceStartTime: String(serviceStartTime || ''),
-    programs: programs.map((p) => ({
-      key: uniq(safeKey(p.name)),
-      name: p.name,
-      duration: Number(p.duration) || 0,
-      startTime: String(p.startTime || ''),
-      elements: [...new Set(p.elements || [])],
-    })),
-    songs: songs.map((s) => ({
-      key: uniq(`song_${safeKey(s.title)}`),
+    programs: programs.map((p, i) => {
+      const attached = (p.songKeys || []).map((k) => publishedSongKey.get(k)).filter(Boolean)
+      return {
+        key: progKeys[i],
+        name: p.name,
+        duration: Number(p.duration) || 0,
+        startTime: String(p.startTime || ''),
+        elements: [...new Set(p.elements || [])],
+        ...(attached.length ? { songs: attached } : {}),
+      }
+    }),
+    songs: songs.map((s, i) => ({
+      key: songKeys[i],
       title: s.title,
       musicKey: s.musicKey || '',
       singer: s.singer || '',

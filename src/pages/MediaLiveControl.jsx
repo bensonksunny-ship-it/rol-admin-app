@@ -215,8 +215,13 @@ export default function MediaLiveControl() {
     }
   }
 
+  // An item's songs: the ones Media attached to it, else every song for a worship item.
+  const itemSongs = (p) => p.songs?.length
+    ? songs.filter((s) => p.songs.includes(s.key))
+    : (p.songsOnly || isWorshipItem(p.name) ? songs : [])
+
   // If no run-sheet item reads as worship, the songs get their own entry so they stay reachable.
-  const songsItem = songs.length && !programs.some((p) => isWorshipItem(p.name))
+  const songsItem = songs.length && !programs.some((p) => isWorshipItem(p.name) || p.songs?.length)
     ? { key: '__songs', name: 'Worship songs', duration: 0, elements: [], songsOnly: true }
     : null
   const items = songsItem ? [...programs, songsItem] : programs
@@ -374,7 +379,7 @@ export default function MediaLiveControl() {
               const took = prog.start ? (prog.end || now) - prog.start : 0
               const over = p.duration && took > p.duration * 60000
               const isSel = p.key === selKey
-              const worship = p.songsOnly || isWorshipItem(p.name)
+              const pSongs = itemSongs(p)
               const cueKeys = p.elements.map((el) => checkKey(phase, p.key, el))
               const cuesDone = cueKeys.filter((k) => checks[k]).length
               return (
@@ -392,7 +397,7 @@ export default function MediaLiveControl() {
                       {[
                         planned[i] && !p.songsOnly ? planned[i] : '',
                         p.duration ? `${p.duration} min` : '',
-                        worship && songs.length ? `${songs.length} song${songs.length === 1 ? '' : 's'}` : '',
+                        pSongs.length ? `${pSongs.length} song${pSongs.length === 1 ? '' : 's'}` : '',
                         cueKeys.length ? `${cuesDone}/${cueKeys.length} cues` : '',
                       ].filter(Boolean).join(' · ') || 'No details'}
                     </span>
@@ -434,7 +439,8 @@ export default function MediaLiveControl() {
               const took = prog.start ? (prog.end || now) - prog.start : 0
               const over = sel.duration && took > sel.duration * 60000
               const pBusy = busy === `${phase}__${sel.key}`
-              const worship = sel.songsOnly || isWorshipItem(sel.name)
+              const selSongs = itemSongs(sel)
+              const worship = sel.songsOnly || isWorshipItem(sel.name) || selSongs.length > 0
               return (
                 <>
                   <div className={`rounded-xl border bg-slate-900 ${running ? 'border-rose-500' : 'border-slate-800'}`}>
@@ -507,15 +513,15 @@ export default function MediaLiveControl() {
                           <button type="button" aria-label="Smaller text" onClick={() => { const f = Math.max(14, font - 2); setFont(f); writeLocal(FONT_KEY, String(f)) }} className="p-1.5 text-slate-300 hover:text-white"><Minus className="w-3.5 h-3.5" /></button>
                           <button type="button" aria-label="Larger text" onClick={() => { const f = Math.min(44, font + 2); setFont(f); writeLocal(FONT_KEY, String(f)) }} className="p-1.5 text-slate-300 hover:text-white"><Plus className="w-3.5 h-3.5" /></button>
                         </span>
-                        {songs.length > 1 && (
-                          <button type="button" onClick={() => copySong('all', songs.map(songPresentationText).join('\n'))}
+                        {selSongs.length > 1 && (
+                          <button type="button" onClick={() => copySong('all', selSongs.map(songPresentationText).join('\n'))}
                             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold border border-slate-700 text-slate-300 hover:text-white">
                             {copied === 'all' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}{copied === 'all' ? 'Copied all' : 'Copy all songs'}
                           </button>
                         )}
                       </div>
-                      {songs.length === 0 && <p className="text-sm text-slate-400">No songs scheduled by Worship yet.</p>}
-                      {songs.map((song, i) => {
+                      {selSongs.length === 0 && <p className="text-sm text-slate-400">No songs scheduled by Worship yet.</p>}
+                      {selSongs.map((song, i) => {
                         const k = checkKey(phase, song.key)
                         return (
                           <div key={song.key} className="rounded-xl border border-slate-800 bg-slate-900">

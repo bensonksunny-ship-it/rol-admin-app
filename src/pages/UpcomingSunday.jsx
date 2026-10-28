@@ -377,8 +377,12 @@ export default function UpcomingSunday({ slug }) {
         elements: savedInput.programElements?.[name] || [],
         duration: tpl(name)?.duration || savedInput.programDurations?.[name] || 0,
         startTime: tpl(name)?.startTime || '',
+        songKeys: savedInput.programSongs?.[name] || [],
       })),
-      ...(savedInput.customPrograms || []).map((p) => ({ name: p.programName, elements: p.elements || [], duration: p.duration || 0, startTime: '' })),
+      ...(savedInput.customPrograms || []).map((p) => ({
+        name: p.programName, elements: p.elements || [], duration: p.duration || 0, startTime: '',
+        songKeys: savedInput.programSongs?.[p.programName] || [],
+      })),
     ]
   }, [slug, savedInput, notifPrograms, defaultProgramDoc])
 
