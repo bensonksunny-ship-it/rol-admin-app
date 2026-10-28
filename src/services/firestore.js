@@ -4332,7 +4332,7 @@ export async function getDeptProgramInput(date, deptSlug) {
   }
 }
 
-export async function setDeptProgramInput(date, deptSlug, { programElements, programDurations, customPrograms, customElements }, updatedBy) {
+export async function setDeptProgramInput(date, deptSlug, { programElements, programDurations, customPrograms, customElements, programSongs }, updatedBy) {
   if (!db) return
   const ref = doc(db, SUNDAY_DEPT_INPUTS_COLLECTION, `${date}_${deptSlug}`)
   await setDoc(ref, {
@@ -4340,6 +4340,8 @@ export async function setDeptProgramInput(date, deptSlug, { programElements, pro
     programDurations: programDurations || {},
     customPrograms: Array.isArray(customPrograms) ? customPrograms : [],
     customElements: Array.isArray(customElements) ? customElements : [],
+    // Media: worship songs attached to a programme element — { [programName]: [songKey] }.
+    programSongs: programSongs && typeof programSongs === 'object' ? programSongs : {},
     updatedAt: serverTimestamp(),
     updatedBy: updatedBy || 'unknown',
   })

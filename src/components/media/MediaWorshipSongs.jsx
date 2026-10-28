@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ChevronDown, Copy, Download, Eye, Music2 } from 'lucide-react'
+import { Check, ChevronDown, Copy, Download, Eye, Music2, Paperclip } from 'lucide-react'
 import { subscribeWorshipScheduleByDate, getWorshipSongs } from '../../services/firestore'
 import { sortByWorshipRole } from '../../utils/worshipRoleOrder'
 import SongViewer from '../../pages/worship/SongViewer'
@@ -74,9 +74,11 @@ async function copyText(text) {
 /**
  * Media → Upcoming Sunday: the songs Worship has scheduled for that Sunday (live
  * from worship_schedule), each with its designed structure from the Song Builder
- * and one-tap copy for presentation slides.
+ * and one-tap copy for presentation slides. Inside a programme element's design popup,
+ * `attachedKeys` / `onToggleAttach` add an Attach toggle per song (keys are songId,
+ * or `name:<title>` for a song not in the Songs Directory).
  */
-export default function MediaWorshipSongs({ sundayDate }) {
+export default function MediaWorshipSongs({ sundayDate, attachedKeys, onToggleAttach }) {
   const [schedule, setSchedule] = useState(null) // null = loading
   const [lib, setLib] = useState([])
   const [open, setOpen] = useState(null) // song key whose lyrics are expanded
@@ -182,6 +184,17 @@ export default function MediaWorshipSongs({ sundayDate }) {
                       </div>
                     )}
                   </div>
+                  {attachedKeys && (() => {
+                    const on = attachedKeys.includes(s.k)
+                    return (
+                      <button type="button" disabled={!onToggleAttach} onClick={() => onToggleAttach?.(s.k)} aria-pressed={on}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold flex-shrink-0 transition-colors disabled:cursor-default ${
+                          on ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-white border border-slate-300 text-slate-700 hover:bg-slate-50'}`}>
+                        {on ? <Check size={13} /> : <Paperclip size={13} />}
+                        {on ? 'Attached' : 'Attach'}
+                      </button>
+                    )
+                  })()}
                 </div>
 
                 {hasBody ? (

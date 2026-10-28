@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { format } from 'date-fns'
 import MediaWorshipSongs from '../components/media/MediaWorshipSongs'
 import MediaLiveLinkCard from '../components/media/MediaLiveLinkCard'
@@ -95,6 +96,11 @@ function formatDisplay(iso) {
   return format(new Date(y, m - 1, d), 'EEEE, dd/MM/yyyy')
 }
 
+// Programme elements where the worship team's songs are sung (Worship, After Call Worship…).
+function isWorshipProgram(name) {
+  return /worship/i.test(String(name || ''))
+}
+
 function getElChipColor(el, customElements) {
   if (customElements.includes(el)) return { bg: '#f1f5f9', color: '#475569' }
   for (const cat of ELEMENT_CATEGORIES) {
@@ -126,6 +132,8 @@ export default function UpcomingSunday({ slug }) {
   const [programDurations, setProgramDurations] = useState({})
   const [customPrograms, setCustomPrograms] = useState([])
   const [customElements, setCustomElements] = useState([])
+  // Media: scheduled worship songs attached to a programme — { [programName]: [songKey] }.
+  const [programSongs, setProgramSongs] = useState({})
   // Last saved copy — what Media's public Control Center link shows (not unsaved picks).
   const [savedInput, setSavedInput] = useState(null)
 
@@ -170,6 +178,7 @@ export default function UpcomingSunday({ slug }) {
         setProgramDurations(deptInput?.programDurations || {})
         setCustomPrograms(deptInput?.customPrograms || [])
         setCustomElements(deptInput?.customElements || [])
+        setProgramSongs(deptInput?.programSongs || {})
         setSavedInput(deptInput || {})
       })
       .finally(() => setLoading(false))
@@ -254,6 +263,22 @@ export default function UpcomingSunday({ slug }) {
     }
   }
 
+  const toggleSong = (name, key) => {
+    if (!canEdit) return
+    setProgramSongs((prev) => {
+      const cur = prev[name] || []
+      return { ...prev, [name]: cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key] }
+    })
+  }
+
+  // The design popup closes on Esc.
+  useEffect(() => {
+    if (!expandedProgram) return
+    const onKey = (e) => { if (e.key === 'Escape') setExpandedProgram(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [expandedProgram])
+
   // ── Custom programme helpers ──────────────────────────────────────────────
 
   const addCustomProgram = () => {
@@ -322,10 +347,10 @@ export default function UpcomingSunday({ slug }) {
     try {
       await setDeptProgramInput(
         sundayDate, slug,
-        { programElements, programDurations, customPrograms, customElements },
+        { programElements, programDurations, customPrograms, customElements, programSongs },
         userProfile?.email || 'unknown'
       )
-      setSavedInput({ programElements, programDurations, customPrograms, customElements })
+      setSavedInput({ programElements, programDurations, customPrograms, customElements, programSongs })
       setSavedOk(true)
       setExpandedProgram(null)
       setTimeout(() => setSavedOk(false), 2500)
@@ -370,8 +395,20 @@ export default function UpcomingSunday({ slug }) {
       <div className="rounded-2xl overflow-hidden shadow-sm border border-indigo-100">
         <div
           style={{ background: 'linear-gradient(135deg, #4338ca 0%, #6366f1 60%, #7c3aed 100%)' }}
-          className="px-5 py-4 text-white"
+          className="px-5 py-4 text-white relative"
         >
+          {/* Media: permanent public Control Center link for the media desk (no login) — compact pill, link in a pop-up. */}
+          {slug === 'media' && canEdit && livePrograms && (
+            <div className="absolute top-3 right-3">
+              <MediaLiveLinkCard
+                sundayDate={sundayDate}
+                serviceStartTime={defaultProgramDoc?.serviceStartTime || ''}
+                programs={livePrograms}
+                canManage={isFounder || canManageDepartment(deptName)}
+                by={userProfile?.email || ''}
+              />
+            </div>
+          )}
           <p className="text-indigo-200 text-xs uppercase tracking-widest mb-0.5">{slug === 'worship' ? 'Upcoming Worship' : 'Upcoming Sunday'}</p>
           <h2 className="text-lg font-bold">{formatDisplay(sundayDate)}</h2>
           <div className="mt-2">
@@ -392,17 +429,6 @@ export default function UpcomingSunday({ slug }) {
 
       {/* Media: Worship's scheduled songs with lyrics / chords + copy for slides. */}
       {slug === 'media' && <MediaWorshipSongs sundayDate={sundayDate} />}
-
-      {/* Media: permanent public Control Center link for the media desk (no login). */}
-      {slug === 'media' && canEdit && livePrograms && (
-        <MediaLiveLinkCard
-          sundayDate={sundayDate}
-          serviceStartTime={defaultProgramDoc?.serviceStartTime || ''}
-          programs={livePrograms}
-          canManage={isFounder || canManageDepartment(deptName)}
-          by={userProfile?.email || ''}
-        />
-      )}
 
       {loading ? (
         <div className="py-10 text-center text-slate-400 text-sm">Loading…</div>
@@ -486,6 +512,15 @@ export default function UpcomingSunday({ slug }) {
                       </div>
                     )}
 
+                    {slug === 'media' && (programSongs[name] || []).length > 0 && (
+                      <div className="mb-1.5">
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
+                          background: '#ecfdf5', color: '#047857',
+                        }}>♪ {programSongs[name].length} song{programSongs[name].length !== 1 ? 's' : ''}</span>
+                      </div>
+                    )}
+
                     {assigned.length > 0 ? (
                       <div className="flex flex-wrap gap-1 mb-2">
                         {assigned.slice(0, 3).map((el) => {
@@ -519,7 +554,7 @@ export default function UpcomingSunday({ slug }) {
                         color: isSelected ? '#fff' : color.accent,
                         transition: 'background 0.2s, color 0.2s',
                       }}>
-                        {isSelected ? 'CLOSE ▲' : 'DESIGN ▼'}
+                        DESIGN
                       </span>
                     </div>
                   </div>
@@ -575,9 +610,12 @@ export default function UpcomingSunday({ slug }) {
             )}
           </div>
 
-          {/* ── Element palette ── */}
-          {expandedProgram && (
-            <div className="bg-white rounded-2xl overflow-hidden shadow-sm"
+          {/* ── Element design popup ── */}
+          {expandedProgram && createPortal(
+            <div className="fixed inset-0 z-[900] flex items-end sm:items-center justify-center bg-slate-900/40 p-0 sm:p-4"
+              onClick={() => setExpandedProgram(null)}>
+            <div role="dialog" aria-modal="true" aria-label={`Design ${expandedProgram}`} onClick={(e) => e.stopPropagation()}
+              className="w-full sm:max-w-2xl max-h-[92vh] flex flex-col bg-white rounded-t-2xl sm:rounded-2xl overflow-hidden shadow-2xl"
               style={{ border: `1.5px solid ${selectedColor.accent}44` }}>
 
               {/* Palette header */}
@@ -621,7 +659,7 @@ export default function UpcomingSunday({ slug }) {
                 </button>
               </div>
 
-              <div className="px-4 pb-4 pt-3 space-y-4">
+              <div className="flex-1 overflow-y-auto px-4 pb-4 pt-3 space-y-4">
 
                 {/* ── Duration ── */}
                 <div className="flex items-center gap-3 pb-1 border-b border-slate-100">
@@ -663,6 +701,15 @@ export default function UpcomingSunday({ slug }) {
                       ))}
                     </div>
                   </div>
+                )}
+
+                {/* Media: the worship team's songs for this Sunday — preview, copy, attach. */}
+                {slug === 'media' && isWorshipProgram(expandedProgram) && (
+                  <MediaWorshipSongs
+                    sundayDate={sundayDate}
+                    attachedKeys={programSongs[expandedProgram] || []}
+                    onToggleAttach={canEdit ? (k) => toggleSong(expandedProgram, k) : undefined}
+                  />
                 )}
 
                 {/* Predefined categories */}
@@ -729,7 +776,24 @@ export default function UpcomingSunday({ slug }) {
                   </div>
                 )}
               </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-3 px-4 py-3 border-t border-slate-100">
+                {savedOk && <span className="text-sm text-emerald-600 font-semibold">Saved!</span>}
+                <button type="button" onClick={() => setExpandedProgram(null)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50">
+                  {canEdit ? 'Done' : 'Close'}
+                </button>
+                {canEdit && (
+                  <button type="button" onClick={save} disabled={saving}
+                    className="px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 shadow-sm">
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                )}
+              </div>
             </div>
+            </div>,
+            document.body,
           )}
 
           {/* ── Manage Custom Elements ── */}
