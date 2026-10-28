@@ -73,7 +73,8 @@ function hashString(str) {
  * The public doc's content: programmes (with Media's cues) in service order and the
  * scheduled songs. Keys are stable per name so ticks survive a re-publish. A
  * programme's `songKeys` (songs Media attached to it, by songId / `name:<title>`)
- * become `songs`: the published keys of those songs.
+ * become `songs`: the published keys of those songs. `audio` ({ id, name, url })
+ * is the programme's attached audio, played from the Control Center.
  */
 export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', programs = [], songs = [], crew = [] }) {
   const used = new Set()
@@ -99,6 +100,8 @@ export function buildMediaLiveContent({ sundayDate, serviceStartTime = '', progr
         elements: [...new Set(p.elements || [])],
         ...(attached.length ? { songs: attached } : {}),
         ...(p.parallel ? { parallel: true } : {}),
+        // Audio Media attached to the element (backing track / sound effect) — the desk plays it.
+        ...(p.audio?.length ? { audio: p.audio.filter((t) => t?.url).map((t) => ({ id: String(t.id || ''), name: String(t.name || 'Audio'), url: String(t.url) })) } : {}),
       }
     }),
     songs: songs.map((s, i) => ({

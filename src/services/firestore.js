@@ -4332,7 +4332,7 @@ export async function getDeptProgramInput(date, deptSlug) {
   }
 }
 
-export async function setDeptProgramInput(date, deptSlug, { programElements, programDurations, customPrograms, customElements, programSongs }, updatedBy) {
+export async function setDeptProgramInput(date, deptSlug, { programElements, programDurations, customPrograms, customElements, programSongs, programAudio }, updatedBy) {
   if (!db) return
   const ref = doc(db, SUNDAY_DEPT_INPUTS_COLLECTION, `${date}_${deptSlug}`)
   await setDoc(ref, {
@@ -4342,6 +4342,8 @@ export async function setDeptProgramInput(date, deptSlug, { programElements, pro
     customElements: Array.isArray(customElements) ? customElements : [],
     // Media: worship songs attached to a programme element — { [programName]: [songKey] }.
     programSongs: programSongs && typeof programSongs === 'object' ? programSongs : {},
+    // Media: audio attached to a programme element — { [programName]: [{ id, name, url, path, size, type }] }.
+    programAudio: programAudio && typeof programAudio === 'object' ? programAudio : {},
     updatedAt: serverTimestamp(),
     updatedBy: updatedBy || 'unknown',
   })
@@ -6808,6 +6810,38 @@ export async function uploadMemberPhoto(visitorId, file) {
   const storageRef = ref(storage, `member_photos/${visitorId}.${ext}`)
   const snap = await uploadBytes(storageRef, file, { contentType: file.type })
   return getDownloadURL(snap.ref)
+}
+
+export const MEDIA_AUDIO_MAX_BYTES = 50 * 1024 * 1024
+
+/** Saves just the programme audio map (uploads/removals persist straight away, without the page's Save). */
+export async function setDeptProgramAudio(date, deptSlug, programAudio, updatedBy) {
+  if (!db) return
+  await setDoc(doc(db, SUNDAY_DEPT_INPUTS_COLLECTION, `${date}_${deptSlug}`), {
+    programAudio: programAudio || {},
+    updatedAt: serverTimestamp(),
+    updatedBy: updatedBy || 'unknown',
+  }, { merge: true })
+}
+
+/**
+ * Media → Upcoming Sunday: upload an audio file (backing track, sound effect…) for a
+ * programme element. Returns { id, name, url, path, size, type } — the download URL
+ * carries its own token, so the public Control Center can play it without a login.
+ */
+export async function uploadMediaAudio(sundayDate, file) {
+  if (!storage || !file) throw new Error('Storage unavailable')
+  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+  const safe = String(file.name || 'audio').replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80)
+  const path = `media_audio/${sundayDate}/${id}_${safe}`
+  const snap = await uploadBytes(ref(storage, path), file, { contentType: file.type || 'audio/mpeg' })
+  const url = await getDownloadURL(snap.ref)
+  return { id, name: String(file.name || 'Audio').replace(/\.[^.]+$/, ''), url, path, size: file.size || 0, type: file.type || 'audio/mpeg' }
+}
+
+export async function deleteMediaAudio(path) {
+  if (!storage || !path) return
+  try { await deleteObject(ref(storage, path)) } catch (e) { if (e?.code !== 'storage/object-not-found') throw e }
 }
 
 // ─── People Directory (central people collection) ────────────────────────────

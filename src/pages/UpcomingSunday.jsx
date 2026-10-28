@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { format } from 'date-fns'
 import MediaWorshipSongs from '../components/media/MediaWorshipSongs'
 import MediaLiveLinkCard from '../components/media/MediaLiveLinkCard'
+import MediaProgramAudio from '../components/media/MediaProgramAudio'
 import { useAuth } from '../context/AuthContext'
 import {
   subscribeProgramNotification,
@@ -10,6 +11,9 @@ import {
   getWorshipScheduleByDate,
   getDeptProgramInput,
   setDeptProgramInput,
+  setDeptProgramAudio,
+  uploadMediaAudio,
+  deleteMediaAudio,
 } from '../services/firestore'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -134,6 +138,9 @@ export default function UpcomingSunday({ slug }) {
   const [customElements, setCustomElements] = useState([])
   // Media: scheduled worship songs attached to a programme — { [programName]: [songKey] }.
   const [programSongs, setProgramSongs] = useState({})
+  // Media: audio attached to a programme element — { [programName]: [{ id, name, url, path, size, type }] }.
+  const [programAudio, setProgramAudio] = useState({})
+  const audioRef = useRef({}) // latest map, so back-to-back uploads don't overwrite each other
   // Last saved copy — what Media's public Control Center link shows (not unsaved picks).
   const [savedInput, setSavedInput] = useState(null)
 
@@ -179,6 +186,8 @@ export default function UpcomingSunday({ slug }) {
         setCustomPrograms(deptInput?.customPrograms || [])
         setCustomElements(deptInput?.customElements || [])
         setProgramSongs(deptInput?.programSongs || {})
+        setProgramAudio(deptInput?.programAudio || {})
+        audioRef.current = deptInput?.programAudio || {}
         setSavedInput(deptInput || {})
       })
       .finally(() => setLoading(false))
@@ -271,6 +280,25 @@ export default function UpcomingSunday({ slug }) {
     })
   }
 
+  // Audio uploads/removals persist straight away (not on Save) so a file in Storage
+  // is never left out of the saved doc, and the Control Center gets it immediately.
+  const persistAudio = async (next) => {
+    audioRef.current = next
+    await setDeptProgramAudio(sundayDate, slug, next, userProfile?.email || 'unknown')
+    setProgramAudio(next)
+    setSavedInput((prev) => ({ ...(prev || {}), programAudio: next }))
+  }
+
+  const addAudio = async (name, file) => {
+    const track = await uploadMediaAudio(sundayDate, file)
+    await persistAudio({ ...audioRef.current, [name]: [...(audioRef.current[name] || []), track] })
+  }
+
+  const removeAudio = async (name, track) => {
+    await persistAudio({ ...audioRef.current, [name]: (audioRef.current[name] || []).filter((t) => t.id !== track.id) })
+    await deleteMediaAudio(track.path)
+  }
+
   // The design popup closes on Esc.
   useEffect(() => {
     if (!expandedProgram) return
@@ -347,10 +375,10 @@ export default function UpcomingSunday({ slug }) {
     try {
       await setDeptProgramInput(
         sundayDate, slug,
-        { programElements, programDurations, customPrograms, customElements, programSongs },
+        { programElements, programDurations, customPrograms, customElements, programSongs, programAudio },
         userProfile?.email || 'unknown'
       )
-      setSavedInput({ programElements, programDurations, customPrograms, customElements, programSongs })
+      setSavedInput({ programElements, programDurations, customPrograms, customElements, programSongs, programAudio })
       setSavedOk(true)
       setExpandedProgram(null)
       setTimeout(() => setSavedOk(false), 2500)
@@ -371,6 +399,7 @@ export default function UpcomingSunday({ slug }) {
   const livePrograms = useMemo(() => {
     if (slug !== 'media' || !savedInput) return null
     const tpl = (name) => defaultProgramDoc?.items?.find((i) => i.programName === name)
+    const audio = (name) => (savedInput.programAudio?.[name] || []).map((t) => ({ id: t.id, name: t.name, url: t.url }))
     return [
       ...notifPrograms.map((name) => ({
         name,
@@ -378,11 +407,13 @@ export default function UpcomingSunday({ slug }) {
         duration: tpl(name)?.duration || savedInput.programDurations?.[name] || 0,
         startTime: tpl(name)?.startTime || '',
         songKeys: savedInput.programSongs?.[name] || [],
+        audio: audio(name),
       })),
       ...(savedInput.customPrograms || []).map((p) => ({
         // Media's own add-on programmes run alongside the service, not in its sequence.
         name: p.programName, elements: p.elements || [], duration: p.duration || 0, startTime: '', parallel: true,
         songKeys: savedInput.programSongs?.[p.programName] || [],
+        audio: audio(p.programName),
       })),
     ]
   }, [slug, savedInput, notifPrograms, defaultProgramDoc])
@@ -523,6 +554,15 @@ export default function UpcomingSunday({ slug }) {
                           fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
                           background: '#ecfdf5', color: '#047857',
                         }}>♪ {programSongs[name].length} song{programSongs[name].length !== 1 ? 's' : ''}</span>
+                      </div>
+                    )}
+
+                    {slug === 'media' && (programAudio[name] || []).length > 0 && (
+                      <div className="mb-1.5">
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
+                          background: '#f0f9ff', color: '#0284c7',
+                        }}>🔊 {programAudio[name].length} audio</span>
                       </div>
                     )}
 
@@ -688,6 +728,16 @@ export default function UpcomingSunday({ slug }) {
                     </span>
                   )}
                 </div>
+
+                {/* Media: audio (backing track / sound effect) the Control Center plays for this item. */}
+                {slug === 'media' && (
+                  <MediaProgramAudio
+                    tracks={programAudio[expandedProgram] || []}
+                    canEdit={canEdit}
+                    onUpload={(file) => addAudio(expandedProgram, file)}
+                    onRemove={(t) => removeAudio(expandedProgram, t)}
+                  />
+                )}
 
                 {/* Worship songs (worship dept + Worship programme only) */}
                 {slug === 'worship' && expandedProgram === 'Worship' && leadVocals.length > 0 && (

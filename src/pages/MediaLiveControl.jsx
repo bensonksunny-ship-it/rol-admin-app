@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { format } from 'date-fns'
-import { Check, ChevronRight, Copy, Minus, MonitorPlay, Music2, Play, Plus, RotateCcw, Square, User, Wifi, WifiOff } from 'lucide-react'
+import { Check, ChevronRight, Copy, Minus, MonitorPlay, Music2, Pause, Play, Plus, RotateCcw, Square, User, Volume2, Wifi, WifiOff, X } from 'lucide-react'
 import { subscribeMediaLive, setMediaLiveCheck, updateMediaLiveProgress, resetMediaLiveOps } from '../services/firestore'
 import {
   MEDIA_LIVE_PHASES, checkKey, chordLine, songPresentationText, isWorshipItem, plannedStarts, fmtClock, fmtElapsed,
@@ -123,6 +123,12 @@ export default function MediaLiveControl() {
   const [error, setError] = useState('')
   const [confirmReset, setConfirmReset] = useState(false)
   const [copied, setCopied] = useState('') // key of the song (or 'all') just copied
+  // One shared player for programme audio (backing tracks / sound effects), so a
+  // track keeps playing while the operator looks at other items.
+  const playerRef = useRef(null)
+  const [nowPlaying, setNowPlaying] = useState(null) // { progKey, progName, track }
+  const [playing, setPlaying] = useState(false)
+  const [audioError, setAudioError] = useState('')
 
   useEffect(() => subscribeMediaLive(token, setData, () => setData(null)), [token])
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t) }, [])
@@ -186,8 +192,32 @@ export default function MediaLiveControl() {
   }
   const toggle = (key) => run(key, () => setMediaLiveCheck(token, key, !checks[key], operator.trim()))
 
+  // Called straight from a tap (not an effect) so the browser allows playback.
+  function playTrack(p, track) {
+    const el = playerRef.current
+    if (!el || !track?.url) return
+    setAudioError('')
+    if (nowPlaying?.track.url !== track.url) {
+      el.src = track.url
+      setNowPlaying({ progKey: p.key, progName: p.name, track })
+    }
+    el.play().catch((e) => { console.error('audio play', e); setAudioError('Could not play this track. Check the connection, or tap play again.') })
+  }
+  function toggleTrack(p, track) {
+    const el = playerRef.current
+    if (el && nowPlaying?.track.url === track.url && !el.paused) el.pause()
+    else playTrack(p, track)
+  }
+  function stopAudio() {
+    const el = playerRef.current
+    if (el) { el.pause(); el.removeAttribute('src'); el.load() }
+    setNowPlaying(null); setPlaying(false); setAudioError('')
+  }
+
   // Starting an item finishes whichever one was running, so one tap moves the service on.
+  // An item with attached audio starts its first track.
   function startProgram(p) {
+    if (p.audio?.length) playTrack(p, p.audio[0])
     const key = `${phase}__${p.key}`
     const prev = runningIdx >= 0 ? programs[runningIdx] : null
     run(key, () => {
@@ -391,7 +421,8 @@ export default function MediaLiveControl() {
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
                       <span className="font-semibold truncate">{p.name}</span>
-                      {running && <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase bg-rose-600">Live</span>}
+                      {p.audio?.length > 0 && <Volume2 className={`w-3.5 h-3.5 shrink-0 ${nowPlaying?.progKey === p.key && playing ? 'text-sky-300' : 'text-slate-500'}`} aria-label="Has audio" />}
+                      {running &&<span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase bg-rose-600">Live</span>}
                     </span>
                     <span className="block text-[11px] text-slate-400 truncate">
                       {[
@@ -486,6 +517,28 @@ export default function MediaLiveControl() {
                         Auto: {programs[selIdx + 1] ? `moves to ${programs[selIdx + 1].name}` : 'ends'} at {fmtClock(prog.start + sel.duration * 60000)}
                       </p>
                     )}
+                    {sel.audio?.length > 0 && (
+                      <div className="px-4 pb-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Audio</p>
+                        <div className="space-y-1.5">
+                          {sel.audio.map((t) => {
+                            const on = nowPlaying?.track.url === t.url
+                            return (
+                              <button key={t.id || t.url} type="button" onClick={() => toggleTrack(sel, t)}
+                                aria-label={`${on && playing ? 'Pause' : 'Play'} ${t.name}`}
+                                className={`w-full flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition ${on ? 'border-sky-500/60 bg-sky-500/10' : 'border-slate-800 bg-slate-950 hover:border-slate-600'}`}>
+                                <span className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${on && playing ? 'bg-sky-500 text-white' : 'bg-slate-800 text-sky-300'}`}>
+                                  {on && playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                                </span>
+                                <span className="min-w-0 flex-1 text-sm font-semibold truncate">{t.name}</span>
+                                {on && <span className="text-[11px] text-sky-300 shrink-0">{playing ? 'Playing' : 'Paused'}</span>}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1.5">Start plays the first track automatically.</p>
+                      </div>
+                    )}
                     {!sel.songsOnly && (
                       <div className="px-4 pb-4">
                         <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Media cues</p>
@@ -573,6 +626,24 @@ export default function MediaLiveControl() {
           </section>
         </div>
       </main>
+
+      {/* Programme audio player — stays put while the operator moves between items. */}
+      <div className={nowPlaying ? 'sticky bottom-0 z-20 bg-slate-900/95 backdrop-blur border-t border-slate-800' : 'hidden'}>
+        <div className="max-w-[1600px] mx-auto px-4 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1 basis-48">
+            <Volume2 className={`w-4 h-4 shrink-0 ${playing ? 'text-sky-300' : 'text-slate-500'}`} />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate">{nowPlaying?.track.name}</p>
+              <p className="text-[11px] text-slate-400 truncate">{nowPlaying?.progName}</p>
+            </div>
+          </div>
+          <audio ref={playerRef} controls preload="auto" className="h-9 flex-[2_1_16rem] min-w-0"
+            onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} />
+          <button type="button" onClick={stopAudio} aria-label="Stop and close player"
+            className="rounded-lg p-2 text-slate-400 hover:text-slate-100 hover:bg-slate-800"><X className="w-4 h-4" /></button>
+          {audioError && <p className="basis-full text-xs text-red-400">{audioError}</p>}
+        </div>
+      </div>
     </div>
   )
 }

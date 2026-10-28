@@ -10,5 +10,14 @@ service firebase.storage {
         request.resource.contentType.matches('image/.*')
       );
     }
+    // Media → Upcoming Sunday: audio attached to a programme element (backing track,
+    // sound effect). The public Control Center plays it through the download URL's
+    // token, so reads here are only for signed-in users.
+    match /media_audio/{sundayDate}/{fileName} {
+      allow read, delete: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.size < 50 * 1024 * 1024
+        && request.resource.contentType.matches('audio/.*');
+    }
   }
 }

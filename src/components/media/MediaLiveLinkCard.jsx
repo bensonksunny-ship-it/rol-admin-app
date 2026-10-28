@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Copy, ExternalLink, Loader2, MonitorPlay, RefreshCw } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Check, Copy, ExternalLink, Loader2, MonitorPlay, RefreshCw, X } from 'lucide-react'
 import {
   ensureMediaLiveToken,
   rotateMediaLiveToken,
@@ -33,6 +34,8 @@ async function copyText(text) {
  * (/media-live/:token, no login) for the media desk. While a Media member has this
  * page open, the upcoming Sunday's programme, Media's cues and Worship's songs are
  * kept published to it — a new Sunday starts the desk's checklist fresh.
+ * Renders as a compact pill (in the page header); the link, copy, open and
+ * new-link controls are in a pop-up. Stays mounted so publishing keeps running.
  */
 export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, programs, canManage, by }) {
   const [token, setToken] = useState('')
@@ -45,6 +48,14 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
   const [copied, setCopied] = useState(false)
   const [confirmRotate, setConfirmRotate] = useState(false)
   const [rotating, setRotating] = useState(false)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [open])
 
   useEffect(() => {
     ensureMediaLiveToken(by).then(setToken).catch((e) => { console.error('MediaLiveLinkCard', e); setError('Could not load the public link.') })
@@ -100,7 +111,18 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
   }
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 text-white shadow-sm overflow-hidden">
+    <>
+      <button type="button" onClick={() => setOpen(true)} title="Media Control Center link"
+        className="inline-flex items-center gap-1.5 rounded-full bg-white/15 hover:bg-white/25 border border-white/20 px-3 py-1.5 text-xs font-semibold text-white transition-colors">
+        <MonitorPlay className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Control Center</span>
+        <span className={`w-1.5 h-1.5 rounded-full ${error ? 'bg-red-400' : status === 'published' ? 'bg-emerald-300' : 'bg-amber-300'}`} />
+      </button>
+      {open && createPortal(
+        <div className="fixed inset-0 z-[80] bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) setOpen(false) }}>
+          <div role="dialog" aria-modal="true" aria-label="Media Control Center link"
+            className="w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl border border-slate-800 bg-slate-900 text-white shadow-2xl overflow-hidden">
       <div className="px-4 py-3 flex items-center gap-3">
         <span className="w-9 h-9 rounded-xl bg-emerald-500/15 text-emerald-300 flex items-center justify-center shrink-0">
           <MonitorPlay className="w-5 h-5" />
@@ -109,8 +131,12 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
           <p className="text-sm font-semibold">Media Control Center</p>
           <p className="text-xs text-slate-400">Public link for the media desk: lyrics, run sheet, crew check-in, rehearsal and live checklists. No login.</p>
         </div>
+        <button type="button" onClick={() => setOpen(false)} aria-label="Close"
+          className="w-8 h-8 rounded-full bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center justify-center shrink-0">
+          <X className="w-4 h-4" />
+        </button>
       </div>
-      <div className="px-4 pb-3 space-y-2">
+      <div className="px-4 pb-4 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <input readOnly value={url || 'Preparing link…'} onFocus={(e) => e.target.select()}
             className="flex-1 min-w-0 rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs font-mono text-slate-200 outline-none" />
@@ -145,6 +171,10 @@ export default function MediaLiveLinkCard({ sundayDate, serviceStartTime, progra
         </div>
         {error && <p className="text-xs text-red-400">{error}</p>}
       </div>
-    </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   )
 }
