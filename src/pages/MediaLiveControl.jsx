@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { format } from 'date-fns'
 import { Check, ChevronRight, Copy, Minus, MonitorPlay, Music2, Pause, Play, Plus, RotateCcw, Square, User, Volume2, Wifi, WifiOff, X } from 'lucide-react'
-import { subscribeMediaLive, setMediaLiveCheck, updateMediaLiveProgress, resetMediaLiveOps } from '../services/firestore'
+import { subscribeMediaLive, setMediaLiveCheck, updateMediaLiveProgress, resetMediaLiveOps, setMediaLiveVerify } from '../services/firestore'
 import {
   MEDIA_LIVE_PHASES, checkKey, chordLine, songPresentationText, isWorshipItem, plannedStarts, fmtClock, fmtElapsed,
+  rehearsalSummary,
 } from '../utils/mediaLive'
+import { RehearsalSummary, VerifyRow } from '../components/media/RehearsalVerification'
 
 const OPERATOR_KEY = 'mediaLiveOperator'
 const PHASE_KEY = 'mediaLivePhase'
@@ -144,6 +146,9 @@ export default function MediaLiveControl() {
   const crew = useMemo(() => data?.crew || [], [data])
   const checks = useMemo(() => data?.checks || {}, [data])
   const progress = useMemo(() => data?.progress || {}, [data])
+  const verify = useMemo(() => data?.verify || {}, [data])
+  const rehSummary = useMemo(() => rehearsalSummary(programs, verify), [programs, verify])
+  const rehItem = (key) => rehSummary.items.find((it) => it.program.key === key) || null
   const planned = useMemo(() => plannedStarts(programs, data?.serviceStartTime), [programs, data?.serviceStartTime])
   const phaseDef = MEDIA_LIVE_PHASES.find((p) => p.id === phase) || MEDIA_LIVE_PHASES[0]
 
@@ -191,6 +196,7 @@ export default function MediaLiveControl() {
     setBusy('')
   }
   const toggle = (key) => run(key, () => setMediaLiveCheck(token, key, !checks[key], operator.trim()))
+  const setVerify = (key, status, note) => run(key, () => setMediaLiveVerify(token, key, status, note, operator.trim()))
 
   // Called straight from a tap (not an effect) so the browser allows playback.
   function playTrack(p, track) {
@@ -234,7 +240,7 @@ export default function MediaLiveControl() {
   const setManual = (manual) => run('mode', () => updateMediaLiveProgress(token, { [modeKey]: { manual: manual ? true : null } }))
 
   async function resetPhase() {
-    await run('reset', () => resetMediaLiveOps(token, { checks, progress }, `${phase}__`))
+    await run('reset', () => resetMediaLiveOps(token, { checks, progress, verify }, `${phase}__`))
     setConfirmReset(false)
   }
 
@@ -369,6 +375,8 @@ export default function MediaLiveControl() {
           </div>
         </div>
 
+        {phase === 'reh' && <RehearsalSummary summary={rehSummary} signoff={data.signoff} compact />}
+
         <div className="lg:hidden">
           <TimerRail program={running} start={runningStart} now={now} next={runningNext} auto={autoMode} />
         </div>
@@ -392,7 +400,7 @@ export default function MediaLiveControl() {
               </div>
               {confirmReset ? (
                 <span className="flex items-center gap-3 text-xs">
-                  <span className="text-amber-300">Clear every {phaseDef.label} tick and timing?</span>
+                  <span className="text-amber-300">Clear every {phaseDef.label} tick{phase === 'reh' ? ', checkpoint' : ''} and timing?</span>
                   <button type="button" onClick={resetPhase} disabled={busy === 'reset'} className="font-semibold text-amber-300 hover:text-amber-200">Clear</button>
                   <button type="button" onClick={() => setConfirmReset(false)} className="text-slate-400 hover:text-slate-200">Cancel</button>
                 </span>
@@ -412,6 +420,9 @@ export default function MediaLiveControl() {
               const pSongs = itemSongs(p)
               const cueKeys = p.elements.map((el) => checkKey(phase, p.key, el))
               const cuesDone = cueKeys.filter((k) => checks[k]).length
+              const rv = phase === 'reh' ? rehItem(p.key) : null
+              const rvDone = rv ? rv.systems.filter((x) => x.entry).length : 0
+              const rvIssue = rv ? rv.systems.some((x) => x.entry?.status === 'attention') : false
               return (
                 <button key={p.key} type="button" onClick={() => select(p.key)} aria-pressed={isSel}
                   className={`w-full text-left rounded-xl border bg-slate-900 px-3 py-2.5 flex items-center gap-3 transition ${isSel ? 'border-indigo-400 ring-2 ring-indigo-500/30 bg-indigo-500/5' : running ? 'border-rose-500' : prog.end ? 'border-emerald-700/60' : 'border-slate-800 hover:border-slate-600'}`}>
@@ -430,7 +441,9 @@ export default function MediaLiveControl() {
                         p.duration ? `${p.duration} min` : '',
                         pSongs.length ? `${pSongs.length} song${pSongs.length === 1 ? '' : 's'}` : '',
                         cueKeys.length ? `${cuesDone}/${cueKeys.length} cues` : '',
+                        rv ? `${rvDone}/${rv.systems.length} verified` : '',
                       ].filter(Boolean).join(' · ') || 'No details'}
+                      {rvIssue && <span className="text-amber-300"> · needs attention</span>}
                     </span>
                   </span>
                   {prog.start && (
@@ -537,6 +550,17 @@ export default function MediaLiveControl() {
                           })}
                         </div>
                         <p className="text-[11px] text-slate-500 mt-1.5">Start plays the first track automatically.</p>
+                      </div>
+                    )}
+                    {phase === 'reh' && rehItem(sel.key) && (
+                      <div className="px-4 pb-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Rehearsal checkpoints</p>
+                        <div className="space-y-1.5">
+                          {rehItem(sel.key).systems.map((x) => (
+                            <VerifyRow key={x.key} label={x.label} entry={x.entry} busy={busy === x.key}
+                              onSet={(status, note) => setVerify(x.key, status, note)} />
+                          ))}
+                        </div>
                       </div>
                     )}
                     {!sel.songsOnly && (

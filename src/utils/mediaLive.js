@@ -160,3 +160,55 @@ export function fmtElapsed(ms) {
   const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60
   return `${h ? `${h}:` : ''}${String(m).padStart(h ? 2 : 1, '0')}:${String(sec).padStart(2, '0')}`
 }
+
+// ── Saturday rehearsal verification ──────────────────────────────────────────
+// Each run-sheet item up to and including the Invocation prayer gets one checkpoint
+// per technical system. Results live in the public doc's `verify` map under
+// checkKey('reh', programKey, systemId): { status, note, at, by }.
+
+export const REH_SYSTEMS = [
+  { id: 'audio', label: 'Audio' },
+  { id: 'video', label: 'Video' },
+  { id: 'lights', label: 'Lights' },
+  { id: 'slides', label: 'Presentation slides' },
+  { id: 'stream', label: 'Live Stream' },
+]
+
+export const VERIFY_STATUSES = [
+  { id: 'good', label: 'All Good' },
+  { id: 'attention', label: 'Needs Attention' },
+  { id: 'fixed', label: 'Fixed' },
+]
+
+export const verifyKey = (programKey, systemId) => checkKey('reh', programKey, systemId)
+
+/** Items rehearsed for verification: up to and including the Invocation prayer (all items if there's none). */
+export function rehearsalScope(programs) {
+  const list = (programs || []).filter((p) => !p.songsOnly)
+  const idx = list.findIndex((p) => /invocation/i.test(String(p.name || '')))
+  return idx >= 0 ? list.slice(0, idx + 1) : list
+}
+
+/**
+ * What the Director reviews: every checkpoint in scope with its status, counts per
+ * status, the open issues, and a signature of all statuses + notes — a sign-off
+ * stores the signature, so any later change shows the sign-off as out of date.
+ */
+export function rehearsalSummary(programs, verify = {}) {
+  const items = rehearsalScope(programs).map((p) => ({
+    program: p,
+    systems: REH_SYSTEMS.map((s) => ({ ...s, key: verifyKey(p.key, s.id), entry: verify[verifyKey(p.key, s.id)] || null })),
+  }))
+  const all = items.flatMap((it) => it.systems.map((s) => ({ ...s, program: it.program })))
+  const counts = { good: 0, attention: 0, fixed: 0, pending: 0 }
+  all.forEach((s) => { counts[s.entry?.status && counts[s.entry.status] != null ? s.entry.status : 'pending'] += 1 })
+  const signature = hashString(JSON.stringify(all.map((s) => [s.key, s.entry?.status || '', s.entry?.note || ''])))
+  return {
+    items,
+    total: all.length,
+    counts,
+    attention: all.filter((s) => s.entry?.status === 'attention'),
+    fixed: all.filter((s) => s.entry?.status === 'fixed'),
+    signature,
+  }
+}

@@ -10234,10 +10234,62 @@ export async function updateMediaLiveProgress(token, changes) {
   await updateDoc(doc(db, MEDIA_LIVE, token), upd)
 }
 
-/** Clear every check and timing whose key starts with `prefix` (e.g. 'reh__'). */
-export async function resetMediaLiveOps(token, { checks = {}, progress = {} }, prefix) {
+/**
+ * A Saturday rehearsal checkpoint (utils/mediaLive.js → verifyKey): status is
+ * 'good' | 'attention' | 'fixed', or '' to clear it.
+ */
+export async function setMediaLiveVerify(token, key, status, note, by) {
+  await updateDoc(doc(db, MEDIA_LIVE, token), {
+    [`verify.${key}`]: status
+      ? { status, note: String(note || '').slice(0, 300), at: Date.now(), by: String(by || '').slice(0, 60) }
+      : deleteField(),
+    opsAt: serverTimestamp(),
+  })
+}
+
+/**
+ * Media Director's rehearsal sign-off (signed-in Media only — see firestore.rules).
+ * `signature` is rehearsalSummary().signature at the moment of signing.
+ */
+export async function signOffMediaRehearsal(token, { signature, counts, name, by, note }) {
+  await updateDoc(doc(db, MEDIA_LIVE, token), {
+    signoff: { signature, counts, name: String(name || ''), by: String(by || ''), note: String(note || '').slice(0, 500), at: Date.now() },
+  })
+}
+
+export async function clearMediaRehearsalSignoff(token) {
+  await updateDoc(doc(db, MEDIA_LIVE, token), { signoff: deleteField() })
+}
+
+/** Clear every check, timing and rehearsal checkpoint whose key starts with `prefix` (e.g. 'reh__'). */
+export async function resetMediaLiveOps(token, { checks = {}, progress = {}, verify = {} }, prefix) {
   const upd = { opsAt: serverTimestamp() }
   for (const k of Object.keys(checks)) if (k.startsWith(prefix)) upd[`checks.${k}`] = deleteField()
   for (const k of Object.keys(progress)) if (k.startsWith(prefix)) upd[`progress.${k}`] = deleteField()
+  for (const k of Object.keys(verify)) if (k.startsWith(prefix)) upd[`verify.${k}`] = deleteField()
   await updateDoc(doc(db, MEDIA_LIVE, token), upd)
+}
+
+// ─── Sunday programme: person in charge per item, per Sunday ─────────────────
+// sunday_program/people_{date}: { date, people: { [programName]: { name, role } } }.
+// Names the Sunday Ministry Director sets in Program Design; items left blank fall
+// back to the department rosters (see utils/programPeople.js). Lives in the
+// sunday_program collection so it shares that collection's rules.
+
+export async function getSundayProgramPeople(date) {
+  if (!db || !date) return {}
+  const snap = await getDoc(doc(db, SUNDAY_PROGRAM_COLLECTION, `people_${date}`))
+  return snap.exists() ? snap.data().people || {} : {}
+}
+
+export async function setSundayProgramPeople(date, people, updatedBy) {
+  if (!db || !date) return
+  const clean = {}
+  for (const [k, v] of Object.entries(people || {})) {
+    const name = String(v?.name || '').trim()
+    if (name) clean[k] = { name, role: String(v?.role || '').trim() }
+  }
+  await setDoc(doc(db, SUNDAY_PROGRAM_COLLECTION, `people_${date}`), {
+    date, people: clean, updatedBy: updatedBy || '', updatedAt: serverTimestamp(),
+  })
 }
