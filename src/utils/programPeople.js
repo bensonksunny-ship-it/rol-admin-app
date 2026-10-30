@@ -4,6 +4,7 @@
 //   Psalms Reading,
 //   Announcements      → Sec Core's Sunday Leader for that date (the same person on both)
 //   Worship / Altar Call → Worship's roster (below)
+//   Intercessory Prayer → the Altar Call Worship leader (Lead Vocal-4, the 4th song)
 // Other items take names the Sunday Ministry Director set for that Sunday
 // (sunday_program/people_{date}); without them they fall back to a default or roster:
 //   Sermon / Message   → the Senior Pastor (override / add guest speakers)
@@ -60,10 +61,28 @@ export function worshipLeaders(assignments = [], { excludeAltarCall = false } = 
 
 const asLeads = (value) => splitNames(value).map((name) => ({ name, songs: [] }))
 
+/**
+ * Intercessory Prayer is led by whoever leads Altar Call Worship — the 4th Lead
+ * Vocal slot, i.e. the 4th song. With that slot empty, the lead of the 4th song in
+ * the setlist (slot order) stands in.
+ */
+export function intercessoryLeaders(assignments = []) {
+  const altar = worshipLeaders((assignments || []).filter((a) => isAltarCallRole(a.role)))
+  if (altar.length) return altar.map((l) => ({ name: l.name, songs: [] }))
+  const fourth = sortByWorshipRole((assignments || []).filter((a) =>
+    /^lead vocal/i.test(a.role || '') && String(a.memberName || '').trim() && (a.songId || String(a.songName || '').trim())))[3]
+  return fourth ? [{ name: fourth.memberName.trim(), songs: [] }] : []
+}
+
 const ALTAR_CALL_ITEM = /alt[ae]r\s*call/i
 const MEDIA_ITEM = /video|stream|broadcast|countdown|slides?\b|projection|media|clip|trailer/i
 
 const AUTO_RULES = [
+  // First — read-only, always the Altar Call Worship leader from Worship's setlist.
+  {
+    test: /intercess/i, role: 'Intercessory Prayer', source: 'Worship roster (Altar Call Worship)', dept: 'Worship', locked: true,
+    pick: (r) => intercessoryLeaders(r.worship),
+  },
   // Sec Core's Sunday Leader reads the Psalm and gives the announcements.
   {
     test: /psalm|announcement/i, role: 'Sunday Leader', source: 'Sec Core Sunday Leader', dept: 'Sec Core', locked: true,

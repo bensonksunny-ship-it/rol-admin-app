@@ -6,7 +6,8 @@ import { SUNDAY_PLAN_SECTIONS } from '../constants/roles'
 import { format, addWeeks, subWeeks } from 'date-fns'
 import { formatDMY, nextSundayISO } from '../utils/date'
 import DateInput from '../components/DateInput'
-import { isAltarCallRole, worshipRoleLabel } from '../utils/worshipRoleOrder'
+import { worshipRoleLabel } from '../utils/worshipRoleOrder'
+import { intercessoryLeaders } from '../utils/programPeople'
 
 const WORSHIP_ROLES = [
   'Lead Vocal-1', 'Lead Vocal-2', 'Lead Vocal-3', 'Lead Vocal-4', 'Lead Vocal-5', 'Lead Vocal-6',
@@ -467,8 +468,7 @@ function useIntercessoryPrayerName(selectedDate, enabled) {
     getWorshipScheduleByDate('Worship', selectedDate)
       .then((worshipPlan) => {
         if (cancelled) return
-        const a = (worshipPlan?.assignments || []).find((x) => isAltarCallRole(x.role))
-        setName(a?.memberName || '')
+        setName(intercessoryLeaders(worshipPlan?.assignments).map((l) => l.name).join(', '))
       })
       .catch(() => { if (!cancelled) setName('') })
     return () => { cancelled = true }

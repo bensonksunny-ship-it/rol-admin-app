@@ -127,6 +127,12 @@ export default function ProgramPeoplePanel({ canEdit, userProfile }) {
                     </p>
                   )}
                 </div>
+                {/* Synced from another department's schedule: no inputs, just where it comes from. */}
+                {locked ? (
+                  <span className="w-full sm:w-64 text-[11px] font-semibold text-slate-500 inline-flex items-center gap-1">
+                    🔒 Synced from {rule.source}
+                  </span>
+                ) : (
                 <div className="w-full sm:w-64 space-y-1.5">
                 <div className="flex items-center gap-1.5">
                   <input list="program-people-names" value={value} disabled={!canEdit || locked} maxLength={200}
@@ -144,6 +150,7 @@ export default function ProgramPeoplePanel({ canEdit, userProfile }) {
                     onPick={(n) => setName(prog, [...(splitNames(value).length ? splitNames(value) : (auto?.isDefault ? auto.names : [])), n].join(', '))} />
                 )}
                 </div>
+                )}
               </li>
             )
           })}
