@@ -65,11 +65,11 @@ export function hasFullWorshipAccess(userProfile) {
  * button, so it doesn't need its own tab entry) and Upcoming Worship (the setlist/
  * assigned-songs view for the coming Sunday). Everything else (Assign, The Team,
  * Practice, Archives, Finance) stays Director/Founder/Admin-only. */
-export const RESTRICTED_WORSHIP_TABS = ['songsDirectory', 'upcomingSunday']
+export const RESTRICTED_WORSHIP_TABS = ['songsDirectory', 'upcomingSunday', 'controlCenter']
 
 /** Worship Member is restricted further still — Songs (Directory + Design) is Worship
  * Leader/Director only, so a Member's nav grid + route guard only ever show this. */
-export const WORSHIP_MEMBER_TABS = ['upcomingSunday']
+export const WORSHIP_MEMBER_TABS = ['upcomingSunday', 'controlCenter']
 
 /** Worship Leader's personal hub ("My Worship": their own lead dates, scheduled
  * songs, quick actions). Not part of getDepartmentHubTabs('worship') — it exists

@@ -39,6 +39,7 @@ import PeopleDirectory from './pages/PeopleDirectory'
 import WorklistSheet from './pages/WorklistSheet'
 import BoardPresentView from './pages/BoardPresentView'
 import MediaLiveControl from './pages/MediaLiveControl'
+import WorshipLiveControl from './pages/WorshipLiveControl'
 import RFFHub from './pages/rff/RFFHub'
 import RFFProgramPage from './pages/rff/RFFProgramPage'
 import FileManager from './pages/FileManager'
@@ -68,6 +69,8 @@ function App() {
             <Route path="/media-live/:token" element={<MediaLiveControl />} />
             {/* Same, filtered to one operator station (projection, sound, lighting, stream, camera). */}
             <Route path="/media-live/:token/:station" element={<MediaLiveControl />} />
+            {/* Public — Worship Control Center for team members without a login (firestore.rules → worship_live). */}
+            <Route path="/worship-live/:token" element={<WorshipLiveControl />} />
             <Route
               path="/board-present/:meetingId"
               element={

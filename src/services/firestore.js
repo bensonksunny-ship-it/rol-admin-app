@@ -10337,3 +10337,81 @@ export async function setSundayProgramPeople(date, people, updatedBy) {
     date, people: clean, updatedBy: updatedBy || '', updatedAt: serverTimestamp(),
   })
 }
+
+// ── Worship Control Center ────────────────────────────────────────────────────
+// Same model as the Media Control Center above: worship_live_links/worship holds
+// the team's permanent token; worship_live/{token} holds the upcoming Sunday's
+// songs (lyrics, chords, per-instrument parts), the programme and the serving team
+// (role + name only), re-published by signed-in Worship members from the Worship
+// → Control Center tab. Link holders may read it and change only check-ins /
+// song readiness (checks, opsAt); `now` (the song + section on screen) is written
+// by signed-in leaders. See firestore.rules → worship_live.
+
+const WORSHIP_LIVE_LINKS = 'worship_live_links'
+const WORSHIP_LIVE = 'worship_live'
+
+export async function getWorshipLiveToken() {
+  if (!db) return ''
+  const snap = await getDoc(doc(db, WORSHIP_LIVE_LINKS, 'worship'))
+  return snap.exists() ? snap.data().token || '' : ''
+}
+
+export async function ensureWorshipLiveToken(by) {
+  const existing = await getWorshipLiveToken()
+  if (existing) return existing
+  const token = randomToken()
+  await setDoc(doc(db, WORSHIP_LIVE_LINKS, 'worship'), { token, createdAt: serverTimestamp(), createdBy: by || '' })
+  return token
+}
+
+export async function rotateWorshipLiveToken(by) {
+  const old = await getWorshipLiveToken()
+  const token = randomToken()
+  await setDoc(doc(db, WORSHIP_LIVE_LINKS, 'worship'), { token, createdAt: serverTimestamp(), createdBy: by || '' })
+  if (old) await deleteDoc(doc(db, WORSHIP_LIVE, old)).catch(() => {})
+  return token
+}
+
+/** A new Sunday starts with clean check-ins; the same Sunday only rewrites content when it changed. */
+export async function publishWorshipLiveContent(token, content, by) {
+  if (!db || !token) return
+  const ref = doc(db, WORSHIP_LIVE, token)
+  const snap = await getDoc(ref)
+  const data = snap.exists() ? snap.data() : null
+  const payload = { ...stripUndefinedDeep(content), publishedAt: serverTimestamp(), publishedBy: by || '' }
+  if (!data || data.sundayDate !== content.sundayDate) {
+    await setDoc(ref, { ...payload, checks: {}, now: null, opsAt: serverTimestamp() })
+  } else if (data.contentHash !== content.contentHash) {
+    await updateDoc(ref, payload)
+  }
+}
+
+export function subscribeWorshipLive(token, onChange, onError) {
+  if (!db || !token) return () => {}
+  return onSnapshot(doc(db, WORSHIP_LIVE, token), (snap) => {
+    onChange(snap.exists() ? { id: snap.id, ...snap.data() } : null)
+  }, (err) => onError?.(err))
+}
+
+// Keys are [A-Za-z0-9_] only (utils/worshipLive.js), so a dotted field path is safe.
+export async function setWorshipLiveCheck(token, key, done, by) {
+  await updateDoc(doc(db, WORSHIP_LIVE, token), {
+    [`checks.${key}`]: done ? { at: Date.now(), by: String(by || '').slice(0, 60) } : deleteField(),
+    opsAt: serverTimestamp(),
+  })
+}
+
+/** Leader control: the song + section everyone's screen follows (null clears). */
+export async function setWorshipLiveNow(token, now, by) {
+  await updateDoc(doc(db, WORSHIP_LIVE, token), {
+    now: now ? { songKey: String(now.songKey), section: Number(now.section) || 0, at: Date.now(), by: String(by || '').slice(0, 60) } : null,
+    opsAt: serverTimestamp(),
+  })
+}
+
+/** Clear one phase's check-ins / readiness (keys starting with `${phase}__`). */
+export async function resetWorshipLiveChecks(token, checks, phase) {
+  const upd = { opsAt: serverTimestamp() }
+  for (const k of Object.keys(checks || {})) if (k.startsWith(`${phase}__`)) upd[`checks.${k}`] = deleteField()
+  await updateDoc(doc(db, WORSHIP_LIVE, token), upd)
+}

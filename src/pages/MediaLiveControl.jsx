@@ -7,7 +7,7 @@ import {
   MEDIA_LIVE_PHASES, checkKey, chordLine, songPresentationText, isWorshipItem, plannedStarts, fmtClock, fmtElapsed,
   rehearsalSummary, MEDIA_STATIONS, resolveStation, stationCues, crewInStation, scheduleWindows, dateAtMinutes,
 } from '../utils/mediaLive'
-import { RehearsalSummary } from '../components/media/RehearsalVerification'
+import { RehearsalSummary, StatusDot } from '../components/media/RehearsalVerification'
 
 const OPERATOR_KEY = 'mediaLiveOperator'
 const PHASE_KEY = 'mediaLivePhase'
@@ -40,11 +40,12 @@ async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true } catch { return false }
 }
 
-/** A tick-box row: Done / Not done, with who and when. */
+/** A tick-box row; who and when are in the tooltip. */
 function CheckRow({ label, sub, check, onToggle, busy, doneLabel, notDoneLabel = 'Not done' }) {
   const done = !!check
   return (
-    <button type="button" onClick={onToggle} disabled={busy}
+    <button type="button" onClick={onToggle} disabled={busy} aria-pressed={done}
+      title={done ? `${doneLabel} · ${fmtClock(check.at)}${check.by ? ` · ${check.by}` : ''}` : notDoneLabel}
       className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left transition border ${done ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-800/60 border-slate-700/60 hover:border-slate-500'} disabled:opacity-60`}>
       <span className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 border-2 ${done ? 'bg-emerald-500 border-emerald-500 text-slate-950' : 'border-slate-500'}`}>
         {done && <Check className="w-4 h-4" strokeWidth={3} />}
@@ -53,9 +54,7 @@ function CheckRow({ label, sub, check, onToggle, busy, doneLabel, notDoneLabel =
         <span className={`block text-sm ${done ? 'text-emerald-100' : 'text-slate-100'}`}>{label}</span>
         {sub && <span className="block text-[11px] text-slate-400">{sub}</span>}
       </span>
-      <span className={`text-[11px] font-semibold shrink-0 text-right ${done ? 'text-emerald-300' : 'text-slate-500'}`}>
-        {done ? `${doneLabel} · ${fmtClock(check.at)}${check.by ? ` · ${check.by}` : ''}` : notDoneLabel}
-      </span>
+      {done && check.by && <span className="text-[11px] text-slate-500 shrink-0 truncate max-w-[7rem]">{check.by}</span>}
     </button>
   )
 }
@@ -509,6 +508,7 @@ export default function MediaLiveControl() {
               const cuesDone = cueKeys.filter((k) => checks[k]).length
               const rv = phase === 'reh' ? rehItem(p.key) : null
               const rvDone = rv ? rv.systems.filter((x) => x.entry).length : 0
+              const rvStatus = !rv ? '' : rvDone === rv.systems.length ? 'good' : rvDone ? 'attention' : 'pending'
               const untimed = !p.songsOnly && !inTiming(p) // after the Invocation, on the rehearsal view
               return (
                 <button key={p.key} type="button" onClick={() => select(p.key)} aria-pressed={isSel}
@@ -524,13 +524,15 @@ export default function MediaLiveControl() {
                     </span>
                     <span className="block text-[11px] text-slate-400 truncate">
                       {[
-                        untimed ? 'Not in rehearsal timing' : '',
                         planned[i] && !p.songsOnly && !untimed ? planned[i] : '',
-                        p.duration ? `${p.duration} min` : '',
-                        pSongs.length ? `${pSongs.length} song${pSongs.length === 1 ? '' : 's'}` : '',
-                        cueKeys.length ? `${cuesDone}/${cueKeys.length} cues` : '',
-                        !rv ? '' : rvDone === rv.systems.length ? '✓ Marked good' : rvDone ? 'Partly checked' : 'Not checked',
-                      ].filter(Boolean).join(' · ') || 'No details'}
+                        p.duration ? `${p.duration}m` : '',
+                      ].filter(Boolean).join(' · ')}
+                      {pSongs.length > 0 && <span className="inline-flex items-center gap-0.5 ml-2" title={`${pSongs.length} song${pSongs.length === 1 ? '' : 's'}`}><Music2 className="w-3 h-3" />{pSongs.length}</span>}
+                      {cueKeys.length > 0 && (
+                        <span className="inline-flex items-center gap-1 ml-2 tabular-nums" title={`${cuesDone} of ${cueKeys.length} cues`}>
+                          <StatusDot className="w-2 h-2" status={cuesDone === cueKeys.length ? 'good' : cuesDone ? 'attention' : 'pending'} />{cuesDone}/{cueKeys.length}
+                        </span>
+                      )}
                     </span>
                     {p.person && (
                       <span className={`flex items-center gap-1 text-[11px] text-indigo-200 ${p.leads?.length > 1 ? '' : 'truncate'}`}>
@@ -538,6 +540,9 @@ export default function MediaLiveControl() {
                       </span>
                     )}
                   </span>
+                  {rvStatus && !untimed && (
+                    <StatusDot status={rvStatus} title={rvStatus === 'good' ? 'Marked good' : rvStatus === 'attention' ? 'Partly checked' : 'Not checked'} />
+                  )}
                   {running && w.end > w.start && (
                     <span className="text-sm font-bold tabular-nums shrink-0 text-rose-200" title="Time left in this item">{fmtElapsed(w.end - now)}</span>
                   )}
@@ -656,17 +661,15 @@ export default function MediaLiveControl() {
                       const allBusy = busy === `allgood__${sel.key}`
                       return (
                         <div className="px-4 pb-3">
-                          <div className="flex flex-wrap items-center gap-2 mb-2">
-                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex-1">Rehearsal checkpoints</p>
-                            {pending > 0 ? (
-                              <button type="button" disabled={allBusy} onClick={() => markAllGood(sel.key, systems)}
+                          <div className="flex items-center gap-2">
+                            <StatusDot status={pending ? (pending < systems.length ? 'attention' : 'pending') : flagged ? 'attention' : 'good'}
+                              title={pending ? `${pending} of ${systems.length} not checked` : flagged ? `${flagged} flagged` : 'All good'} />
+                            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex-1">Rehearsal</p>
+                            {pending > 0 && (
+                              <button type="button" disabled={allBusy} onClick={() => markAllGood(sel.key, systems)} title="Mark all good"
                                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 text-sm font-semibold disabled:opacity-60">
-                                <Check className="w-4 h-4" strokeWidth={3} />{allBusy ? 'Marking…' : `Mark all good${pending < systems.length ? ` (${pending} left)` : ''}`}
+                                <Check className="w-4 h-4" strokeWidth={3} />All good
                               </button>
-                            ) : (
-                              <span className={`inline-flex items-center gap-1 text-xs font-semibold ${flagged ? 'text-amber-300' : 'text-emerald-300'}`}>
-                                <Check className="w-3.5 h-3.5" strokeWidth={3} />{flagged ? `All checked · ${flagged} flagged` : 'All good'}
-                              </span>
                             )}
                           </div>
                         </div>
@@ -744,9 +747,10 @@ export default function MediaLiveControl() {
                                 </span>
                               </button>
                               <button type="button" disabled={busy === k} onClick={() => toggle(k)}
-                                className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold border ${checks[k] ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'border-slate-700 text-slate-400 hover:text-slate-200'}`}
-                                title={checks[k] ? `${fmtClock(checks[k].at)}${checks[k].by ? ` · ${checks[k].by}` : ''}` : 'Not done'}>
-                                {checks[k] && <Check className="w-3 h-3" strokeWidth={3} />}{checks[k] ? phaseDef.songDone : 'Not done'}
+                                aria-pressed={!!checks[k]} aria-label={phaseDef.songDone}
+                                className={`w-8 h-8 inline-flex items-center justify-center rounded-md border ${checks[k] ? 'bg-emerald-500 border-emerald-500 text-slate-950' : 'border-slate-600 text-slate-500 hover:border-slate-400'}`}
+                                title={checks[k] ? `${phaseDef.songDone} · ${fmtClock(checks[k].at)}${checks[k].by ? ` · ${checks[k].by}` : ''}` : `Mark "${phaseDef.songDone}"`}>
+                                <Check className="w-4 h-4" strokeWidth={3} />
                               </button>
                               <button type="button" disabled={!song.sections.length} onClick={() => copySong(song.key, songPresentationText(song))}
                                 title="Lyrics only — no chords or labels; a blank line between sections for slide breaks"

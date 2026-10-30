@@ -1130,6 +1130,19 @@ service cloud.firestore {
         || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checks', 'progress', 'verify', 'opsAt']);
     }
 
+    // Worship Control Center: the team's permanent public link token, and the
+    // public snapshot doc it opens (services/firestore.js → Worship Control Center).
+    // Anyone with the token may read it and tick check-ins / song readiness only.
+    match /worship_live_links/{docId} {
+      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Worship'));
+    }
+    match /worship_live/{token} {
+      allow get: if true;
+      allow create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Worship'));
+      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Worship')))
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['checks', 'opsAt']);
+    }
+
     // Sunday Ministry crew schedule (SundayCrew.jsx Assign tab) — same convention
     // as media_schedule above. The client gates this tab on isSundayMinistryDirector
     // (AuthContext.jsx), which also admits Senior Pastor and the display-formatted

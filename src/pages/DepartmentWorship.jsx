@@ -56,6 +56,8 @@ import ScheduleSongModal from '../components/worship/ScheduleSongModal'
 import { schedulerFields } from '../utils/songScheduler'
 import WorshipSongSchedule from '../components/worship/WorshipSongSchedule'
 import WorshipLeaderHub from '../components/worship/WorshipLeaderHub'
+import WorshipControlCenterTab from '../components/worship/WorshipControlCenterTab'
+import ErrorBoundary from '../components/ErrorBoundary'
 
 const DEPARTMENT = 'Worship'
 const PERIOD = format(new Date(), 'yyyy-MM')
@@ -2433,6 +2435,12 @@ export default function DepartmentWorship() {
         <WorshipUpcomingSunday canManage={canManageWorship} />
       )}
 
+      {/* Control Center — rehearsal / Sunday live screen; leaders drive the live song,
+          and its public link serves members without a login. */}
+      {activeTab === 'controlCenter' && (
+        <WorshipControlCenterTab canLead={canManageWorshipSongs} canManage={canManageWorship} userProfile={userProfile} />
+      )}
+
       {/* My Worship — Worship Leader's personal hub (own lead dates, songs, quick actions). */}
       {activeTab === MY_WORSHIP_TAB && <WorshipLeaderHub />}
 
@@ -4220,13 +4228,27 @@ export default function DepartmentWorship() {
 
           {/* ── Design your song sub-page ── */}
           {songSubPage === 'design' && (
-            <SongDesigner
-              canManageWorship={canManageWorshipSongs}
-              userProfile={userProfile}
-              editingSong={editingSong}
-              onCancelEdit={() => { setEditingSong(null); setSongSubPage('directory') }}
-              onSaved={() => { loadSongs(); if (editingSong) { setEditingSong(null); setSongSubPage('directory') } }}
-            />
+            // A crash in the designer stays inside this panel (the draft is kept in
+            // local storage) instead of taking down the whole Worship page.
+            <ErrorBoundary fallback={(error, reset) => (
+              <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 space-y-2">
+                <p className="text-sm font-semibold text-red-700">The song designer hit an error.</p>
+                <p className="text-xs text-red-600 break-words">{error?.message || String(error)}</p>
+                <p className="text-xs text-slate-600">Your draft is saved on this device — try again to reopen it.</p>
+                <div className="flex gap-2">
+                  <button type="button" onClick={reset} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm">Try again</button>
+                  <button type="button" onClick={() => { reset(); setEditingSong(null); setSongSubPage('directory') }} className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-600">Back to directory</button>
+                </div>
+              </div>
+            )}>
+              <SongDesigner
+                canManageWorship={canManageWorshipSongs}
+                userProfile={userProfile}
+                editingSong={editingSong}
+                onCancelEdit={() => { setEditingSong(null); setSongSubPage('directory') }}
+                onSaved={() => { loadSongs(); if (editingSong) { setEditingSong(null); setSongSubPage('directory') } }}
+              />
+            </ErrorBoundary>
           )}
 
           {/* Add / Edit modal (Directory) */}

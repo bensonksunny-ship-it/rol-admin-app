@@ -117,6 +117,7 @@ function getTabLabel(tab) {
     case 'events':            return 'Events'
     case 'liveControl':       return 'Live Control'
     case 'upcomingSunday':    return 'Upcoming Sunday'
+    case 'controlCenter':     return 'Control Center'
     case 'sundayCrew':        return 'Assign'
     case 'applications':      return 'Applications'
     case 'directorBoard':     return 'Director Board'
@@ -167,6 +168,7 @@ function getTabIcon(tab) {
     case 'events':             return PartyPopper
     case 'liveControl':        return Tv
     case 'upcomingSunday':     return CalendarClock
+    case 'controlCenter':      return Tv
     case 'sundayCrew':         return Users
     case 'applications':       return ClipboardList
     case 'directorBoard':      return Users

@@ -14,6 +14,8 @@ export default class ErrorBoundary extends Component {
     return { error }
   }
 
+  reset = () => this.setState({ error: null })
+
   componentDidCatch(error) {
     // Keep console logging for debugging.
     console.error('App crashed:', error)
@@ -21,6 +23,8 @@ export default class ErrorBoundary extends Component {
 
   render() {
     const { error } = this.state
+    // `fallback(error, reset)` contains a crash to one panel instead of the whole app.
+    if (error && this.props.fallback) return this.props.fallback(error, this.reset)
     if (error) {
       return (
         <div style={{ minHeight: '100vh', padding: 24, fontFamily: 'system-ui, sans-serif' }}>

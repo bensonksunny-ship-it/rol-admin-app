@@ -6,6 +6,20 @@ import { fmtClock } from '../../utils/mediaLive'
 // Control Center pop-up). Each run-sheet item up to the Invocation is checked with
 // one "Mark all good" tap on the desk, so the summary counts items, not systems.
 
+const DOT_TONE = { good: 'bg-emerald-400', attention: 'bg-amber-400', pending: 'bg-slate-600' }
+
+/**
+ * The status indicator used across the Control Center: green = good / done,
+ * amber = needs attention / partly done, grey = not checked. Text stays in the
+ * tooltip and for screen readers.
+ */
+export function StatusDot({ status = 'pending', title, className = '' }) {
+  return (
+    <span role="img" aria-label={title || status} title={title}
+      className={`inline-block w-2.5 h-2.5 rounded-full shrink-0 ${DOT_TONE[status] || DOT_TONE.pending} ${className}`} />
+  )
+}
+
 /** 'good' when every checkpoint of the item is marked, 'partial' when some are, '' when none. */
 function itemStatus(it) {
   const marked = it.systems.filter((s) => s.entry).length
@@ -34,14 +48,10 @@ export function RehearsalSummary({ summary, signoff, canSignOff = false, onSignO
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900 p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex-1 min-w-[12rem]">
-          <p className="text-sm font-semibold uppercase tracking-wider text-slate-300">Rehearsal summary</p>
-          <p className="text-xs text-slate-400">Run-sheet items up to the Invocation prayer · tap “Mark all good” on each item</p>
-        </div>
-        <div className="flex flex-wrap gap-1.5 text-xs font-semibold tabular-nums">
-          <span className="rounded-md bg-emerald-500/15 text-emerald-300 px-2 py-1">{good} / {total} marked good</span>
-          {pending > 0 && <span className="rounded-md bg-slate-800 text-slate-400 px-2 py-1">{pending} to go</span>}
-        </div>
+        <p className="flex-1 text-sm font-semibold uppercase tracking-wider text-slate-300" title="Run-sheet items up to the Invocation prayer">Rehearsal</p>
+        <span className="inline-flex items-center gap-1.5 text-sm font-bold tabular-nums" title={`${good} of ${total} items marked good`}>
+          <StatusDot status={total && !pending ? 'good' : good ? 'attention' : 'pending'} />{good}/{total}
+        </span>
       </div>
 
       <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
@@ -53,7 +63,7 @@ export function RehearsalSummary({ summary, signoff, canSignOff = false, onSignO
       {total > 0 && (
         <div>
           <button type="button" onClick={() => setShowList((v) => !v)} className="text-xs font-semibold text-slate-400 hover:text-slate-200">
-            {showList ? 'Hide' : 'Show'} items ({good}/{total} marked good)
+            {showList ? 'Hide items' : 'Items'}
           </button>
           {showList && (
             <ul className="mt-2 space-y-1">
@@ -61,15 +71,11 @@ export function RehearsalSummary({ summary, signoff, canSignOff = false, onSignO
                 const st = itemStatus(it)
                 const last = lastMark(it)
                 return (
-                  <li key={it.program.key} className="flex items-center gap-2 text-sm">
-                    <span className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${st === 'good' ? 'bg-emerald-500 text-slate-950' : st === 'partial' ? 'bg-amber-400/20 text-amber-300' : 'border border-slate-600'}`}>
-                      {st === 'good' && <Check className="w-3.5 h-3.5" strokeWidth={3} />}
-                      {st === 'partial' && <span className="text-[10px] font-bold">½</span>}
-                    </span>
+                  <li key={it.program.key} className="flex items-center gap-2 text-sm"
+                    title={last ? `${st === 'partial' ? 'Partly checked · ' : ''}${fmtClock(last.at)}${last.by ? ` · ${last.by}` : ''}` : 'Not checked'}>
+                    <StatusDot status={st === 'good' ? 'good' : st === 'partial' ? 'attention' : 'pending'} />
                     <span className={`flex-1 min-w-0 truncate ${st === 'good' ? 'text-slate-200' : 'text-slate-400'}`}>{it.program.name}</span>
-                    <span className="text-[11px] text-slate-500 shrink-0">
-                      {last ? `${st === 'partial' ? 'Partly · ' : ''}${fmtClock(last.at)}${last.by ? ` · ${last.by}` : ''}` : 'Not checked'}
-                    </span>
+                    {last?.by && <span className="text-[11px] text-slate-500 shrink-0">{last.by}</span>}
                   </li>
                 )
               })}
@@ -91,7 +97,6 @@ export function RehearsalSummary({ summary, signoff, canSignOff = false, onSignO
                 {signoff.name || signoff.by || 'Media Director'} · {new Date(signoff.at).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })}
               </p>
               {signoff.note && <p className="text-xs text-slate-300 mt-1">{signoff.note}</p>}
-              {!current && <p className="text-xs text-amber-200/80 mt-1">The Media Director should review and sign off again.</p>}
             </div>
             {canSignOff && (
               <button type="button" disabled={busy} onClick={onClearSignoff} className="text-xs text-slate-400 hover:text-slate-200 disabled:opacity-60">Withdraw</button>
@@ -101,7 +106,7 @@ export function RehearsalSummary({ summary, signoff, canSignOff = false, onSignO
           <div className="flex items-center gap-2 text-sm">
             <ShieldCheck className="w-5 h-5 text-slate-500 shrink-0" />
             <p className="text-slate-300">
-              Not signed off yet.{!canSignOff && <span className="text-slate-500"> The Media Director signs off in the app: Media → Upcoming Sunday → Control Center.</span>}
+              <span title={canSignOff ? undefined : 'The Media Director signs off in the app: Media → Upcoming Sunday → Control Center'}>Not signed off</span>
             </p>
           </div>
         )}
@@ -114,7 +119,7 @@ export function RehearsalSummary({ summary, signoff, canSignOff = false, onSignO
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 text-sm font-semibold disabled:opacity-50">
                 <ShieldCheck className="w-4 h-4" />{signoff ? 'Sign off again' : 'Sign off rehearsal'}
               </button>
-              {pending > 0 && <span className="text-xs text-slate-400">{pending} item{pending === 1 ? '' : 's'} not marked good yet.</span>}
+              {pending > 0 && <span className="inline-flex items-center gap-1 text-xs text-slate-400" title={`${pending} not marked good`}><StatusDot />{pending}</span>}
             </div>
           </div>
         )}

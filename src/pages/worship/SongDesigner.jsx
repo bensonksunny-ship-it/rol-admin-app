@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { Pencil, Copy, Play, Pause, MoreVertical, Plus, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Pencil, Copy, Play, Pause, MoreVertical, Plus, ChevronDown, ChevronLeft, ChevronRight, Save } from 'lucide-react'
 import { addWorshipSong, updateWorshipSong, getWorshipTeamMembers } from '../../services/firestore'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -1056,6 +1056,7 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
   const [transpose, setTranspose] = useState(0)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
   const [detectedKeys, setDetectedKeys] = useState([])
   const [showSegmentMenu, setShowSegmentMenu] = useState(false)
   // Focus mode (one section at a time) vs. full-sheet mode (every section stacked on
@@ -1356,43 +1357,57 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
   const buildPayload = () => {
     // Always resolve lines — fall back to parsing rawText so lyrics are never lost
     // if the user edited the textarea without clicking "Parse chords" again.
-    const resolvedSegments = segments.map(s => ({
+    // Null-safe throughout: a half-built section (no lines / chords yet) still saves.
+    const resolvedSegments = (segments || []).filter(Boolean).map(s => ({
       ...s,
-      lines: s.lines?.length ? s.lines : parseSegmentText(s.rawText || ''),
+      lines: (s.lines?.length ? s.lines : parseSegmentText(s.rawText || '')) || [],
     }))
     return {
       ...meta,
-      key: transposedKey || meta.key,
-      tempo: meta.tempo ? Number(meta.tempo) : null,
+      title: String(meta.title || '').trim(),
+      key: transposedKey || meta.key || '',
+      tempo: meta.tempo ? Number(meta.tempo) || null : null,
       blocks: resolvedSegments.map(s => ({
-        sectionName: s.type,
+        sectionName: s.type || '',
         lead: s.lead || DEFAULT_LEAD,
-        lines: s.lines.map(({ chords, lyrics, words }) => ({
-          chords: chords.map(c => ({ ...c, chord: transposeChord(c.chord, transpose, useFlatKey) })),
-          lyrics,
-          words: words?.map(({ text, isWord, annotations }) => ({ text, isWord, annotations })) ?? [],
+        lines: s.lines.filter(Boolean).map(({ chords, lyrics, words }) => ({
+          chords: (chords || []).filter(c => c?.chord).map(c => ({ ...c, chord: transposeChord(c.chord, transpose, useFlatKey) })),
+          lyrics: lyrics || '',
+          words: words?.map(({ text, isWord, annotations }) => ({ text, isWord, annotations: annotations ?? null })) ?? [],
         })),
       })),
       sections: resolvedSegments.map(s => ({
-        type: s.type,
-        lyrics: s.lines.map(l => l.lyrics).filter(Boolean).join('\n'),
+        type: s.type || '',
+        lyrics: s.lines.map(l => l?.lyrics).filter(Boolean).join('\n'),
       })),
     }
   }
 
   const handleSave = async () => {
-    if (!meta.title.trim()) return
+    if (saving || !String(meta.title || '').trim()) return
+    setSaveError('')
+    if (isEditing && !editingSong?.id) {
+      setSaveError('This song is missing its directory id — go back and open it again before saving.')
+      return
+    }
     setSaving(true)
     try {
+      const payload = buildPayload()
       if (isEditing) {
-        await updateWorshipSong(editingSong.id, buildPayload())
+        await updateWorshipSong(editingSong.id, payload)
       } else {
-        await addWorshipSong(buildPayload(), userProfile?.name || 'unknown')
+        await addWorshipSong(payload, userProfile?.name || 'unknown')
       }
       clearDraft(draftKey)
       setSaved(true)
       onSaved?.()
       setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      // Keep the draft (it's still in local storage) and say why, instead of crashing.
+      console.error('Song save failed', err)
+      setSaveError(err?.code === 'permission-denied'
+        ? 'You don’t have permission to save songs to the Worship directory.'
+        : `Couldn’t save the song${err?.message ? `: ${err.message}` : ''}. Your draft is kept — try again.`)
     } finally {
       setSaving(false)
     }
@@ -1708,6 +1723,9 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
 
       {/* Save / Clear — Save is the page's one true primary action (solid + shadow),
           Clear/Back stays a plain secondary outline so the two are never confused. */}
+      {saveError && (
+        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{saveError}</p>
+      )}
       {(segments.length > 0 || meta.title) && (
         <div className="flex gap-3">
           <button type="button" onClick={handleClear}
@@ -1715,7 +1733,7 @@ export default function SongDesigner({ canManageWorship, userProfile, onSaved, e
             {isEditing ? '← Back' : 'Clear'}
           </button>
           {canManageWorship && (
-            <button type="button" disabled={saving || !meta.title.trim()} onClick={handleSave}
+            <button type="button" disabled={saving || !String(meta.title || '').trim()} onClick={handleSave}
               className="flex-1 flex items-center justify-center gap-1.5 py-3 rounded-2xl bg-indigo-600 text-white text-sm font-semibold shadow-md hover:bg-indigo-700 disabled:opacity-40 disabled:shadow-none transition-all active:scale-[0.98]">
               {saving ? 'Saving…' : saved ? '✓ Saved' : (<><Save size={15} /> {isEditing ? 'Save Changes' : 'Save to Directory'}</>)}
             </button>
