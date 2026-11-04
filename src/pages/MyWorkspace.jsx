@@ -8,6 +8,8 @@ import WorshipWorkspaceWidget from '../components/workspace/WorshipWorkspaceWidg
 import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWorkspaceWidget'
 import ApprovalsCard from '../components/workspace/ApprovalsCard'
 import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
+import ApplicationsProgressWidget from '../components/workspace/ApplicationsProgressWidget'
+import { isDepartmentDirectorInPositions } from '../utils/access'
 import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
 import DeclarationRequestRibbon from '../components/workspace/DeclarationRequestRibbon'
 import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
@@ -75,6 +77,10 @@ export default function MyWorkspace() {
   const isFirstLady = (userProfile?.positions || []).some(p => p?.department === 'First Lady')
     || (userProfile?.departments || []).includes('First Lady')
   const showPipeline = canCaring || canPastor || isFirstLady || isCellDirector
+  // Rule: every application's level-wise progress is on the Founder's, the Caring
+  // Director's and the First Lady's workspace (utils/applicationProgress.js).
+  const showApplications = isFounder || isFirstLady || isDepartmentDirectorInPositions(userProfile, 'Caring')
+  const applications = showApplications && <ApplicationsProgressWidget />
   const {
     notifications, handleNotifAction, dismissNotification,
   } = useOutletContext()
@@ -148,6 +154,7 @@ export default function MyWorkspace() {
           <div className="space-y-3">
             <WorshipWorkspaceWidget />
             {pipeline}
+            {applications}
             <ApprovalsCard />
             <BoardMeetingWorkspaceWidget />
           </div>
@@ -161,6 +168,7 @@ export default function MyWorkspace() {
           <WorshipWorkspaceWidget />
           <BoardMeetingWorkspaceWidget />
           {pipeline}
+          {applications}
         </>
       )}
     </div>

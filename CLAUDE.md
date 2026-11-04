@@ -54,6 +54,9 @@ Lives in the `caring` slug of `DepartmentHub`. Key collections:
 - `pcs_add_notifications` – Cell Leader → Caring "add this person to PCS" requests
 - `pcs_lookup` – denormalized name/phone lookup for fast search
 
+### Applications Progress (rule)
+Every application made through the app (Baptism, Baby Dedication, Marriage, Membership, and any future type) must show its level-wise progress on the My Workspace of the **Founder, the Caring Director and the First Lady** — `components/workspace/ApplicationsProgressWidget.jsx`. Levels come from `utils/applicationProgress.js` (`applicationLevels`). A new application type must: be added to `APPLICATION_TYPE_KEYS`/`APPLICATION_TYPES` (`utils/pastoralApplications.js`) and to `APPLICATION_COLLECTIONS` (`services/firestore.js`), get a case in `applicationLevels`, and have its collection's `list` opened to `canAccessDept('First Lady')` in `firestore.rules`.
+
 ### Key Firestore Collections
 | Collection | Purpose |
 |---|---|

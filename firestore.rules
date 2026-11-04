@@ -723,6 +723,9 @@ service cloud.firestore {
             && resource.data.get('exam', {}).get('passed', false) != true
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['exam'])
             && request.resource.data.exam.attempts.size() <= 25);
+      // First Lady: read-only, for My Workspace → Applications Progress (every
+      // application's level-wise progress — utils/applicationProgress.js).
+      allow list: if isSignedIn() && canAccessDept('First Lady');
     }
 
     // Marriage (Holy Matrimony) applications — same token model as
@@ -732,6 +735,8 @@ service cloud.firestore {
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
         || resource.data.expiresAt > request.time;
       allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      // First Lady: read-only (Applications Progress, as baptism_applications above).
+      allow list: if isSignedIn() && canAccessDept('First Lady');
       allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
         || (resource.data.status == 'pending'
             && resource.data.expiresAt > request.time
@@ -795,6 +800,8 @@ service cloud.firestore {
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canRevealSurpriseName()))
         || resource.data.expiresAt > request.time;
       allow list: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canRevealSurpriseName());
+      // First Lady: read-only (Applications Progress, as baptism_applications above).
+      allow list: if isSignedIn() && canAccessDept('First Lady');
       allow create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
       allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canRevealSurpriseName())
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['revealed'])
@@ -847,6 +854,8 @@ service cloud.firestore {
     // Caring can already write.
     match /caring_events/{eventId} {
       allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      // First Lady: read-only (Applications Progress shows each application's event).
+      allow read: if isSignedIn() && canAccessDept('First Lady');
     }
 
     // Workspace ribbon notifications (e.g. Membership interview requests to a Deacon).
