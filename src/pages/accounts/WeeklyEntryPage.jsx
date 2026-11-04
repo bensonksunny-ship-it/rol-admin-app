@@ -597,7 +597,7 @@ export default function WeeklyEntryPage() {
             </button>
           ))}
         </div>
-        <div className="flex items-center justify-center gap-4">
+        <div className="flex flex-wrap items-center justify-center gap-4">
           <button
             type="button"
             onClick={prevPeriod}
@@ -1191,6 +1191,7 @@ export default function WeeklyEntryPage() {
                     <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">{dept}</span>
                     <span className="text-xs text-slate-400">{rows.filter(r => r._valid).length} valid</span>
                   </div>
+                  <div className="overflow-x-auto">
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="text-left text-slate-500 border-b border-slate-100">
@@ -1219,6 +1220,7 @@ export default function WeeklyEntryPage() {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               ))}
             </div>

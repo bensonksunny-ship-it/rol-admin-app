@@ -158,11 +158,18 @@ export default function ApplicationsQueueCard({ pcsEntries, allCellMembers, cell
                   <p className="text-sm font-bold text-slate-800">{w.name || t.title(app) || 'Applicant'}</p>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${t.cls}`}>{t.short}</span>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${st.cls}`}>{st.label}</span>
+                  {/* Prepared by the SP Office secretary on the Applications Desk */}
+                  {app.officeReview?.status === 'ready' && app.status === 'submitted' && (
+                    <span title={app.officeReview.note || undefined} className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">Ready · SP Office</span>
+                  )}
                 </div>
                 {type === 'baptism' && <div className="mt-1"><BaptismStageTracker app={app} compact /></div>}
                 <p className="text-xs text-slate-400 mt-0.5">
                   {[type === 'dedication' ? `Baby: ${t.title(app) || '—'}` : '', w.cell ? `Cell: ${w.cell}` : 'No cell group', `Submitted ${fmtD(app.submittedAt)}`].filter(Boolean).join(' · ')}
                 </p>
+                {app.officeReview?.status === 'ready' && app.status === 'submitted' && app.officeReview.note && (
+                  <p className="text-xs text-emerald-700 mt-0.5">SP Office: {app.officeReview.note}</p>
+                )}
               </div>
               <div className="flex flex-wrap gap-1.5">
                 <button type="button" onClick={() => setViewing({ type, app })} className="px-2.5 py-1 text-[11px] rounded-lg border border-slate-300 font-semibold text-slate-700 hover:bg-slate-50">Review</button>

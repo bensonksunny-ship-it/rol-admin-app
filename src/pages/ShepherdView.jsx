@@ -15,6 +15,7 @@ import {
   getRecentSundayAttendanceForCell,
   addCellGroupMember,
   updateCellGroupMember,
+  isCellMemberConflict,
   deactivateCellGroupMember,
   getMidweekPrayerPoints,
   saveMidweekPrayerPoints,
@@ -867,7 +868,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       await updateCellGroupMember(selectedCellId, member.id, { status: 'active' })
       showToast(`${member.name} reactivated.`)
       setMembers(prev => prev.map(m => m.id === member.id ? { ...m, status: 'active', memberCategory: '' } : m))
-    } catch { showToast('Failed to reactivate.', 'error') }
+    } catch (err) { showToast(isCellMemberConflict(err) ? err.message : 'Failed to reactivate.', 'error') }
     finally { setReactivatingId(null) }
   }
 
@@ -1271,7 +1272,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
                   </div>
 
                   {/* ── Contact icons + Prayer ── */}
-                  <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto scrollbar-hide">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     {phone10 && (
                       <a href={`tel:+91${phone10}`} className="flex flex-col items-center gap-0.5 group flex-shrink-0" onClick={e => e.stopPropagation()}>
                         <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-100 transition">
@@ -2227,7 +2228,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
       setAddSearch('')
       setShowAddForm(false)
       await refreshMembers(selectedCellId)
-    } catch { showToastMsg('Failed to add member.', 'error') }
+    } catch (err) { showToastMsg(isCellMemberConflict(err) ? err.message : 'Failed to add member.', 'error') }
     finally { setAdding(false) }
   }
 
@@ -2244,7 +2245,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
       showToastMsg('Member updated.')
       setEditId(null)
       await refreshMembers(selectedCellId)
-    } catch { showToastMsg('Failed to save changes.', 'error') }
+    } catch (err) { showToastMsg(isCellMemberConflict(err) ? err.message : 'Failed to save changes.', 'error') }
     finally { setSaving(false) }
   }
 
@@ -2290,7 +2291,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
       await updateCellGroupMember(selectedCellId, member.id, { status: 'active' })
       showToastMsg(`${member.name} reactivated.`)
       await refreshMembers(selectedCellId)
-    } catch { showToastMsg('Failed to reactivate.', 'error') }
+    } catch (err) { showToastMsg(isCellMemberConflict(err) ? err.message : 'Failed to reactivate.', 'error') }
   }
 
   const isInPCS = (member) => {

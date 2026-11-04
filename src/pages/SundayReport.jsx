@@ -139,9 +139,14 @@ function NameListSection({ title, names, canEdit, onAddValue, onRemove, suggesti
       .slice(0, 8)
   }, [query, people, nameSet])
   const linkResults = useMemo(() => {
-    const q = linkQuery.trim().toLowerCase()
-    if (!q || !linkDirectory) return []
-    return linkDirectory.filter((m) => m.name && m.name.trim().toLowerCase().includes(q)).slice(0, 8)
+    const words = linkQuery.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    if (!words.length || !linkDirectory) return []
+    return linkDirectory
+      .filter((m) => m.name)
+      .map((m) => ({ ...m, score: scorePerson(m.name, words) }))
+      .filter((m) => m.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 8)
   }, [linkQuery, linkDirectory])
 
   return (
@@ -218,9 +223,34 @@ function NameListSection({ title, names, canEdit, onAddValue, onRemove, suggesti
             <div className="flex items-center gap-2">
               {canEdit ? (
                 <>
-                  {/* Read-only: names come from the directory (visitor-first rule), so
-                      they can't be retyped into a new spelling of the same person. */}
-                  <span className={`flex-1 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{name || '—'}</span>
+                  {/* Names come from the directory (visitor-first rule), so they can't be
+                      retyped into a new spelling of the same person. Where linking is on,
+                      tapping the name searches from it — the typed text is only the search,
+                      and the row changes only when a match is picked. */}
+                  {linkDirectory && linkingIdx === idx ? (
+                    <input
+                      type="text"
+                      value={linkQuery}
+                      onChange={(e) => setLinkQuery(e.target.value)}
+                      onFocus={(e) => e.target.setSelectionRange(e.target.value.length, e.target.value.length)}
+                      onBlur={() => setLinkingIdx(null)}
+                      onKeyDown={(e) => { if (e.key === 'Escape') setLinkingIdx(null) }}
+                      aria-label={`Find the directory match for ${name}`}
+                      autoFocus
+                      className="flex-1 min-w-0 px-2 py-1.5 rounded border border-indigo-300 text-sm outline-none ring-2 ring-indigo-200"
+                    />
+                  ) : linkDirectory ? (
+                    <button
+                      type="button"
+                      onClick={() => { setLinkingIdx(idx); setLinkQuery(name || '') }}
+                      title="Tap to find this person in the directory"
+                      className={`flex-1 min-w-0 text-left px-2 py-1.5 rounded border text-sm cursor-text hover:border-indigo-300 ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800'}`}
+                    >
+                      {name || '—'}
+                    </button>
+                  ) : (
+                    <span className={`flex-1 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{name || '—'}</span>
+                  )}
                   {isSeniorPastor && (
                     <span
                       className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 border border-amber-300 text-amber-800 text-xs font-bold whitespace-nowrap"
@@ -236,15 +266,6 @@ function NameListSection({ title, names, canEdit, onAddValue, onRemove, suggesti
                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold whitespace-nowrap">
                       ✓ Linked
                     </span>
-                  )}
-                  {linkDirectory && (
-                    <button
-                      type="button"
-                      onClick={() => { setLinkingIdx(linkingIdx === idx ? null : idx); setLinkQuery('') }}
-                      className="text-indigo-600 hover:underline text-sm font-medium whitespace-nowrap"
-                    >
-                      {isLinked ? 'Re-link' : 'Identify'}
-                    </button>
                   )}
                   <button type="button" onClick={() => onRemove(idx)} className="text-red-600 hover:underline text-sm">
                     Remove
@@ -265,17 +286,10 @@ function NameListSection({ title, names, canEdit, onAddValue, onRemove, suggesti
               )}
             </div>
             {linkDirectory && linkingIdx === idx && (
-              <div className="mt-1.5 relative">
-                <input
-                  type="text"
-                  value={linkQuery}
-                  onChange={(e) => setLinkQuery(e.target.value)}
-                  placeholder="Search directory or visitors to link…"
-                  autoFocus
-                  className="w-full px-3 py-2 rounded-lg border border-indigo-300 text-sm"
-                />
+              <div className="relative">
                 {linkResults.length > 0 && (
-                  <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                  // preventDefault keeps focus in the name box, so its blur doesn't close the list first.
+                  <div onMouseDown={(e) => e.preventDefault()} className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
                     {linkResults.map((m) => (
                       <button
                         key={m.id}
@@ -285,7 +299,7 @@ function NameListSection({ title, names, canEdit, onAddValue, onRemove, suggesti
                       >
                         <span className="text-slate-800 font-medium">{m.name}</span>
                         <span className="text-xs text-indigo-500">
-                          {{ visitor: 'D-Light Visitor', cell: 'Cell Member', pcs: 'PCS', team: 'Dept/Worship Team' }[m.source] || 'People Directory'}{m.phone ? ` · ${m.phone}` : ''}{m.date ? ` · First attended ${fmtFirstVisit(m.date)}` : ''}
+                          {{ visitor: 'D-Light Visitor', cell: 'Cell Member', pcs: 'PCS', team: 'Dept/Worship Team', kid: 'River Kids' }[m.source] || 'People Directory'}{m.phone ? ` · ${m.phone}` : ''}{m.date ? ` · First attended ${fmtFirstVisit(m.date)}` : ''}
                         </span>
                       </button>
                     ))}
@@ -325,7 +339,7 @@ function NameListSection({ title, names, canEdit, onAddValue, onRemove, suggesti
               </button>
             </form>
             <p className="mt-1 text-[11px] text-slate-400">
-              Only for people who can't be identified — not a newcomer, D-Light visitor or known attendee. Saved in this report only (a headcount, not matched to anyone). If you later find who it is, tap Identify.
+              Only for people who can't be identified — not a newcomer, D-Light visitor or known attendee. Saved in this report only (a headcount, not matched to anyone). If you later find who it is, tap their name.
             </p>
           </li>
         )}
@@ -427,7 +441,20 @@ function PastoralRosterModal({ roster, directory, saving, onAdd, onRemove, onClo
   )
 }
 
-function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, onRemove, duplicateNorms = null, suggestions = [], loadingSuggestions = false, className = '' }) {
+const normName = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
+
+/** A cell's leader lives on the cell itself (cell_groups.leader), and appointing one
+ *  doesn't add a roster row — so check whether `members` already holds them. */
+function leaderOnRoster(group, members, peopleDirectory) {
+  const key = normName(group.leader)
+  const visitorId = group.leaderPersonId && peopleDirectory.find((p) => p.id === group.leaderPersonId)?.visitorId
+  return members.some((m) =>
+    [m.name, m.originalName, m.displayName].some((n) => normName(n) === key) ||
+    (visitorId && m.visitorId === visitorId)
+  )
+}
+
+function NonCellSection({ names, canEdit, people, destinationFor, onAddValue, onRemove, duplicateNorms = null, suggestions = [], loadingSuggestions = false, className = '' }) {
   const [query, setQuery] = useState('')
   const nameSet = useMemo(() => new Set((names || []).map(n => n.trim().toLowerCase())), [names])
   const results = useMemo(() => {
@@ -439,11 +466,10 @@ function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, o
         const lower = p.name.trim().toLowerCase()
         if (!lower.includes(q)) return false
         if (nameSet.has(lower)) return false
-        if (cellMemberNames?.has(lower)) return false
         return true
       })
       .slice(0, 8)
-  }, [query, people, nameSet, cellMemberNames])
+  }, [query, people, nameSet])
 
   return (
     <div className={`rounded-xl border p-4 shadow-sm ${className || 'bg-white border-slate-200'}`}>
@@ -460,21 +486,30 @@ function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, o
           />
           {results.length > 0 && (
             <div className="absolute z-10 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-              {results.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => { onAddValue(p); setQuery('') }}
-                  className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex flex-col"
-                >
-                  <span className="text-slate-800 font-medium">{p.name}</span>
-                  {(p.phone || p.date) && (
-                    <span className="text-xs text-slate-400">
-                      {p.phone}{p.phone && p.date ? ' · ' : ''}{p.date ? `First attended ${fmtFirstVisit(p.date)}` : ''}
+              {results.map((p) => {
+                const dest = destinationFor(p)
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    disabled={dest.alreadyThere}
+                    onClick={() => { onAddValue(p); setQuery('') }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex flex-col disabled:opacity-60 disabled:hover:bg-white"
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="text-slate-800 font-medium truncate min-w-0">{p.name}</span>
+                      <span className="text-xs font-semibold text-indigo-500 whitespace-nowrap">
+                        {dest.alreadyThere ? `Already in ${dest.label}` : `→ ${dest.label}`}
+                      </span>
                     </span>
-                  )}
-                </button>
-              ))}
+                    {(p.phone || p.date) && (
+                      <span className="text-xs text-slate-400">
+                        {p.phone}{p.phone && p.date ? ' · ' : ''}{p.date ? `First attended ${fmtFirstVisit(p.date)}` : ''}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
         </div>
@@ -512,12 +547,18 @@ function NonCellSection({ names, canEdit, people, cellMemberNames, onAddValue, o
       <ul className="space-y-2">
         {(names || []).map((name, idx) => {
           const isDupe = duplicateNorms?.has((name || '').replace(/\s+/g, ' ').trim().toLowerCase())
+          const dest = destinationFor({ name })
           return (
           <li key={idx} className="flex items-center gap-2">
             {canEdit ? (
               <>
-                <span className={`flex-1 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{name || '—'}</span>
+                <span className={`flex-1 min-w-0 px-2 py-1.5 rounded border text-sm ${isDupe ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50 text-slate-800'}`}>{name || '—'}</span>
                 {isDupe && <span className="text-xs font-bold text-red-600 whitespace-nowrap">Duplicate</span>}
+                {dest.section !== 'nonCell' && (
+                  <button type="button" onClick={() => onAddValue({ name })} className="text-indigo-600 hover:underline text-sm whitespace-nowrap">
+                    Move to {dest.label}
+                  </button>
+                )}
                 <button type="button" onClick={() => onRemove(idx)} className="text-red-600 hover:underline text-sm">
                   Remove
                 </button>
@@ -1315,8 +1356,18 @@ export default function SundayReport({ embedded = false }) {
   const [loadingDlight, setLoadingDlight] = useState(false)
   const [peopleDirectory, setPeopleDirectory] = useState([])
   const [delightVisitorsAll, setDelightVisitorsAll] = useState([])
-  const [cellMemberNames, setCellMemberNames] = useState(new Set())
-  const [allCellMembers, setAllCellMembers] = useState([])
+  const [rosterMembers, setRosterMembers] = useState([])
+  // Every active roster row, plus each active cell's leader who has no roster row of their own.
+  const allCellMembers = useMemo(() => {
+    const leaders = cellGroups
+      .filter((g) => normName(g.leader) && !leaderOnRoster(g, rosterMembers, peopleDirectory))
+      .map((g) => ({ id: `leader_${g.id}`, cellId: g.id, name: g.leader.trim(), displayName: '', phone: '', visitorId: '', status: 'active' }))
+    return [...rosterMembers, ...leaders]
+  }, [rosterMembers, cellGroups, peopleDirectory])
+  const cellMemberNames = useMemo(
+    () => new Set(allCellMembers.map((m) => String(m.name).trim().toLowerCase())),
+    [allCellMembers]
+  )
   const [pcsEntriesAll, setPcsEntriesAll] = useState([])
   const [deptTeamMembersAll, setDeptTeamMembersAll] = useState([])
   const [worshipTeamMembersAll, setWorshipTeamMembersAll] = useState([])
@@ -1525,12 +1576,9 @@ export default function SundayReport({ embedded = false }) {
   useEffect(() => {
     getAllCellGroupMembers()
       .then((list) => {
-        const active = (list || []).filter((m) => m.status !== 'inactive' && m.name)
-        const set = new Set(active.map((m) => String(m.name).trim().toLowerCase()))
-        setCellMemberNames(set)
-        setAllCellMembers(active)
+        setRosterMembers((list || []).filter((m) => m.status !== 'inactive' && m.name))
       })
-      .catch(() => { setCellMemberNames(new Set()); setAllCellMembers([]) })
+      .catch(() => setRosterMembers([]))
   }, [])
 
   useEffect(() => {
@@ -1552,13 +1600,19 @@ export default function SundayReport({ embedded = false }) {
   const enrichedMembersForCell = useMemo(() => {
     const visitorMap = new Map(delightVisitorsAll.map(v => [v.id, v]))
     const peopleMap  = new Map(peopleDirectory.map(p => [p.id, p]))
-    const leaderName = (cellGroups.find(g => g.id === expandedCellId)?.leader || '').trim().toLowerCase()
+    const group = cellGroups.find(g => g.id === expandedCellId)
+    const leaderName = (group?.leader || '').trim().toLowerCase()
     const enriched = membersForCell.map(m => {
       const linked = m.visitorId ? (peopleMap.get(m.visitorId) || visitorMap.get(m.visitorId)) : null
       const canonical = linked?.name || m.name
       const joinDate = linked?.firstVisitDate || linked?.attendedDate || ''
       return { ...m, name: canonical, originalName: m.name, joinDate }
     })
+    // The leader attends their own cell even with no roster row of their own.
+    if (leaderName && !leaderOnRoster(group, enriched, peopleDirectory)) {
+      const name = group.leader.trim()
+      enriched.push({ id: `leader_${group.id}`, name, originalName: name, displayName: '', phone: '', visitorId: '', joinDate: '' })
+    }
     return enriched.sort((a, b) => {
       const aLeader = a.name.trim().toLowerCase() === leaderName
       const bLeader = b.name.trim().toLowerCase() === leaderName
@@ -1686,35 +1740,10 @@ export default function SundayReport({ embedded = false }) {
     return [...byLower.values()]
   }, [delightVisitorsAll, dlightRecommendationNames])
 
-  // Adds a D-Light-recommended visitor straight into the correct existing bucket —
-  // their Cell's attendance if they're already an active member (avoids the
-  // duplication a separate bucket would risk), otherwise Non Cell. Same routing
-  // linkOthersNameToCell uses below, just triggered from the recommendation chip
-  // instead of an Others entry.
-  const addDlightRecommendation = (visitor) => {
-    const name = String(visitor?.name || '').trim()
-    if (!name || !canEditEffective) return
-    const matchedMember = allCellMembers.find(
-      (m) => String(m.name || '').trim().toLowerCase() === name.toLowerCase()
-    )
-    if (matchedMember) {
-      const sca = { ...(report?.sundayCellAttendance || {}) }
-      const list = [...(sca[matchedMember.cellId] || [])]
-      if (!list.some((n) => String(n).trim().toLowerCase() === name.toLowerCase())) list.push(name)
-      sca[matchedMember.cellId] = list
-      updateReport({ sundayCellAttendance: sca })
-    } else {
-      const nonCell = [...(report?.nonCell || [])]
-      if (!nonCell.some((n) => String(n).trim().toLowerCase() === name.toLowerCase())) nonCell.push(name)
-      updateReport({ nonCell })
-    }
-    recordPersonSundayAttendance({
-      date: selectedDate,
-      visitorId: visitor.id || null,
-      name,
-      recordedBy: userProfile?.email || 'unknown',
-    }).catch(() => {})
-  }
+  // Adds a D-Light-recommended visitor straight into the correct existing bucket
+  // (avoids the duplication a separate bucket would risk) — same routing as the
+  // Non Cell search and Others linking, see assignToSundayDestination below.
+  const addDlightRecommendation = (visitor) => assignToSundayDestination({ ...visitor, source: 'visitor' })
 
   // Single master load — clears stale data immediately so previous date never bleeds through
   useEffect(() => {
@@ -2054,18 +2083,16 @@ export default function SundayReport({ embedded = false }) {
     return pool
   }, [delightVisitorsAll])
 
-  // Same two sources for Non Cell, but deduplicated by phone (fallback to id) — Non Cell
-  // shows a flat pick-a-name list rather than a "link an existing entry" flow, so the same
-  // physical person appearing in both People Directory and D-Light would otherwise show twice.
-  const nonCellSearchPool = useMemo(() => {
-    const seen = new Set()
-    const merged = []
-    for (const p of othersLinkDirectory) {
-      const key = (p.phone || '').replace(/\s+/g, '') || p.id
-      if (p.name && !seen.has(key)) { seen.add(key); merged.push(p) }
-    }
-    return merged
-  }, [othersLinkDirectory])
+  // Search pool for the Non Cell search and Others linking: the whole directory plus the
+  // River Kids registry, since a pick routes to wherever the person belongs. Not deduped by
+  // phone — family members often share a number, and one of them would become unfindable.
+  const routingSearchPool = useMemo(() => {
+    const seen = new Set(othersLinkDirectory.map((p) => p.name.toLowerCase()))
+    const kids = allRkKids
+      .map((k) => ({ id: k.id, name: (k.name || '').trim(), phone: '', date: '', source: 'kid' }))
+      .filter((k) => k.name && !seen.has(k.name.toLowerCase()))
+    return [...othersLinkDirectory, ...kids]
+  }, [othersLinkDirectory, allRkKids])
 
   // ── Non Cell smart suggestions — names seen at Sunday Service in the last 4 weeks
   // (as of this report's date) who aren't currently in any cell group.
@@ -2081,8 +2108,8 @@ export default function SundayReport({ embedded = false }) {
   }, [selectedDate])
 
   const nonCellSuggestions = useMemo(() => {
-    const nonCellSet = new Set((report?.nonCell || []).map((n) => (n || '').trim().toLowerCase()))
-    const byName = new Map(nonCellSearchPool.map((p) => [(p.name || '').trim().toLowerCase(), p]))
+    const nonCellSet = new Set([...(report?.nonCell || []), ...(report?.riverKids || [])].map((n) => (n || '').trim().toLowerCase()))
+    const byName = new Map(routingSearchPool.map((p) => [(p.name || '').trim().toLowerCase(), p]))
     const names = recentAttendeeNames.filter((n) => {
       const key = n.trim().toLowerCase()
       if (!key || nonCellSet.has(key)) return false
@@ -2093,7 +2120,7 @@ export default function SundayReport({ embedded = false }) {
       return true
     })
     return names.map((n) => byName.get(n.trim().toLowerCase()) || { name: n })
-  }, [recentAttendeeNames, report?.nonCell, cellMemberNames, nonCellSearchPool, dlightRecommendationNames])
+  }, [recentAttendeeNames, report?.nonCell, report?.riverKids, cellMemberNames, routingSearchPool, dlightRecommendationNames])
 
   // Combined people pool for bulk import matching: cell members + people directory + visitors + River Kids
   const bulkImportSearchPool = useMemo(() => {
@@ -2130,16 +2157,71 @@ export default function SundayReport({ embedded = false }) {
     return s
   }, [allRkKids])
 
-  /** Add a Non Cell attendee and record it against their own profile/visitor record. */
-  const addNonCellPerson = (person) => {
+  /**
+   * Where a directory person belongs on this report: River Kids registry → River Kids,
+   * active cell roster → that cell, anyone else → Non Cell. Cell attendance is stored
+   * under the roster name so the cell picker shows them as present. A closed cell isn't
+   * on the report, so its members fall through to Non Cell.
+   */
+  const sundayDestinationFor = (person) => {
     const name = String(person?.name || '').trim()
-    if (!name) return
-    addCellNameValue('nonCell', name)
+    const key = normName(name)
+    const has = (list, n) => (list || []).some((x) => normName(x) === normName(n))
+    if (rkKidsNorms.has(key)) {
+      return { section: 'riverKids', name, label: 'River Kids', alreadyThere: has(report?.riverKids, name) }
+    }
+    const member = allCellMembers.find(
+      (m) => normName(m.name) === key || (person?.source === 'visitor' && m.visitorId === person.id)
+    )
+    const cell = member && cellGroups.find((g) => g.id === member.cellId)
+    if (cell) {
+      const rosterName = String(member.name).trim()
+      return {
+        section: 'cell',
+        cellId: cell.id,
+        name: rosterName,
+        label: cell.cellName || 'their cell',
+        alreadyThere: has(report?.sundayCellAttendance?.[cell.id], rosterName),
+      }
+    }
+    return { section: 'nonCell', name, label: 'Non Cell', alreadyThere: has(report?.nonCell, name) }
+  }
+
+  /**
+   * Mark a directory person present in their destination, moving them out of Non Cell or
+   * another cell if they were sitting there, and record it against their own profile.
+   * `othersIdx` is the Others row being linked, which is dropped now they're identified.
+   */
+  const assignToSundayDestination = (person, othersIdx = null) => {
+    const dest = sundayDestinationFor(person)
+    if (!dest.name || !canEditEffective) return
+    const keys = new Set([normName(dest.name), normName(person.name)])
+    const notThem = (n) => !keys.has(normName(n))
+
+    const nonCell = (report?.nonCell || []).filter(notThem)
+    const sca = Object.fromEntries(
+      Object.entries(report?.sundayCellAttendance || {}).map(([id, list]) => [id, (list || []).filter(notThem)])
+    )
+    const patch = { nonCell, sundayCellAttendance: sca }
+    if (dest.section === 'nonCell') nonCell.push(dest.name)
+    if (dest.section === 'cell') {
+      sca[dest.cellId] = [...(sca[dest.cellId] || []), dest.name]
+      // Present and Away are mutually exclusive — marking present clears an Away mark.
+      patch.sundayCellAway = {
+        ...(report?.sundayCellAway || {}),
+        [dest.cellId]: (report?.sundayCellAway?.[dest.cellId] || []).filter(notThem),
+      }
+    }
+    if (othersIdx !== null) patch.others = (report?.others || []).filter((_, i) => i !== othersIdx)
+    updateReport(patch)
+    if (dest.section === 'riverKids') handleRiverKidsToggle(dest.name, false)
+    if (dest.section !== 'nonCell') showAwayToast(`${dest.name} added to ${dest.label}.`)
+
     recordPersonSundayAttendance({
       date: selectedDate,
       personId: person.source === 'people' ? person.id : null,
       visitorId: person.source === 'visitor' ? person.id : null,
-      name,
+      name: dest.name,
       recordedBy: userProfile?.email || 'unknown',
     }).catch(() => {})
   }
@@ -2239,41 +2321,10 @@ export default function SundayReport({ embedded = false }) {
   /**
    * Link an "Others" entry to a real profile — either a People Directory record or a
    * D-Light visitor record — so their own profile can show this Sunday's attendance.
-   * If that linked person also happens to be a cell member (matched by name), their
-   * name is additionally moved out of Others into that cell's attendance.
+   * Once identified they leave Others (which holds only names nobody could identify)
+   * for wherever they belong: River Kids, their cell, or Non Cell.
    */
-  const linkOthersNameToCell = (idx, person) => {
-    const name = String(person?.name || '').trim()
-    if (!name) return
-
-    const matchedMember = allCellMembers.find(
-      (m) => String(m.name || '').trim().toLowerCase() === name.toLowerCase()
-    )
-    if (matchedMember) {
-      // Belongs to a cell — move out of Others entirely into that cell's attendance.
-      const others = (report?.others || []).filter((_, i) => i !== idx)
-      const sca = { ...(report?.sundayCellAttendance || {}) }
-      const list = [...(sca[matchedMember.cellId] || [])]
-      if (!list.some((n) => String(n).trim().toLowerCase() === name.toLowerCase())) list.push(name)
-      sca[matchedMember.cellId] = list
-      updateReport({ others, sundayCellAttendance: sca })
-    } else {
-      // Identified but not in any cell — that's a Non Cell attendee, not Others
-      // (Others holds only names nobody could identify).
-      const others = (report?.others || []).filter((_, i) => i !== idx)
-      const nonCell = [...(report?.nonCell || [])]
-      if (!nonCell.some((n) => String(n).trim().toLowerCase() === name.toLowerCase())) nonCell.push(name)
-      updateReport({ others, nonCell })
-    }
-
-    recordPersonSundayAttendance({
-      date: selectedDate,
-      personId: person.source === 'people' ? person.id : null,
-      visitorId: person.source === 'visitor' ? person.id : null,
-      name,
-      recordedBy: userProfile?.email || 'unknown',
-    }).catch(() => {})
-  }
+  const linkOthersNameToCell = (idx, person) => assignToSundayDestination(person, idx)
 
   const logByName = useMemo(() => {
     const map = {}
@@ -2679,7 +2730,7 @@ export default function SundayReport({ embedded = false }) {
                       <div className="p-3">
                         {loadingMembers ? (
                           <p className="text-xs text-slate-500 py-1">Loading members…</p>
-                        ) : membersForCell.length === 0 ? (
+                        ) : enrichedMembersForCell.length === 0 ? (
                           <p className="text-xs text-slate-500 py-1">No active members.</p>
                         ) : (
                           <div className="flex flex-wrap gap-2">
@@ -2769,9 +2820,9 @@ export default function SundayReport({ embedded = false }) {
                       <NonCellSection
                         names={report?.[key] || []}
                         canEdit={manualEdit}
-                        people={nonCellSearchPool}
-                        cellMemberNames={cellMemberNames}
-                        onAddValue={addNonCellPerson}
+                        people={routingSearchPool}
+                        destinationFor={sundayDestinationFor}
+                        onAddValue={assignToSundayDestination}
                         onRemove={(idx) => removeCellName(key, idx)}
                         duplicateNorms={duplicateNorms}
                         suggestions={nonCellSuggestions}
@@ -2793,7 +2844,7 @@ export default function SundayReport({ embedded = false }) {
                         canEdit={manualEdit}
                         onAddValue={(value) => addCellNameValue(key, value)}
                         onRemove={(idx) => removeCellName(key, idx)}
-                        linkDirectory={key === 'others' ? othersLinkDirectory : null}
+                        linkDirectory={key === 'others' ? routingSearchPool : null}
                         onLink={key === 'others' ? linkOthersNameToCell : undefined}
                         linkedNames={key === 'others' ? othersLinkedNames : undefined}
                         allowGuest={key === 'others'}
@@ -2845,7 +2896,7 @@ export default function SundayReport({ embedded = false }) {
                   <p className="text-sm font-semibold text-indigo-900">💡 D-Light Recommendations</p>
                   <p className="text-xs text-slate-500 mt-0.5 mb-3">
                     First-month D-Light visitors not yet marked present today — tap a name to add them
-                    (to their Cell if they're already a member, otherwise Non Cell).
+                    (to River Kids or their Cell if they belong there, otherwise Non Cell).
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {dlightRecommendations.map((v) => (

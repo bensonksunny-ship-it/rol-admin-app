@@ -30,6 +30,7 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
         </div>
         <button type="button" onClick={() => setCountOpen(true)} className="text-[11px] font-semibold text-emerald-700 hover:underline shrink-0">Open count page</button>
       </div>
+      <div className="overflow-x-auto">
       <table className="w-full text-xs">
         <thead>
           <tr className="bg-slate-50 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -98,6 +99,7 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
           })}
         </tbody>
       </table>
+      </div>
       {countOpen && <CashCountWindow sundays={sundays} onClose={() => setCountOpen(false)} />}
     </div>
   )

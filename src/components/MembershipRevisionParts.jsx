@@ -69,7 +69,7 @@ export function DepositPaymentCard({ value, onChange }) {
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Bank transfer</p>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
             {[['Name', bank.accountName || payeeName], ['Account No.', bank.accountNumber], ['IFSC', bank.ifsc], ['Bank', bank.bankName]].filter(([, v]) => v).map(([k, v]) => (
-              <div key={k} className="contents"><dt className="text-slate-500">{k}</dt><dd className="font-medium break-all">{v}</dd></div>
+              <div key={k} className="contents"><dt className="text-slate-500">{k}</dt><dd className="font-medium break-words">{v}</dd></div>
             ))}
           </dl>
         </div>

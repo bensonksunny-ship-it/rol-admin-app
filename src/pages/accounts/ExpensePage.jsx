@@ -985,7 +985,7 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
                     </div>
                   )}
                   {selectedHere.length > 0 && (
-                    <div className="flex items-center gap-3 px-3 py-2 bg-rose-50 border-y border-rose-100">
+                    <div className="flex flex-wrap items-center gap-3 px-3 py-2 bg-rose-50 border-y border-rose-100">
                       <span className="text-xs font-semibold text-rose-700">{selectedHere.length} selected</span>
                       <button
                         type="button"

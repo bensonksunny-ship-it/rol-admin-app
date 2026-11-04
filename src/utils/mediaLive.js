@@ -304,7 +304,7 @@ const CUE_STATIONS = [
   ['stream', /stream|broadcast|go live/i],
   ['camera', /camera|shot|focus/i],
   ['lighting', /light/i],
-  ['sound', /mic\b|microphone|audio|sound|instrument/i],
+  ['sound', /mic\b|microphone|audio|sound|instrument|music|bgm/i],
   ['projection', /display|screen|slide|lyric|scripture|video|countdown|qr|lower third|presentation/i],
 ]
 export function cueStation(el) {

@@ -33,7 +33,7 @@ export function getDepartmentHubTabs(slug) {
     case 'sec-core':
       return ['summary', 'directorBoard', 'sundayLeader', 'planning', 'finance']
     case 'sp-office':
-      return ['summary', 'dailySchedule', 'finance', 'operations']
+      return ['summary', 'applications', 'dailySchedule', 'finance', 'operations']
     default:
       return ['summary', 'finance', 'operations']
   }

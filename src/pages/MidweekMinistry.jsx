@@ -2061,7 +2061,7 @@ function CellPrepTab({ userProfile, isDirector, isLeader, reportDate }) {
                 onKeyDown={(e) => { if (e.key === 'Enter') addSegment(); if (e.key === 'Escape') { setAddingSegment(false); setNewSegmentName('') } }}
                 placeholder="Segment name…"
                 autoFocus
-                className="flex-1 px-3 py-2 rounded-xl border border-indigo-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="flex-1 min-w-0 px-3 py-2 rounded-xl border border-indigo-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
               />
               <button type="button" onClick={addSegment} className="px-3 py-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700">Add</button>
               <button type="button" onClick={() => { setAddingSegment(false); setNewSegmentName('') }} className="px-3 py-2 rounded-xl border border-slate-300 text-slate-600 text-sm hover:bg-slate-50">Cancel</button>

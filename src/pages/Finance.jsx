@@ -527,7 +527,7 @@ export default function Finance() {
         </select>
       </div>
 
-      <div className="flex gap-1 border-b border-slate-200 overflow-x-auto scrollbar-hide">
+      <div className="flex flex-wrap gap-1 border-b border-slate-200">
         {[['overview','Overview'],['income','Income'],['expense','Expense'],['budget','Budget']].map(([key, label]) => (
           <button
             key={key}
@@ -939,7 +939,7 @@ export default function Finance() {
               </div>
               <button type="button" onClick={() => setBudgetXlsxRows(null)} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
             </div>
-            <div className="overflow-y-auto flex-1">
+            <div className="overflow-auto flex-1">
               <table className="w-full text-xs">
                 <thead className="sticky top-0 bg-slate-50">
                   <tr className="text-left text-slate-500 border-b border-slate-100">

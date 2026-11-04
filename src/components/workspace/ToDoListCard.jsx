@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { CheckSquare, Check, XCircle, Users, X } from 'lucide-react'
-import { subscribeTasksForDepartments, markTaskCompleted, markTaskTurnedDown, getCellGroups, addCellGroupMember, VISITOR_REQUIRED_MESSAGE } from '../../services/firestore'
+import { subscribeTasksForDepartments, markTaskCompleted, markTaskTurnedDown, getCellGroups, addCellGroupMember, VISITOR_REQUIRED_MESSAGE, isCellMemberConflict } from '../../services/firestore'
 import { useAuth } from '../../context/AuthContext'
 import { formatDMY } from '../../utils/date'
 import { taskDeepLink, myTaskDepartmentNames as myDepartmentNames, isTaskForViewer, isActiveTask, dedupeTasks } from '../../utils/todoTasks'
@@ -140,7 +140,7 @@ export default function ToDoListCard() {
         ? `${t.consultPersonName || 'Member'} assigned to ${cellName}.`
         : `${t.consultPersonName || 'Member'} was already in ${cellName} — task cleared.`)
     } catch (err) {
-      showToast(err?.message === VISITOR_REQUIRED_MESSAGE ? err.message : 'Failed to assign. Please try again.', 'error')
+      showToast(err?.message === VISITOR_REQUIRED_MESSAGE || isCellMemberConflict(err) ? err.message : 'Failed to assign. Please try again.', 'error')
     } finally {
       setAssigningId(null)
     }

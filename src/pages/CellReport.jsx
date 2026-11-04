@@ -14,6 +14,7 @@ import {
   getCellGroupMembers,
   updateCellGroupMember,
   addCellMemberPendingChange,
+  findMemberInOtherCell,
   getActiveBackToBibleForDate,
   getCellProgramItems,
   addCellProgramItem,
@@ -33,6 +34,7 @@ import {
 } from '../services/firestore'
 import { ROLES } from '../constants/roles'
 import { getDepartmentRole } from '../utils/access'
+import { cellConflictMessage } from '../utils/cellDuplicates'
 import { canEditCellReport } from '../utils/cellReportPermissions'
 import { isRealCellReportSubmission } from '../utils/cellWeek'
 import { calcTenureLabel } from '../utils/cellMemberCategory'
@@ -1476,7 +1478,7 @@ export default function CellReport() {
               </label>
             </div>
           </div>
-          <div className="flex border-b border-slate-200 overflow-x-auto">
+          <div className="flex flex-wrap border-b border-slate-200">
             {((cellGroupsLoading || canEditCurrentReport) ? CELL_REPORT_TABS_ALL : isDirectorReadOnly ? CELL_REPORT_TABS_DIRECTOR : CELL_REPORT_TABS_VIEW_ONLY).map(({ key, label }) => (
               <button
                 key={key}
@@ -2232,8 +2234,8 @@ export default function CellReport() {
               const notAttending = sorted.filter((m) => m.status === 'inactive' && m.memberCategory !== 'former')
               return (
                 <div className="space-y-4">
+                  <input type="text" value={editCellSearch} onChange={(e) => setEditCellSearch(e.target.value)} placeholder="Search member" className="w-full px-3 py-2 rounded-lg border border-slate-300" />
                   <div className="flex flex-wrap items-center gap-2">
-                    <input type="text" value={editCellSearch} onChange={(e) => setEditCellSearch(e.target.value)} placeholder="Search member" className="px-3 py-2 rounded-lg border border-slate-300 min-w-[180px]" />
                     <button type="button" onClick={() => setEditCellSortAsc((v) => !v)} className="px-3 min-h-[44px] py-2 rounded-lg border border-slate-300 text-sm text-slate-700 hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors">Sort by name {editCellSortAsc ? 'A→Z' : 'Z→A'}</button>
                     <button type="button" onClick={() => { setLeaderAddMemberOpen(true); setLeaderAddSearch(''); setLeaderAddMemberForm({ name: '', visitorId: '', birthday: '', anniversary: '', phone: '', locality: '', since: '', status: 'active' }); }} className="px-3 min-h-[44px] py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium transition-colors">Add Member</button>
                   </div>
@@ -2409,6 +2411,9 @@ export default function CellReport() {
                       // Visitor Entry can be proposed — never a typed name.
                       if (!leaderAddMemberForm.visitorId) { alert("Pick this person from the People's Directory. New people must first be registered through D-Light Visitor Entry."); return }
                       try {
+                        // One-cell rule: stop the request up front if they're already on another roster.
+                        const elsewhere = await findMemberInOtherCell(myCellId, { name, visitorId: leaderAddMemberForm.visitorId })
+                        if (elsewhere) { alert(cellConflictMessage(elsewhere.cellName)); return }
                         await addCellMemberPendingChange({
                           changeType: 'add',
                           cellId: myCellId,

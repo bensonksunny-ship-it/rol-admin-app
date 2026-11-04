@@ -540,7 +540,7 @@ function TimingTab({ startTime, onStartTimeChange, segments, segmentRanges, tota
               value={seg.name}
               onChange={(e) => onUpdate(i, 'name', e.target.value)}
               placeholder="Segment name"
-              className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              className="flex-1 min-w-0 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-300"
             />
             <input
               type="number"

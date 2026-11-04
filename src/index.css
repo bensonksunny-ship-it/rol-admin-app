@@ -83,6 +83,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--rol-bg);
   color: var(--rol-text);
+  /* A single word too long for its box (an email, a link, a phone string) breaks
+     instead of pushing the page sideways on phones. Normal words are never split —
+     this only applies when one word alone can't fit its line. */
+  overflow-wrap: break-word;
 }
 
 /* ─── Bright glassmorphism: mesh gradient in light mode ──────────────────── */

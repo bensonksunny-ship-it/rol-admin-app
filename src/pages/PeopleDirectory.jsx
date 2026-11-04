@@ -769,7 +769,7 @@ export default function PeopleDirectory() {
 
           {/* Filter tabs — hidden for the search-only Cell Director view */}
           {!searchOnly && (
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-hide">
+            <div className="flex flex-wrap gap-1.5 pb-0.5">
               {FILTERS.map(f => (
                 <button
                   key={f.key}

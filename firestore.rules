@@ -224,6 +224,11 @@ service cloud.firestore {
         (resource.data.cellAssignConsult == true && canAccessDept('Cell') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']))
       );
+      // SP Office Control Center → Follow-up desk: the office secretary assigns tasks to
+      // other departments (spOfficeFollowUp: true) and may read and update only those —
+      // never a department's other tasks.
+      allow read, update: if resource.data.get('spOfficeFollowUp', false) == true && isSpOffice();
+      allow create: if request.resource.data.get('spOfficeFollowUp', false) == true && isSpOffice();
       // Delete matches read/update's department scoping — My Workspace's To-Do List
       // lets department users delete their own department's tasks inline, not just Founder/Admin.
       allow delete: if isSignedIn() && (isFullAccess() || canAccessDept(resource.data.department));
@@ -690,6 +695,23 @@ service cloud.firestore {
     }
 
     // Lightweight PCS membership lookup — any signed-in user can read, Caring writes
+    // SP Office (the Senior Pastor's office secretary) runs the Applications Desk:
+    // reads every Baptism / Membership / Marriage / Dedication application, sends new
+    // links, extends or withdraws a link not yet submitted, keeps office notes, asks
+    // for more information and marks one "Ready for approval" (officeReview). It never
+    // approves, rejects or links to an event — status may only stay as it is or go
+    // submitted → info_requested.
+    function isSpOffice() {
+      return isSignedIn() && canAccessDept('SP Office');
+    }
+    function spOfficeAppUpdate() {
+      return isSpOffice()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['officeNotes', 'officeReview', 'status', 'expiresAt', 'batch', 'seq', 'formId', 'place'])
+        && (request.resource.data.status == resource.data.status
+            || (resource.data.status == 'submitted' && request.resource.data.status == 'info_requested'));
+    }
+
     // Baptism applications (PCS → "Baptism Application & QR"). The doc id is a
     // 128-bit random token that is also the public link /baptism-apply?token=….
     //  - Signed-out applicants may GET (never LIST) an unexpired doc by exact token,
@@ -701,6 +723,10 @@ service cloud.firestore {
     //  - Stage 3: once signed off, holders of the link may read it until examOpenUntil
     //    and record MCQ attempts (only `exam`) until they pass.
     match /baptism_applications/{token} {
+      allow get, list: if isSpOffice();
+      allow create: if isSpOffice() && request.resource.data.status == 'pending';
+      allow delete: if isSpOffice() && resource.data.status == 'pending';
+      allow update: if spOfficeAppUpdate();
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
         || resource.data.expiresAt > request.time
         || resource.data.get('examOpenUntil', timestamp.value(0)) > request.time;
@@ -732,6 +758,10 @@ service cloud.firestore {
     // baptism_applications above: signed-out holders of the QR link may read an
     // unexpired doc and submit the applicant's part exactly once.
     match /marriage_applications/{token} {
+      allow get, list: if isSpOffice();
+      allow create: if isSpOffice() && request.resource.data.status == 'pending';
+      allow delete: if isSpOffice() && resource.data.status == 'pending';
+      allow update: if spOfficeAppUpdate();
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
         || resource.data.expiresAt > request.time;
       allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
@@ -751,6 +781,8 @@ service cloud.firestore {
     // unexpired doc and submit the applicant's part exactly once; listing, creating,
     // deciding and deleting stay Caring-only.
     match /membership_applications/{token} {
+      allow get, list: if isSpOffice();
+      allow update: if spOfficeAppUpdate();
       // The link never expires on time: it stays open until the application is closed
       // (closedAt — set when the membership card is issued, or manually by the office).
       // Once submitted it stays readable as the applicant's live progress tracker.
@@ -797,6 +829,10 @@ service cloud.firestore {
     // `revealed` (which opens the secret to Caring) may only be set by a revealer or
     // once the dedication event named in `revealEventId` is marked completed.
     match /dedication_applications/{token} {
+      allow get, list: if isSpOffice();
+      allow create: if isSpOffice() && request.resource.data.status == 'pending';
+      allow delete: if isSpOffice() && resource.data.status == 'pending';
+      allow update: if spOfficeAppUpdate();
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canRevealSurpriseName()))
         || resource.data.expiresAt > request.time;
       allow list: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canRevealSurpriseName());
@@ -856,6 +892,8 @@ service cloud.firestore {
       allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
       // First Lady: read-only (Applications Progress shows each application's event).
       allow read: if isSignedIn() && canAccessDept('First Lady');
+      // SP Office: read-only (the Applications Desk shows each application's event).
+      allow read: if isSpOffice();
     }
 
     // Workspace ribbon notifications (e.g. Membership interview requests to a Deacon).

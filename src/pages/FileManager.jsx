@@ -331,15 +331,16 @@ export default function FileManager() {
       )}
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by file name or SL No…"
-              className="w-64 px-3 py-1.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"
-            />
+        <div className="px-4 py-3 border-b border-slate-100 space-y-2">
+          {/* Search gets its own full-width row; filter + actions sit beneath it */}
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by file name or SL No…"
+            className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400"
+          />
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <select
               value={remarksFilter}
               onChange={(e) => setRemarksFilter(e.target.value)}
@@ -348,19 +349,19 @@ export default function FileManager() {
               <option value="all">All statuses</option>
               {REMARKS_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer">
-              Import Excel
-              <input type="file" accept=".xlsx,.xls" className="hidden" ref={fileInputRef} onChange={handleXlsxFile} />
-            </label>
-            <button
-              type="button"
-              onClick={openCreate}
-              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors"
-            >
-              + New Entry
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors cursor-pointer">
+                Import Excel
+                <input type="file" accept=".xlsx,.xls" className="hidden" ref={fileInputRef} onChange={handleXlsxFile} />
+              </label>
+              <button
+                type="button"
+                onClick={openCreate}
+                className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors"
+              >
+                + New Entry
+              </button>
+            </div>
           </div>
         </div>
 

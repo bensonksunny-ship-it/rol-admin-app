@@ -222,11 +222,11 @@ export default function BaptismApplicationModal({ entry, prefill, userEmail, onC
                   </p>
                 )}
                 <div className="flex items-end gap-2">
-                  <label className="flex-1 space-y-1">
+                  <label className="flex-1 min-w-0 space-y-1">
                     <span className="text-[10px] font-semibold text-slate-400">Batch No.</span>
                     <input value={batch} onChange={e => setBatch(e.target.value)} placeholder="e.g. 9" className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white" />
                   </label>
-                  <label className="flex-1 space-y-1">
+                  <label className="flex-1 min-w-0 space-y-1">
                     <span className="text-[10px] font-semibold text-slate-400">Serial No.</span>
                     <input value={serial} onChange={e => setSerial(e.target.value.replace(/\D/g, ''))} inputMode="numeric" className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white" />
                   </label>

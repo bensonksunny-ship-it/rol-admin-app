@@ -24,9 +24,11 @@ import {
   subscribeCellUnassignedDismissals,
   getDelightVisitors,
   VISITOR_REQUIRED_MESSAGE,
+  isCellMemberConflict,
 } from '../services/firestore'
 import { cellWeekStart, totalAttendanceFromCellReport, weekStartKey, isRealCellReportSubmission, pickCellWeekReport } from '../utils/cellWeek'
 import DirectorDashboardCellWidgets, { CellMemberGrowthChart } from './DirectorDashboard'
+import { findCellMatch, suggestCellFor } from '../utils/cellSuggestion'
 
 function initials(name) {
   return String(name || '')
@@ -161,9 +163,12 @@ export function CellDirectorCockpit({
   // from the Unassigned drawer so they never surface for cell placement, PCS
   // referral, or a D-Light consult request.
   const [onlyVisitNames, setOnlyVisitNames] = useState(new Set())
+  // The full visitor list also feeds "Ask D-Light for Cell" (utils/cellSuggestion.js).
+  const [delightVisitors, setDelightVisitors] = useState([])
   useEffect(() => {
     getDelightVisitors()
       .then((list) => {
+        setDelightVisitors(list)
         setOnlyVisitNames(new Set(
           list.filter((v) => v.onlyVisit).map((v) => String(v.name || '').trim().toLowerCase())
         ))
@@ -239,6 +244,7 @@ export function CellDirectorCockpit({
             nameKey: String(m.name || '').trim().toLowerCase(),
             visitorId: m.visitorId || '',
             phoneKey: phoneKey(m.phone),
+            locality: m.locality || '',
           })),
         }
       })
@@ -410,6 +416,18 @@ export function CellDirectorCockpit({
     return [...pcsItems, ...sundayItems]
   }, [unassignedVisitors, pcsReferrals, assignedNames, dismissedNames, persistedDismissedNames, restoredNames, dismissedTaskIds, isAlreadyCellMember, onlyVisitNames])
 
+  // Cross-cell check before rendering: is anyone in the list already (or probably) on
+  // some cell's roster? Exact name matches are filtered out above; this catches the
+  // rest — same visitor record, extra spaces, a nickname / short name, a shared phone.
+  const cellMatchById = useMemo(() => {
+    const m = new Map()
+    visibleUnassigned.forEach((item) => {
+      const hit = findCellMatch(item, cellMemberData)
+      if (hit) m.set(item.id, hit)
+    })
+    return m
+  }, [visibleUnassigned, cellMemberData])
+
   // Self-healing: a referral/recommendation task only ever gets marked Completed
   // when someone clicks Assign in *this* drawer — but the person it's about can be
   // added to a cell through several other paths (weekly Cell Report approval, a
@@ -530,8 +548,9 @@ export function CellDirectorCockpit({
         showToast(`${change.memberData?.name || 'Member'} — request approved.`)
       } catch (err) {
         // A cell leader's "add" request for someone with no visitor record is
-        // refused by the visitor-first rule — say so instead of a generic failure.
-        showToast(err?.message === VISITOR_REQUIRED_MESSAGE ? err.message : 'Approval failed. Please try again.', 'error')
+        // refused by the visitor-first rule, and one for someone already in another
+        // cell by the one-cell rule — say so instead of a generic failure.
+        showToast(err?.message === VISITOR_REQUIRED_MESSAGE || isCellMemberConflict(err) ? err.message : 'Approval failed. Please try again.', 'error')
       }
     },
     [onChangeResolved, showToast]
@@ -611,7 +630,7 @@ export function CellDirectorCockpit({
         setAssignSelectedCellId('')
       } catch (err) {
         console.error('Failed to assign', item?.name, 'to cell', targetCellId, err)
-        showToast(err?.message === VISITOR_REQUIRED_MESSAGE ? err.message : 'Failed to assign. Please try again.', 'error')
+        showToast(err?.message === VISITOR_REQUIRED_MESSAGE || isCellMemberConflict(err) ? err.message : 'Failed to assign. Please try again.', 'error')
       } finally {
         setAssigning(false)
       }
@@ -660,6 +679,59 @@ export function CellDirectorCockpit({
     [consultNote, userProfile, showToast]
   )
 
+  // "Ask D-Light for Cell": score every active cell from the person's D-Light visitor
+  // record (locality, Sunday service, family on a shared phone — see
+  // utils/cellSuggestion.js) and send the best fit to the D-Light Director as a
+  // consult task. Its recommendedCellId pre-selects that cell in D-Light's
+  // Recommendation modal; they confirm or change it (status → 'Responded').
+  const [askingDlightId, setAskingDlightId] = useState(null)
+  const handleAskDlight = useCallback(
+    async (item) => {
+      setAskingDlightId(item.id)
+      try {
+        const { visitor, suggestions } = suggestCellFor(item, cellMemberData, delightVisitors)
+        const best = suggestions[0] || null
+        const requestedByName = userProfile?.displayName || userProfile?.name || userProfile?.email || 'Cell Director'
+        const summary = best
+          ? `Suggested: ${best.cellName} (${best.reasons.join('; ')}).`
+          : `No automatic match${visitor ? '' : ' — no D-Light visitor record found'}; please suggest a cell.`
+        await createTask({
+          taskTitle: `Cell assignment input needed: ${item.name}`,
+          department: 'D Light',
+          assignedPerson: '',
+          priority: 'Medium',
+          deadline: '',
+          status: 'Pending',
+          notes: `${requestedByName} (Cell Director) asked D-Light to suggest a cell for ${item.name}. ${summary}`,
+          createdBy: userProfile?.email || '',
+          cellAssignConsult: true,
+          consultPersonName: item.name,
+          consultPersonPhone: item.phone || visitor?.phone || '',
+          consultPersonVisitorId: item.visitorId || visitor?.id || '',
+          consultNote: summary,
+          requestedBy: requestedByName,
+          recommendedCellId: best?.cellId || '',
+          recommendedCellName: best?.cellName || '',
+          autoSuggestion: {
+            cellId: best?.cellId || '', cellName: best?.cellName || '', reasons: best?.reasons || [],
+            alternatives: suggestions.slice(1, 3).map((s) => ({ cellId: s.cellId, cellName: s.cellName, reasons: s.reasons })),
+            locality: visitor?.currentPlace || '', serviceAttended: visitor?.serviceAttended || '',
+          },
+          personId: item.visitorId || item.phone || item.name,
+          taskType: 'cellAssignConsult',
+          visibleToRole: 'DIRECTOR',
+        })
+        showToast(best ? `D-Light suggests ${best.cellName} for ${item.name} — sent for confirmation.` : `Asked D-Light to suggest a cell for ${item.name}.`)
+      } catch (err) {
+        console.error('Ask D-Light error', err)
+        showToast('Failed to send request. Please try again.', 'error')
+      } finally {
+        setAskingDlightId(null)
+      }
+    },
+    [cellMemberData, delightVisitors, userProfile, showToast]
+  )
+
   return (
     <div className="space-y-6">
       {/* Toast */}
@@ -682,32 +754,32 @@ export function CellDirectorCockpit({
 
       {/* ── Stat Cards — all clickable navigation triggers. Pending approvals moved
           to a My Workspace ribbon (CellChangeApprovalRibbon). ── */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <button
           type="button"
           onClick={() => setStatPanel('cells')}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl p-4 sm:p-5 shadow-md text-left cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl p-3 sm:p-5 min-w-0 shadow-md text-left cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all"
         >
-          <p className="text-4xl sm:text-5xl font-black leading-none tabular-nums">{activeCells.length}</p>
-          <p className="text-base sm:text-lg font-bold mt-2 leading-tight">Active Cells</p>
+          <p className="text-3xl sm:text-5xl font-black leading-none tabular-nums">{activeCells.length}</p>
+          <p className="text-sm sm:text-lg font-bold mt-2 leading-tight">Active Cells</p>
         </button>
 
         <button
           type="button"
           onClick={() => setStatPanel('members')}
-          className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl p-4 sm:p-5 shadow-md text-left cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all"
+          className="bg-blue-600 hover:bg-blue-700 text-white rounded-2xl p-3 sm:p-5 min-w-0 shadow-md text-left cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all"
         >
-          <p className="text-4xl sm:text-5xl font-black leading-none tabular-nums">{loadingMembers ? '—' : totalMembers}</p>
-          <p className="text-base sm:text-lg font-bold mt-2 leading-tight">Total Members</p>
+          <p className="text-3xl sm:text-5xl font-black leading-none tabular-nums">{loadingMembers ? '—' : totalMembers}</p>
+          <p className="text-sm sm:text-lg font-bold mt-2 leading-tight">Total Members</p>
         </button>
 
         <button
           type="button"
           onClick={openUnassignedDrawer}
-          className="bg-violet-600 hover:bg-violet-700 text-white rounded-2xl p-4 sm:p-5 shadow-md text-left cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all"
+          className="bg-violet-600 hover:bg-violet-700 text-white rounded-2xl p-3 sm:p-5 min-w-0 shadow-md text-left cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all"
         >
-          <p className="text-4xl sm:text-5xl font-black leading-none tabular-nums">{loadingUnassigned ? '—' : visibleUnassigned.length}</p>
-          <p className="text-base sm:text-lg font-bold mt-2 leading-tight">Unassigned</p>
+          <p className="text-3xl sm:text-5xl font-black leading-none tabular-nums">{loadingUnassigned ? '—' : visibleUnassigned.length}</p>
+          <p className="text-sm sm:text-lg font-bold mt-2 leading-tight">Unassigned</p>
         </button>
       </div>
 
@@ -887,6 +959,8 @@ export function CellDirectorCockpit({
                   const consultTask = isPCS
                     ? (item.status === 'Responded' ? item : null)
                     : dlightConsultByName.get(item.name.toLowerCase())
+                  const cellMatch = cellMatchById.get(item.id)
+                  const auto = !isPCS && consultTask?.status !== 'Responded' ? consultTask?.autoSuggestion : null
                   return (
                     <div key={item.id} className="relative">
                       <div className={`flex items-center gap-3 bg-white border rounded-2xl px-4 py-3 shadow-sm ${
@@ -929,6 +1003,21 @@ export function CellDirectorCockpit({
                                   : 'Pending D Light Input'}
                               </span>
                             )}
+                            {cellMatch && (
+                              <span
+                                title={cellMatch.level === 'definite'
+                                  ? `On the ${cellMatch.cellName} roster as "${cellMatch.member}" — don't add them to another cell.`
+                                  : `"${cellMatch.member}" in ${cellMatch.cellName} may be the same person — check before assigning.`}
+                                className={`text-xs px-1.5 py-0.5 rounded-full font-semibold border ${
+                                  cellMatch.level === 'definite'
+                                    ? 'bg-red-50 text-red-700 border-red-200'
+                                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                                }`}
+                              >
+                                ⚠ {cellMatch.level === 'definite' ? 'Already in' : 'Possibly in'} {cellMatch.cellName}
+                                {cellMatch.level === 'possible' && ` (as ${cellMatch.member})`}
+                              </span>
+                            )}
                           </div>
                           <p className="text-xs text-slate-500 mt-0.5">
                             {isPCS
@@ -950,16 +1039,54 @@ export function CellDirectorCockpit({
                               {assigning ? 'Assigning…' : `Accept & Assign to ${consultTask.recommendedCellName || 'Cell'}`}
                             </button>
                           )}
+                          {auto && (
+                            <div className="text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-lg px-2 py-1.5 mt-1.5">
+                              {auto.cellName ? (
+                                <>
+                                  <p><span className="font-semibold">D-Light suggests {auto.cellName}</span> — {auto.reasons.join('; ')}</p>
+                                  {auto.alternatives?.length > 0 && (
+                                    <p className="text-sky-700/80 mt-0.5">Also: {auto.alternatives.map((a) => a.cellName).join(', ')}</p>
+                                  )}
+                                  <p className="text-sky-700/80 mt-0.5">Awaiting the D-Light Director&rsquo;s confirmation.</p>
+                                  {cellMatch?.level !== 'definite' && (
+                                    <button
+                                      type="button"
+                                      disabled={assigning}
+                                      onClick={() => handleAssign(item, auto.cellId)}
+                                      className="mt-1 px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold disabled:opacity-50 transition-colors"
+                                    >
+                                      {assigning ? 'Assigning…' : `Assign to ${auto.cellName}`}
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                <p>No automatic match{auto.locality ? ` for ${auto.locality}` : ''} — waiting for the D-Light Director to suggest a cell.</p>
+                              )}
+                            </div>
+                          )}
+                          {!consultTask && cellMatch?.level !== 'definite' && (
+                            <button
+                              type="button"
+                              disabled={askingDlightId === item.id}
+                              onClick={() => handleAskDlight(item)}
+                              title="D-Light suggests a cell from this person's locality, Sunday service and family, then the D-Light Director confirms it"
+                              className="mt-1.5 px-2.5 py-1 rounded-lg border border-sky-300 text-sky-700 hover:bg-sky-50 text-xs font-bold disabled:opacity-50 transition-colors"
+                            >
+                              {askingDlightId === item.id ? 'Asking D-Light…' : 'Ask D-Light for Cell'}
+                            </button>
+                          )}
                         </div>
                         <button
                           type="button"
+                          disabled={cellMatch?.level === 'definite'}
+                          title={cellMatch?.level === 'definite' ? `Already in ${cellMatch.cellName}` : undefined}
                           onClick={() => {
                             setAssignOpenName(assignOpenName === item.name ? null : item.name)
                             setAssignSelectedCellId('')
                             setConsultOpenName(null)
                             setConsultNote('')
                           }}
-                          className={`px-3 py-1.5 text-white text-xs font-semibold rounded-xl flex-shrink-0 transition-colors ${
+                          className={`px-3 py-1.5 text-white text-xs font-semibold rounded-xl flex-shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                             isPCS
                               ? 'bg-indigo-600 hover:bg-indigo-700'
                               : 'bg-violet-600 hover:bg-violet-700'

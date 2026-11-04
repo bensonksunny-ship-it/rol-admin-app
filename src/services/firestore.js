@@ -33,6 +33,7 @@ import { mergeFamilyIntoProfile } from '../utils/familyDetails'
 import { userLinksToCellGroup } from '../utils/cellReportPermissions'
 import { SCHEDULER_FIELDS, schedulerFields, schedulerStamp } from '../utils/songScheduler'
 import { splitNames } from '../utils/programPeople'
+import { normalizeMemberName, cellConflictMessage } from '../utils/cellDuplicates'
 
 // Firestore's writes reject any `undefined` field value, including ones nested inside
 // array elements (e.g. one row of a dynamically-built assignments array). Recursively
@@ -70,6 +71,18 @@ export const VISITOR_REQUIRED_MESSAGE =
 function requireLinkedPerson(...ids) {
   if (!ids.some(Boolean)) throw new Error(VISITOR_REQUIRED_MESSAGE)
 }
+
+// Number-one Cell rule: a person is on only one cell roster. Thrown by every add /
+// reactivate / transfer path; its message names the cell they're already in.
+export class CellMemberConflictError extends Error {
+  constructor(cellName, cellId) {
+    super(cellConflictMessage(cellName))
+    this.name = 'CellMemberConflictError'
+    this.cellId = cellId
+    this.cellName = cellName
+  }
+}
+export const isCellMemberConflict = (err) => err?.name === 'CellMemberConflictError'
 
 // Users (read/update by auth)
 export async function getUser(uid) {
@@ -333,6 +346,17 @@ export function subscribeTasksForDepartments(departments, onChange) {
   return onSnapshot(q, (snap) => {
     onChange(snap.docs.map(taskDocToRecord))
   }, () => {})
+}
+
+// SP Office Control Center → Follow-up desk: tasks the office secretary assigned to
+// other departments (spOfficeFollowUp: true). Each one still lives under its target
+// `department`, so it lands on that department's own To-Do ribbon as usual; the
+// flag is what lets SP Office read back just these (see firestore.rules /tasks).
+export function subscribeSpOfficeFollowUps(onChange, onError) {
+  if (!db) { onChange([]); return () => {} }
+  const q = query(collection(db, 'tasks'), where('spOfficeFollowUp', '==', true))
+  return onSnapshot(q, (snap) => onChange(snap.docs.map(taskDocToRecord)),
+    (err) => { console.error('subscribeSpOfficeFollowUps:', err); onError?.(err) })
 }
 
 // Real-time listener for cell-leader referrals sent to the Caring department
@@ -2747,6 +2771,27 @@ function memberPhoneKey(raw) {
   return digits.length >= 10 ? digits : ''
 }
 
+/**
+ * The active roster row (in a cell other than `cellId` and `excludeCellIds`) that is
+ * this person — matched by visitorId or normalised name — with its cell's name, or null.
+ * Members of closed (inactive) cell groups don't count.
+ */
+export async function findMemberInOtherCell(cellId, { visitorId, name } = {}, excludeCellIds = []) {
+  const nameKey = normalizeMemberName(name)
+  if (!db || (!visitorId && !nameKey)) return null
+  const hits = (await getAllCellGroupMembers()).filter((m) =>
+    m.status !== 'inactive' && !m.mergedInto &&
+    m.cellId !== cellId && !excludeCellIds.includes(m.cellId) &&
+    ((visitorId && m.visitorId === visitorId) || (nameKey && normalizeMemberName(m.name) === nameKey)))
+  for (const hit of hits) {
+    let group = null
+    try { group = (await getDoc(doc(db, CELL_GROUPS_COLLECTION, hit.cellId))).data() || null } catch { /* unreadable — still counts */ }
+    if (group?.status === 'inactive') continue
+    return { ...hit, cellName: group?.cellName || group?.name || 'another cell group' }
+  }
+  return null
+}
+
 export async function addCellGroupMember(cellId, data) {
   if (!db || !cellId) return { id: null, created: false }
   // Moving an existing roster row between cells (`transferOfExisting`) isn't a new
@@ -2775,6 +2820,13 @@ export async function addCellGroupMember(cellId, data) {
       return false
     })
     if (dupe) return { id: dupe.id, created: false }
+  }
+
+  // ...and across cells it's a hard stop: never a second roster entry anywhere.
+  // A transfer is checked too, minus the cell the person is leaving.
+  if (data.status !== 'inactive') {
+    const elsewhere = await findMemberInOtherCell(cellId, data, data.transferFromCellId ? [data.transferFromCellId] : [])
+    if (elsewhere) throw new CellMemberConflictError(elsewhere.cellName, elsewhere.cellId)
   }
 
   const ref = await addDoc(cellGroupMembersRef(cellId), {
@@ -2826,7 +2878,25 @@ export async function updateCellGroupMember(cellId, memberId, data) {
     attendanceCountAtExit: data.attendanceCountAtExit  !== undefined ? Number(data.attendanceCountAtExit) : undefined,
   }
   const clean = Object.fromEntries(Object.entries(payload).filter(([, v]) => v !== undefined))
-  if (Object.keys(clean).length) await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId), clean)
+  if (!Object.keys(clean).length) return
+
+  // One-cell rule: reactivating a former member, or renaming/relinking an active one,
+  // must not turn them into someone already on another roster. Plain edits to a row
+  // that's already active with the same identity aren't re-checked, nor is first-time
+  // linking of a visitor record to an unlinked row (that's the same row, not a new entry).
+  const memberRef = doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId)
+  const current = (await getDoc(memberRef)).data() || {}
+  const willBeActive = (clean.status ?? current.status) !== 'inactive'
+  const identityChanged =
+    (clean.name !== undefined && normalizeMemberName(clean.name) !== normalizeMemberName(current.name)) ||
+    (!!clean.visitorId && !!current.visitorId && clean.visitorId !== current.visitorId)
+  if (willBeActive && (current.status === 'inactive' || identityChanged)) {
+    const elsewhere = await findMemberInOtherCell(cellId, {
+      name: clean.name ?? current.name, visitorId: clean.visitorId ?? current.visitorId,
+    })
+    if (elsewhere) throw new CellMemberConflictError(elsewhere.cellName, elsewhere.cellId)
+  }
+  await updateDoc(memberRef, clean)
 }
 
 export async function deleteCellGroupMember(cellId, memberId) {
@@ -5218,6 +5288,10 @@ export async function transferCellMember(fromCellId, memberId, toCellId) {
   const snap = await getDoc(fromRef)
   if (!snap.exists()) throw new Error('Member not found')
   const memberData = snap.data()
+  if (memberData.status !== 'inactive') {
+    const elsewhere = await findMemberInOtherCell(toCellId, memberData, [fromCellId])
+    if (elsewhere) throw new CellMemberConflictError(elsewhere.cellName, elsewhere.cellId)
+  }
 
   const toRef = doc(db, CELL_GROUPS_COLLECTION, toCellId, 'members', memberId)
   const batch = writeBatch(db)
@@ -9707,6 +9781,98 @@ export async function mergeDirectoryProfiles({ master, duplicates, cellGroups = 
       for (const d of snap?.docs || []) {
         await updateDoc(d.ref, withVid({ name, ...(MP ? { personId: MP } : {}) }))
         result.sundayRecords++
+      }
+    }
+  }
+  return result
+}
+
+/** PCS entries archived by a merge (mergedInto set) — the Former panel's "Merged" list. */
+export async function getMergedPCSEntries() {
+  if (!db) return []
+  const snap = await getDocs(query(collection(db, CARING_PCS_COLLECTION), where('status', '==', 'inactive')))
+  return snap.docs.map(mapPCSDoc).filter(e => e.mergedInto)
+}
+
+/**
+ * Undo a mistaken merge of two different people: bring the archived PCS entry `dupId`
+ * back as its own profile. Reverses what mergePCSEntries / mergeDirectoryProfiles
+ * stamped on that person's own records (PCS, People, D-Light visitor, an archived
+ * cell row) and takes their visitor link back off the kept profile when it only had
+ * it through the merge. Names rewritten in Sunday reports and rows renamed to the kept
+ * person can't be told apart automatically; they're returned for a manual check.
+ */
+export async function unmergePCSEntry(dupId, by = '') {
+  if (!db || !dupId) throw new Error('Nothing to undo')
+  const dupSnap = await getDoc(doc(db, CARING_PCS_COLLECTION, dupId))
+  if (!dupSnap.exists()) throw new Error('Profile not found')
+  const dup = { id: dupSnap.id, ...dupSnap.data() }
+  const masterId = dup.mergedInto
+  if (!masterId) throw new Error('This profile was not merged')
+  const masterSnap = await getDoc(doc(db, CARING_PCS_COLLECTION, masterId))
+  const master = masterSnap.exists() ? { id: masterSnap.id, ...masterSnap.data() } : null
+  const vid = dup.visitorId || ''
+  const dupName = nameNorm(dup.name)
+  const unstamp = { mergedInto: deleteField(), mergedAt: deleteField(), mergedBy: deleteField() }
+  const result = { pcs: 0, people: 0, visitors: 0, cellRows: 0, unlinked: 0, toCheck: [] }
+
+  // 1. The PCS entry itself
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, dupId), {
+    status: 'active', mergedInto: deleteField(), removedAt: deleteField(), removedBy: deleteField(),
+    unmergedAt: Timestamp.now(), unmergedBy: by || 'unknown',
+  })
+  await setDoc(doc(db, PCS_LOOKUP_COLLECTION, dupId), { visitorId: vid, name: dup.name || '', phone: dup.phone || '' }, { merge: true }).catch(() => {})
+  if (master?.mergedVisitorIds?.includes(vid)) {
+    await updateDoc(masterSnap.ref, { mergedVisitorIds: master.mergedVisitorIds.filter((v) => v !== vid) })
+  }
+  result.pcs++
+
+  // 2. D-Light visitor record
+  if (vid) {
+    const vSnap = await getDoc(doc(db, DELIGHT_VISITORS_COLLECTION, vid))
+    if (vSnap.exists() && vSnap.data().mergedInto) {
+      await updateDoc(vSnap.ref, { ...unstamp, isArchived: false })
+      result.visitors++
+    }
+  }
+
+  // 3. People records: theirs (stamped mergedInto) back on, their name off the kept one's aliases
+  const peopleSnap = await getDocs(collection(db, PEOPLE_COLLECTION))
+  const people = peopleSnap.docs.map((d) => ({ id: d.id, ref: d.ref, ...d.data() }))
+  const masterPerson = people.find((p) => !p.mergedInto && ((master?.personId && p.id === master.personId) || (master?.visitorId && p.visitorId === master.visitorId)))
+  let dupPersonId = dup.personId && dup.personId !== master?.personId ? dup.personId : ''
+  for (const p of people) {
+    if (!p.mergedInto && !p.mergedIntoVisitorId) continue
+    const mine = (dupPersonId && p.id === dupPersonId) || (vid && p.visitorId === vid) || nameNorm(p.name) === dupName
+    const intoMaster = !masterPerson || p.mergedInto === masterPerson.id
+    if (!mine || !intoMaster) continue
+    await updateDoc(p.ref, { ...unstamp, mergedIntoVisitorId: deleteField(), ...(vid ? { visitorId: vid } : {}) })
+    dupPersonId = dupPersonId || p.id
+    result.people++
+  }
+  if (dupPersonId && dup.personId !== dupPersonId) await updateDoc(dupSnap.ref, { personId: dupPersonId })
+  if (masterPerson) {
+    const patch = {}
+    const aliases = (masterPerson.aliases || []).filter((a) => nameNorm(a) !== dupName)
+    if (aliases.length !== (masterPerson.aliases || []).length) patch.aliases = aliases
+    // The kept profile only carries this visitorId because the merge gave it theirs.
+    if (vid && masterPerson.visitorId === vid) { patch.visitorId = ''; result.unlinked++ }
+    if (Object.keys(patch).length) await updateDoc(masterPerson.ref, patch)
+  }
+  if (vid && master?.visitorId === vid) { await updateDoc(masterSnap.ref, { visitorId: '' }); result.unlinked++ }
+
+  // 4. Cell roster rows: an archived row of theirs comes back; rows now carrying the
+  //    kept person's name but this visitorId were theirs before the merge renamed them.
+  const groups = await getDocs(collection(db, CELL_GROUPS_COLLECTION))
+  for (const g of groups.docs) {
+    const rows = await getDocs(collection(db, CELL_GROUPS_COLLECTION, g.id, 'members'))
+    for (const r of rows.docs) {
+      const m = r.data()
+      if (m.mergedInto && m.mergedAt && (nameNorm(m.name) === dupName || (vid && m.visitorId === vid))) {
+        await updateDoc(r.ref, { ...unstamp, status: 'active' })
+        result.cellRows++
+      } else if (vid && m.visitorId === vid && master && nameNorm(m.name) === nameNorm(master.name)) {
+        result.toCheck.push(`Cell "${g.data().cellName || g.id}" roster row named ${m.name}`)
       }
     }
   }

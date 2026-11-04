@@ -12,7 +12,7 @@ const TAB_META = {
  * on the page — the dock's Finance drill-down still works as an outside entry point. */
 export default function FinanceTabBar({ tabs, active, onChange }) {
   return (
-    <div className="flex gap-1 border-b border-slate-200 overflow-x-auto scrollbar-hide">
+    <div className="flex flex-wrap gap-1 border-b border-slate-200">
       {tabs.map((key) => {
         const meta = TAB_META[key]
         if (!meta) return null

@@ -1794,7 +1794,7 @@ export function SundayLeaderTab({ canEdit, userProfile }) {
 
       {/* Month navigation + Save Month Schedule */}
       <div className="flex items-center justify-between gap-3 bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex-wrap">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={prevMonth} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">‹ Prev Month</button>
           <span className="font-semibold text-slate-800 text-sm">{format(monthCursor, 'MMMM yyyy')}</span>
           <button type="button" onClick={nextMonth} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm hover:bg-slate-50">Next Month ›</button>
@@ -2224,7 +2224,7 @@ export function BoardAgendaTab({ canEdit, userProfile, initialDate = null, onSch
 
       {/* ── Sunday date chips — hidden by default, expand to change date ── */}
       {dateChipsOpen && (
-      <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+      <div className="flex flex-wrap gap-2 pb-1">
         {allDates.map(date => {
           const pts      = allPoints.filter(p => p.meetingDate === date)
           const fixed    = pts.filter(p => p.slNo && p.allottedTime).length

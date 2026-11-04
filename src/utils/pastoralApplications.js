@@ -95,3 +95,10 @@ export function applicationStatus(app, events) {
     default: return { label: 'Pending Review', cls: 'bg-amber-100 text-amber-800 border-amber-200' }
   }
 }
+
+/** SP Office (Applications Desk) has marked this application "Ready for approval". */
+export const isOfficeReady = (app) => app?.officeReview?.status === 'ready'
+
+/** A submitted application the SP Office hasn't prepared yet — the desk's "To prepare"
+ *  list, its Summary count and the office secretary's bell notification. */
+export const needsOfficePrep = (app) => app?.status === 'submitted' && !isOfficeReady(app) && !app?.linkedEventId

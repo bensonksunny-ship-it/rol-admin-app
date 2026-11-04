@@ -134,3 +134,15 @@ export function hasAccess(user, departmentName, requiredRole) {
   return deptRole === requiredRole
 }
 
+
+// The office secretary's account: every position it holds is in SP Office (and it
+// isn't the Founder / Senior Pastor). Such an account opens on the SP Office Control
+// Center at sign-in instead of My Workspace (see MyWorkspace.jsx).
+export function isSpOfficeOnly(user) {
+  if (!user || isFounder(user) || user.role === 'Senior Pastor') return false
+  const positions = Array.isArray(user.positions) ? user.positions : []
+  const depts = positions.length
+    ? positions.map((p) => String(p?.department || '').trim())
+    : (Array.isArray(user.departments) ? user.departments : []).map((d) => String(d || '').trim())
+  return depts.length > 0 && depts.every((d) => d === 'SP Office')
+}

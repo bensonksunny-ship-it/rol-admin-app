@@ -332,7 +332,7 @@ export default function DLightMembers() {
         </div>
 
         {/* Year tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide mb-5 pb-1">
+        <div className="flex flex-wrap items-center gap-1.5 mb-5 pb-1">
           {YEARS.map((y) => (
             <button
               key={y}

@@ -189,17 +189,17 @@ export default function RFFHub() {
 
       {/* Summary strip — combined across every program */}
       <div className="grid grid-cols-3 gap-3">
-        <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-2xl border border-indigo-200 shadow-sm px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-500 mb-1">Students</p>
-          <p className="text-xl font-black text-indigo-700">{dash ?? totals.count}</p>
+        <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-2xl border border-indigo-200 shadow-sm px-3 sm:px-4 py-3 min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-wider leading-tight text-indigo-500 mb-1">Students</p>
+          <p className="text-sm sm:text-xl font-black tabular-nums break-words text-indigo-700">{dash ?? totals.count}</p>
         </div>
-        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl border border-emerald-200 shadow-sm px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-500 mb-1">Fees Collected</p>
-          <p className="text-xl font-black text-emerald-700">{dash ?? formatINR(totals.collected)}</p>
+        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-2xl border border-emerald-200 shadow-sm px-3 sm:px-4 py-3 min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-wider leading-tight text-emerald-500 mb-1">Fees Collected</p>
+          <p className="text-sm sm:text-xl font-black tabular-nums break-words text-emerald-700">{dash ?? formatINR(totals.collected)}</p>
         </div>
-        <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-2xl border border-amber-200 shadow-sm px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-500 mb-1">Fees Pending</p>
-          <p className="text-xl font-black text-amber-700">{dash ?? formatINR(totals.pending)}</p>
+        <div className="bg-gradient-to-br from-amber-50 to-amber-100 rounded-2xl border border-amber-200 shadow-sm px-3 sm:px-4 py-3 min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-wider leading-tight text-amber-500 mb-1">Fees Pending</p>
+          <p className="text-sm sm:text-xl font-black tabular-nums break-words text-amber-700">{dash ?? formatINR(totals.pending)}</p>
         </div>
       </div>
 

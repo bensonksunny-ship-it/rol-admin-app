@@ -262,9 +262,10 @@ export function getDepartmentSubpages(slug, userProfile) {
       // each other). This tile routes to the shared setlist/assigned-songs planning
       // view for the coming Sunday, same page every department's Upcoming Sunday tile
       // opens, just scoped to Worship's own tab set.
-      label: getTabLabel(tab),
+      // SP Office's home tab is the office secretary's Control Center (spoffice/ControlCenter.jsx).
+      label: slug === 'sp-office' && tab === 'summary' ? 'Control Center' : getTabLabel(tab),
       to: getTabPath(slug, tab),
-      Icon: getTabIcon(tab),
+      Icon: slug === 'sp-office' && tab === 'summary' ? getTabIcon('controlCenter') : getTabIcon(tab),
     }
     if (tab === 'operations') {
       return {

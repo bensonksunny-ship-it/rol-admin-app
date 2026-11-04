@@ -1,0 +1,1 @@
+export const VISITOR_START_YEAR = 2014

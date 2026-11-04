@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useOutletContext } from 'react-router-dom'
+import { useOutletContext, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import WorkspaceHeader from '../components/workspace/WorkspaceHeader'
 import EdenGardenGrid from '../components/workspace/EdenGardenGrid'
@@ -9,7 +9,7 @@ import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWor
 import ApprovalsCard from '../components/workspace/ApprovalsCard'
 import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
 import ApplicationsProgressWidget from '../components/workspace/ApplicationsProgressWidget'
-import { isDepartmentDirectorInPositions } from '../utils/access'
+import { isDepartmentDirectorInPositions, isSpOfficeOnly } from '../utils/access'
 import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
 import DeclarationRequestRibbon from '../components/workspace/DeclarationRequestRibbon'
 import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
@@ -66,8 +66,26 @@ function firstNameOf(userProfile, user) {
 // bordered wrapper, which nested a card inside a card; both were flattened to a
 // single unified surface (ToDoListCard's own soft glass panel) with no outer box,
 // so content rests directly on the page background instead.
+// Once per browser session (and per page load, if sessionStorage is unavailable) —
+// after that the office secretary can still open My Workspace normally.
+const SP_OFFICE_LANDED_KEY = 'spOfficeLanded'
+let spOfficeLandedThisLoad = false
+
 export default function MyWorkspace() {
   const { user, userProfile, isFounder, isSeniorPastor, isCellDirector, canManageDepartment } = useAuth()
+  // The office secretary (SP Office is his only position) opens on the SP Office
+  // Control Center at sign-in instead of here.
+  const navigate = useNavigate()
+  const spOfficeOnly = isSpOfficeOnly(userProfile)
+  useEffect(() => {
+    if (!spOfficeOnly || spOfficeLandedThisLoad) return
+    spOfficeLandedThisLoad = true
+    try {
+      if (sessionStorage.getItem(SP_OFFICE_LANDED_KEY)) return
+      sessionStorage.setItem(SP_OFFICE_LANDED_KEY, '1')
+    } catch { /* storage unavailable — the per-load flag above still applies */ }
+    navigate('/department/sp-office', { replace: true })
+  }, [spOfficeOnly, navigate])
   // Membership Onboarding Pipeline: Caring staff + Founder / Senior Pastor manage it;
   // the First Lady (anyone holding a First Lady department position) signs off the
   // pastoral-oversight stages — Membership Interview + Pastoral Approval; Cell

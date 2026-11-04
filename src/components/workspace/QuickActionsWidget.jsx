@@ -155,11 +155,11 @@ export default function QuickActionsWidget() {
             const tint = TILE_TINTS[i % TILE_TINTS.length]
             return (
               <Link key={id} to={to}
-                className={`group flex items-center gap-2.5 px-3 py-2 rounded-xl border transition-all duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${tint.tile}`}>
+                className={`group flex items-center gap-2.5 max-w-full min-w-0 px-3 py-2 rounded-xl border transition-all duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.98] outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${tint.tile}`}>
                 <span className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 shadow-sm ${tint.tileIcon}`}>
                   {Icon ? <Icon size={15} strokeWidth={2} /> : null}
                 </span>
-                <span className="text-sm font-semibold whitespace-nowrap">{label}</span>
+                <span className="min-w-0 truncate text-sm font-semibold">{label}</span>
                 <ArrowRight size={15} aria-hidden="true"
                   className="shrink-0 opacity-40 -translate-x-1 transition-all duration-200 group-hover:opacity-100 group-hover:translate-x-0" />
               </Link>

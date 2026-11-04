@@ -9,7 +9,7 @@
  * place for that override to drift out of sync. */
 export default function OperationsTabBar({ tabs, active, onChange }) {
   return (
-    <div className="flex gap-1 border-b border-slate-200 overflow-x-auto scrollbar-hide">
+    <div className="flex flex-wrap gap-1 border-b border-slate-200">
       {tabs.map((tab) => {
         const { key, label, Icon } = tab
         const isActive = active === key

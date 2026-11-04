@@ -73,7 +73,7 @@ const ELEMENT_CATEGORIES = [
     dotColor: '#047857', activeBg: '#d1fae5', activeColor: '#065f46', activeBorder: '#6ee7b7',
     elements: [
       'Mute Microphone', 'Unmute Microphone', 'Speaker Mic Ready', 'Worship Mic Ready',
-      'Instrument Check', 'Audio Cue', 'Sound Check', 'Audio Backup',
+      'Instrument Check', 'Audio Cue', 'Sound Check', 'Audio Check', 'Pre-Service Music / BGM', 'Audio Backup',
     ],
   },
   {
@@ -85,6 +85,109 @@ const ELEMENT_CATEGORIES = [
     ],
   },
 ]
+
+// Which cues suit which kind of programme item, matched on the item's name (the
+// central template is free text). An item can match several profiles ("Prayer &
+// Benediction" → prayer + closing); an `exclusive` match wins outright so "Pre
+// Worship Talk" isn't also treated as Worship. No match → every element is shown.
+const COMMON_ELEMENTS = ['Clear Screen', 'Camera Switch', 'Audio Cue']
+const PROGRAM_ELEMENT_PROFILES = [
+  {
+    id: 'pre-service', label: 'Pre-Service', exclusive: true,
+    match: /pre[\s-]?(service|worship)|countdown|welcome/i,
+    elements: [
+      'Display Countdown', 'Display Welcome Slide', 'Display Announcement', 'Play Promotion Video',
+      'Pre-Service Music / BGM', 'Audio Check', 'Sound Check', 'Instrument Check',
+      'Wide Shot', 'Congregation Shot', 'Camera Ready',
+      'Stream Check', 'Start Livestream', 'Livestream Alert', 'House Lights On',
+    ],
+  },
+  {
+    id: 'worship', label: 'Worship',
+    match: /worship|praise|song/i,
+    elements: [
+      'Display Lyrics', 'Worship Focus', 'Wide Shot', 'Close-Up Shot', 'Congregation Shot',
+      'Worship Mic Ready', 'Instrument Check', 'Mute Microphone', 'Unmute Microphone',
+      'Worship Lighting', 'Stage Lights On', 'House Lights Off', 'Go Live',
+    ],
+  },
+  {
+    id: 'sermon', label: 'Sermon',
+    match: /sermon|message|preach|the word/i,
+    elements: [
+      'Display Scripture', 'Display Speaker Name', 'Display Lower Third', 'Play Video', 'Video Ready',
+      'Speaker Focus', 'Close-Up Shot', 'Wide Shot',
+      'Speaker Mic Ready', 'Unmute Microphone', 'Mute Microphone',
+      'Sermon Lighting', 'Spotlight Speaker',
+    ],
+  },
+  {
+    id: 'scripture', label: 'Scripture Reading',
+    match: /scripture|bible|reading/i,
+    elements: ['Display Scripture', 'Display Lower Third', 'Speaker Focus', 'Speaker Mic Ready', 'Spotlight Speaker'],
+  },
+  {
+    id: 'announcements', label: 'Announcements',
+    match: /announce|notice|promo/i,
+    elements: [
+      'Display Announcement', 'Display Speaker Name', 'Display Lower Third', 'Display QR Code',
+      'Play Announcement Video', 'Play Promotion Video', 'Play Video', 'Pause Video', 'Stop Video', 'Video Ready',
+      'Speaker Focus', 'Speaker Mic Ready', 'Stage Lights On',
+    ],
+  },
+  {
+    id: 'offering', label: 'Offering',
+    match: /offering|tithe|giving/i,
+    elements: [
+      'Display Offering Details', 'Display QR Code', 'Pre-Service Music / BGM',
+      'Congregation Shot', 'Wide Shot', 'Speaker Mic Ready', 'House Lights On',
+    ],
+  },
+  {
+    id: 'prayer', label: 'Prayer',
+    match: /pray|benediction|altar|intercess|blessing/i,
+    elements: [
+      'Display Speaker Name', 'Speaker Focus', 'Close-Up Shot', 'Congregation Shot',
+      'Speaker Mic Ready', 'Worship Mic Ready', 'Prayer Lighting', 'House Lights Off',
+    ],
+  },
+  {
+    id: 'testimony', label: 'Testimony',
+    match: /testimon|sharing/i,
+    elements: [
+      'Play Testimony Video', 'Video Ready', 'Play Video', 'Pause Video', 'Stop Video',
+      'Display Speaker Name', 'Display Lower Third', 'Speaker Focus', 'Speaker Mic Ready', 'Spotlight Speaker',
+    ],
+  },
+  {
+    id: 'communion', label: 'Communion',
+    match: /communion|lord'?s supper|breaking of bread/i,
+    elements: [
+      'Display Scripture', 'Pre-Service Music / BGM', 'Congregation Shot', 'Wide Shot',
+      'Speaker Mic Ready', 'Prayer Lighting', 'House Lights Off',
+    ],
+  },
+  {
+    id: 'closing', label: 'Closing',
+    match: /closing|benediction|dismiss|farewell|end of service/i,
+    elements: [
+      'Display Closing Slide', 'Display Announcement', 'Pre-Service Music / BGM',
+      'Wide Shot', 'Camera Reset', 'House Lights On', 'Lighting Reset',
+      'End Broadcast', 'Stop Livestream',
+    ],
+  },
+]
+
+/** The elements relevant to a programme item, or null when its name matches no known type. */
+function getProgramElementProfile(name) {
+  const hits = PROGRAM_ELEMENT_PROFILES.filter((p) => p.match.test(String(name || '')))
+  if (!hits.length) return null
+  const picked = hits.find((p) => p.exclusive) ? [hits.find((p) => p.exclusive)] : hits
+  return {
+    label: picked.map((p) => p.label).join(' + '),
+    elements: new Set([...COMMON_ELEMENTS, ...picked.flatMap((p) => p.elements)]),
+  }
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -152,6 +255,8 @@ export default function UpcomingSunday({ slug }) {
   const [showCustomElMgmt, setShowCustomElMgmt] = useState(false)
   const [newCustomEl, setNewCustomEl] = useState('')
   const [editingEl, setEditingEl] = useState(null)
+  // Programme whose popup is showing every element instead of just its relevant ones.
+  const [showAllElsFor, setShowAllElsFor] = useState(null)
 
   // ── Load ─────────────────────────────────────────────────────────────────────
 
@@ -422,6 +527,19 @@ export default function UpcomingSunday({ slug }) {
   const selectedColor = allPrograms.find((p) => p.name === expandedProgram)?.color || CARD_COLORS[0]
   const selectedElements = expandedProgram ? getDesignedElements(expandedProgram) : []
   const selectedDuration = expandedProgram ? getDuration(expandedProgram) : 0
+  const selectedProfile = expandedProgram ? getProgramElementProfile(expandedProgram) : null
+  const showAllEls = !selectedProfile || showAllElsFor === expandedProgram
+  // Already-picked elements stay visible even when outside the profile, so nothing chosen is hidden.
+  const visibleCategories = ELEMENT_CATEGORIES
+    .map((cat) => ({
+      ...cat,
+      elements: showAllEls
+        ? cat.elements
+        : cat.elements.filter((el) => selectedProfile.elements.has(el) || selectedElements.includes(el)),
+    }))
+    .filter((cat) => cat.elements.length > 0)
+  const hiddenElCount = ELEMENT_CATEGORIES.reduce((n, c) => n + c.elements.length, 0)
+    - visibleCategories.reduce((n, c) => n + c.elements.length, 0)
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -769,8 +887,27 @@ export default function UpcomingSunday({ slug }) {
                   />
                 )}
 
+                {/* Relevance filter — only cues that suit this kind of programme item */}
+                {selectedProfile && (
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100">
+                    <span className="text-xs text-slate-500">
+                      {showAllEls
+                        ? 'Showing all elements'
+                        : <>Showing elements for <span className="font-semibold text-slate-700">{selectedProfile.label}</span></>}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowAllElsFor(showAllEls ? null : expandedProgram)}
+                      className="text-xs font-semibold whitespace-nowrap hover:underline"
+                      style={{ color: selectedColor.accent }}
+                    >
+                      {showAllEls ? 'Show relevant only' : `Show all (+${hiddenElCount})`}
+                    </button>
+                  </div>
+                )}
+
                 {/* Predefined categories */}
-                {ELEMENT_CATEGORIES.map((cat) => (
+                {visibleCategories.map((cat) => (
                   <div key={cat.id}>
                     <p className="text-[10px] font-bold uppercase tracking-widest mb-2" style={{ color: cat.dotColor }}>
                       {cat.label}

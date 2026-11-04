@@ -7,9 +7,11 @@ import {
   subscribeSundayLeaderAssignmentNotifications, subscribePCSRemovalNoticesByCellId,
   subscribePendingApprovals, getUserDirectoryNamesByEmail, subscribePendingDeptExpenseConfirmations,
   subscribeMyFinanceExpenseReminders, subscribeMyFinanceEntryUnlocks, subscribeExpenseFollowUps,
+  subscribeApplicationsByStatus,
 } from '../services/firestore'
 import { formatDisplayDate } from '../utils/date'
-import { isDepartmentDirectorInPositions, isDeptExpenseConfirmer } from '../utils/access'
+import { isDepartmentDirectorInPositions, isDeptExpenseConfirmer, getDepartmentRole } from '../utils/access'
+import { APPLICATION_TYPES, APPLICATION_TYPE_KEYS, needsOfficePrep } from '../utils/pastoralApplications'
 import { DEPARTMENT_LIST } from '../constants/departments'
 import { normalizeDepartmentName, FINANCE_ASSISTANT_LABEL } from '../constants/roles'
 import { isCellDirectorInPositions } from '../utils/cellReportPermissions'
@@ -55,6 +57,10 @@ function buildNotificationDeepLink(n) {
   if (n.type === 'sunday_leader_assignment') {
     return '/department/sec-core?tab=sundayLeader'
   }
+  if (n.type === 'application_review') {
+    // SP Office → Applications Desk opens this application (ApplicationsDesk reads ?openApp=).
+    return `/department/sp-office?tab=applications&openApp=${encodeURIComponent(n.appType + ':' + n.appId)}`
+  }
   if (n.type === 'pcs_discard_approval') {
     // My Workspace's Approvals card reads ?approval= and scrolls to that request.
     return `/?approval=${encodeURIComponent(n.id || '')}`
@@ -82,6 +88,7 @@ function notificationTaskType(n) {
     dlight_consult: 'cellAssignConsult',
     consult_response: 'cellAssignRecommendation',
     pcs_discard_approval: 'reviewPcsDiscard',
+    application_review: 'prepareApplication',
     expense_confirmation: 'confirmDeptExpense',
     expense_reminder: 'fileDeptExpenses',
     expense_unlock: 'fileDeptExpenses',
@@ -108,6 +115,7 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   const [expenseReminderNotifications, setExpenseReminderNotifications] = useState([])
   const [expenseUnlockNotifications, setExpenseUnlockNotifications] = useState([])
   const [expenseFollowUpNotifications, setExpenseFollowUpNotifications] = useState([])
+  const [applicationReviewNotifications, setApplicationReviewNotifications] = useState([])
   const [dismissedIds, setDismissedIds] = useState(new Set())
   const [addedToTodoIds, setAddedToTodoIds] = useState(new Set())
   // Optimistic hide — set synchronously the instant Ignore/Add-to-Todo is clicked, so
@@ -398,6 +406,35 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
     })
   }, [uid])
 
+  // SP Office (the office secretary): every submitted Baptism / Membership / Marriage /
+  // Dedication application not yet marked "Ready for approval" on the Applications
+  // Desk. Drops out on its own once marked ready, sent back for info, or decided.
+  // Gated on an actual SP Office position (not Founder's blanket access), so the
+  // Founder's bell isn't filled with every application.
+  const isSpOffice = !!getDepartmentRole(userProfile, 'SP Office')
+  useEffect(() => {
+    if (!isSpOffice) { setApplicationReviewNotifications([]); return }
+    const byType = {}
+    const publish = () => setApplicationReviewNotifications(APPLICATION_TYPE_KEYS.flatMap((type) => (byType[type] || []).filter(needsOfficePrep).map((app) => ({
+      id: `application_review:${type}:${app.id}`,
+      type: 'application_review',
+      appType: type,
+      appId: app.id,
+      department: 'SP Office',
+      title: `New ${APPLICATION_TYPES[type].label}`,
+      body: `${APPLICATION_TYPES[type].title(app) || 'An applicant'} — prepare for approval`,
+      cellName: '',
+      from: APPLICATION_TYPES[type].title(app) || 'Applicant',
+      to: 'SP Office',
+      sentAt: app.submittedAt,
+      personId: app.pcsEntryId || '',
+    }))))
+    const unsubs = APPLICATION_TYPE_KEYS.map((type) => subscribeApplicationsByStatus(type, ['submitted'],
+      (list) => { byType[type] = list; publish() },
+      () => { byType[type] = []; publish() }))
+    return () => unsubs.forEach((u) => u())
+  }, [isSpOffice])
+
   // Per-user "Ignore" state — hides an item from this feed everywhere it's rendered
   // without touching the underlying business record it was synthesized from.
   useEffect(() => {
@@ -438,6 +475,8 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
         return !!uid && n.personId === uid
       case 'pcs_discard_approval':
         return false // Founder-only (handled above)
+      case 'application_review':
+        return isSpOffice
       case 'expense_reminder':
       case 'expense_unlock':
         return !!uid && n.personId === uid
@@ -460,7 +499,7 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   // "From: … → For: …" — many senders are stored as emails; look their names up
   // once in user_directory (falls back to the part before the @).
   const [namesByEmail, setNamesByEmail] = useState({})
-  const allRaw = [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications, ...expenseConfirmNotifications, ...expenseReminderNotifications, ...expenseUnlockNotifications, ...expenseFollowUpNotifications]
+  const allRaw = [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications, ...expenseConfirmNotifications, ...expenseReminderNotifications, ...expenseUnlockNotifications, ...expenseFollowUpNotifications, ...applicationReviewNotifications]
   const emailKey = Array.from(new Set(allRaw.flatMap((n) => [n.from, n.to]).filter((v) => String(v || '').includes('@')).map((v) => v.toLowerCase()))).sort().join(',')
   useEffect(() => {
     const missing = emailKey ? emailKey.split(',').filter((e) => !(e in namesByEmail)) : []
@@ -478,12 +517,12 @@ export default function useActionNotifications(userProfile, isFounder, uid) {
   }
 
   const notifications = useMemo(
-    () => [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications, ...expenseConfirmNotifications, ...expenseReminderNotifications, ...expenseUnlockNotifications, ...expenseFollowUpNotifications]
+    () => [...fillNotifications, ...pcsRemovalNotifications, ...approvalNotifications, ...visitorProposalNotifications, ...dlightConsultNotifications, ...consultResponseNotifications, ...sundayLeaderNotifications, ...expenseConfirmNotifications, ...expenseReminderNotifications, ...expenseUnlockNotifications, ...expenseFollowUpNotifications, ...applicationReviewNotifications]
       .filter((n) => !isHidden(n))
       .filter(canSeeNotification)
       .map((n) => ({ ...n, from: personLabel(n.from), to: personLabel(n.to), addedToTodo: addedToTodoIds.has(n.id) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fillNotifications, pcsRemovalNotifications, approvalNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, expenseConfirmNotifications, expenseReminderNotifications, expenseUnlockNotifications, expenseFollowUpNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds, userProfile, isFounder, uid, namesByEmail]
+    [fillNotifications, pcsRemovalNotifications, approvalNotifications, visitorProposalNotifications, dlightConsultNotifications, consultResponseNotifications, sundayLeaderNotifications, expenseConfirmNotifications, expenseReminderNotifications, expenseUnlockNotifications, expenseFollowUpNotifications, applicationReviewNotifications, dismissedIds, addedToTodoIds, optimisticHiddenIds, userProfile, isFounder, uid, namesByEmail]
   )
 
   const handleNotifAction = (n) => {
