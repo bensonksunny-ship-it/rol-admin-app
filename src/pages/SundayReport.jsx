@@ -41,8 +41,6 @@ import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import BackButton from '../components/BackButton'
 import DateInput from '../components/DateInput'
-import useProgramPeople from '../hooks/useProgramPeople'
-import { resolveProgramPeople } from '../utils/programPeople'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'nonCell', title: 'Non Cell' },
@@ -443,8 +441,8 @@ function PastoralRosterModal({ roster, directory, saving, onAdd, onRemove, onClo
 
 const normName = (s) => String(s || '').replace(/\s+/g, ' ').trim().toLowerCase()
 
-/** A cell's leader lives on the cell itself (cell_groups.leader), and appointing one
- *  doesn't add a roster row — so check whether `members` already holds them. */
+/** A cell's leader is named on the cell (cell_groups.leader) and should also have a
+ *  roster row, but a row can go missing — so check whether `members` holds them. */
 function leaderOnRoster(group, members, peopleDirectory) {
   const key = normName(group.leader)
   const visitorId = group.leaderPersonId && peopleDirectory.find((p) => p.id === group.leaderPersonId)?.visitorId
@@ -1608,7 +1606,7 @@ export default function SundayReport({ embedded = false }) {
       const joinDate = linked?.firstVisitDate || linked?.attendedDate || ''
       return { ...m, name: canonical, originalName: m.name, joinDate }
     })
-    // The leader attends their own cell even with no roster row of their own.
+    // Until a missing leader is restored to the roster (Cell Groups tab), they can still be marked present.
     if (leaderName && !leaderOnRoster(group, enriched, peopleDirectory)) {
       const name = group.leader.trim()
       enriched.push({ id: `leader_${group.id}`, name, originalName: name, displayName: '', phone: '', visitorId: '', joinDate: '' })
@@ -2355,9 +2353,6 @@ export default function SundayReport({ embedded = false }) {
     })
   }, [report?.programList, logByName])
 
-  // Person in charge per item (Program Design → People in charge, else the rosters).
-  const programPeopleSrc = useProgramPeople(selectedDate)
-  const programPeople = resolveProgramPeople(sortedProgram.map((i) => i.programName), programPeopleSrc.manual, programPeopleSrc.rosters)
 
   const currentProgramItem = sortedProgram.find((item) => !logForItem(item)) || null
   const allProgramsTimed = sortedProgram.length > 0 && !currentProgramItem
@@ -2987,12 +2982,6 @@ export default function SundayReport({ embedded = false }) {
                             ) : (
                               <span className="flex items-center gap-1 min-w-0 flex-1">
                                 <span className="font-medium text-slate-800 truncate text-sm">{item.programName}</span>
-                                {programPeople[item.programName] && (
-                                  <span className={`shrink-0 rounded-full bg-indigo-50 text-indigo-700 px-2 py-0.5 text-[11px] font-medium ${programPeople[item.programName].names?.length > 1 ? 'max-w-[60%] leading-snug' : 'max-w-[45%] truncate'}`}
-                                    title={[programPeople[item.programName].role, programPeople[item.programName].source === 'manual' ? 'set in Program Design' : `from ${programPeople[item.programName].source}`].filter(Boolean).join(' · ')}>
-                                    {programPeople[item.programName].name}
-                                  </span>
-                                )}
                                 {canEditName && (
                                   <button
                                     type="button"

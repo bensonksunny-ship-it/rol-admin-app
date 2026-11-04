@@ -856,7 +856,7 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
       }
       setInactiveTarget(null)
       setDetailMember(null)
-    } catch { showToast('Failed to submit request.', 'error') }
+    } catch (err) { showToast(isCellMemberConflict(err) ? err.message : 'Failed to submit request.', 'error') }
     finally { setMarkingInactive(false) }
   }
 
@@ -2257,7 +2257,7 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
         await updateCellGroupMember(selectedCellId, member.id, { status: 'inactive' })
         showToastMsg(`${member.name} moved to Inactive.`)
         await refreshMembers(selectedCellId)
-      } catch { showToastMsg('Failed to deactivate.', 'error') }
+      } catch (err) { showToastMsg(isCellMemberConflict(err) ? err.message : 'Failed to deactivate.', 'error') }
     } else {
       setDeactivateTarget(member)
       setDeactivateReason('')

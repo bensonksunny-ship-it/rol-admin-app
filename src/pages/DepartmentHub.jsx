@@ -37,6 +37,8 @@ import {
   addCellGroupMember,
   updateCellGroupMember,
   isCellMemberConflict,
+  assertNotLastCellLeaderRow,
+  ensureCellLeaderOnRoster,
   deactivateCellGroupMember,
   deleteCellGroupMember,
   subscribeCellMemberPendingChanges,
@@ -1094,6 +1096,26 @@ export default function DepartmentHub() {
     next.delete('openPcsForwardTaskId')
     setSearchParams(next, { replace: true })
   }, [openPcsForwardTaskId, slug, tasks])
+
+  // Group deep-links from My Workspace's yellow To-Do ribbons (TodoAlertRibbons.jsx),
+  // when several tasks are folded into one ribbon ("4 cell assignment inputs
+  // pending"): ?openConsults=1 expands Pending Consultations, ?openPcsForward=1
+  // expands Forwarded from PCS — then scrolls to that list and strips the param.
+  const openConsultsParam = searchParams.get('openConsults') === '1'
+  const openPcsForwardParam = searchParams.get('openPcsForward') === '1'
+  useEffect(() => {
+    if ((!openConsultsParam && !openPcsForwardParam) || slug !== 'd-light' || tasks.length === 0) return
+    if (openConsultsParam) setDlightConsultOpen(true)
+    if (openPcsForwardParam) setPcsForwardOpen(true)
+    const targetId = openConsultsParam ? 'dlight-pending-consults' : 'dlight-pcs-forward'
+    setTimeout(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 150)
+    const next = new URLSearchParams(searchParams)
+    next.delete('openConsults')
+    next.delete('openPcsForward')
+    setSearchParams(next, { replace: true })
+  }, [openConsultsParam, openPcsForwardParam, slug, tasks])
 
   // Deep-link from the notification bell's "Tap to review" on a visitor_proposal
   // (useActionNotifications.js): once the live cellVisitorProposals listener has loaded,
@@ -2502,6 +2524,35 @@ export default function DepartmentHub() {
     [duplicateCellMemberGroups],
   )
 
+  // A cell leader is also a member of their cell. Leaders of active cells with no active
+  // roster row, each with their old row (if any) so the panel can say what happened to it.
+  const leadersOffRoster = useMemo(() => {
+    if (!allCellMembers.length) return []
+    return cellGroups.flatMap((cell) => {
+      const leader = normalizeMemberName(cell.leader)
+      if (!leader || cell.status === 'inactive') return []
+      const rows = allCellMembers.filter((m) => m.cellId === cell.id && (
+        normalizeMemberName(m.name) === leader || normalizeMemberName(m.displayName) === leader ||
+        (cell.leaderPersonId && m.visitorId === cell.leaderPersonId)
+      ))
+      return rows.some((m) => m.status !== 'inactive' && !m.mergedInto) ? [] : [{ cell, oldRow: rows[0] || null }]
+    })
+  }, [cellGroups, allCellMembers])
+
+  const syncCellLeaderToRoster = async (cellId) => {
+    try {
+      const { name } = await ensureCellLeaderOnRoster(cellId)
+      if (!name) return
+      if (expandedCellId === cellId) setCellMembers(await getCellGroupMembers(cellId))
+      refreshAllCellMembers()
+      setCellMemberToast(`${name} is on this cell's roster.`)
+      setTimeout(() => setCellMemberToast(''), 3500)
+    } catch (err) {
+      console.error('Failed to put the leader on the cell roster', err)
+      alert(`The leader couldn't be added to the cell roster. ${err.message}`)
+    }
+  }
+
   const filteredDelightVisitors = delightVisitors
     .filter((v) =>
       visitorSubPage === 'current'
@@ -2787,7 +2838,7 @@ export default function DepartmentHub() {
             const consultTasks = tasks.filter(t => t.cellAssignConsult === true && t.status !== 'Completed' && t.status !== 'Responded')
             if (consultTasks.length === 0) return null
             return (
-              <div className="bg-gradient-to-r from-red-50 to-orange-50 border-2 border-red-300 rounded-2xl shadow-md overflow-hidden">
+              <div id="dlight-pending-consults" className="scroll-mt-20 bg-gradient-to-r from-red-50 to-orange-50 border-2 border-red-300 rounded-2xl shadow-md overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setDlightConsultOpen(o => !o)}
@@ -3691,7 +3742,7 @@ export default function DepartmentHub() {
             const pcsForwardTasks = tasks.filter(t => t.pcsReferral === true && t.status !== 'Completed')
             if (pcsForwardTasks.length === 0) return null
             return (
-              <div className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
+              <div id="dlight-pcs-forward" className="scroll-mt-20 bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setPcsForwardOpen(o => !o)}
@@ -7626,6 +7677,45 @@ export default function DepartmentHub() {
 
           {activeTab === 'cellGroups' && slug === 'cell' && (
             <div className="space-y-6">
+              {/* Cell leaders missing from their own roster */}
+              {canViewAllCells && leadersOffRoster.length > 0 && (
+                <div className="bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-amber-800">Leaders missing from their cell roster</p>
+                      <p className="text-xs text-amber-600">A cell leader is also a member of the cell, and appears in its attendance lists from the roster.</p>
+                    </div>
+                    <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0">
+                      {leadersOffRoster.length}
+                    </span>
+                  </div>
+                  <div className="divide-y divide-slate-50">
+                    {leadersOffRoster.map(({ cell, oldRow }) => (
+                      <div key={cell.id} className="px-4 py-2.5 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-900 truncate">{cell.leader} · {cell.cellName}</p>
+                          <p className="text-xs text-slate-500">
+                            {oldRow?.mergedInto
+                              ? 'Roster entry was merged into another record.'
+                              : oldRow
+                                ? `Roster entry marked inactive${oldRow.leftDate ? ` on ${isoToDMY(oldRow.leftDate)}` : ''}.`
+                                : 'No roster entry found: never added, or removed.'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => syncCellLeaderToRoster(cell.id)}
+                          className="px-3 py-1.5 bg-amber-500 text-white text-xs font-semibold rounded-xl hover:bg-amber-600 transition-colors whitespace-nowrap flex-shrink-0"
+                        >
+                          {oldRow && !oldRow.mergedInto ? 'Restore to roster' : 'Add to roster'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* One-cell rule — people currently listed more than once across the rosters */}
               {duplicateCellMemberGroups.length > 0 && (
                 <div className="bg-white rounded-xl border border-red-200 shadow-sm overflow-hidden">
@@ -7945,7 +8035,7 @@ export default function DepartmentHub() {
                                                         </svg>
                                                         Transfer Cell Group
                                                       </button>
-                                                      <button type="button" onClick={async () => { setActiveMenuMemberId(null); await deactivateCellGroupMember(cell.id, m.id, m.name); const list = await getCellGroupMembers(cell.id); setCellMembers(list); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors">
+                                                      <button type="button" onClick={async () => { setActiveMenuMemberId(null); try { await deactivateCellGroupMember(cell.id, m.id, m.name); const list = await getCellGroupMembers(cell.id); setCellMembers(list); refreshAllCellMembers() } catch (err) { console.error('Failed to mark member inactive', err); alert(isCellMemberConflict(err) ? err.message : 'Failed to mark inactive. Please try again.') } }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-amber-600 hover:bg-amber-50 transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                                                           <circle cx="12" cy="12" r="9"/><path d="M9 12h6"/>
                                                         </svg>
@@ -7960,7 +8050,7 @@ export default function DepartmentHub() {
                                                           refreshAllCellMembers()
                                                         } catch (err) {
                                                           console.error('Failed to mark member as former', err)
-                                                          alert('Failed to mark as former. Please try again.')
+                                                          alert(isCellMemberConflict(err) ? err.message : 'Failed to mark as former. Please try again.')
                                                         }
                                                       }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
@@ -7969,7 +8059,7 @@ export default function DepartmentHub() {
                                                         Mark as Former
                                                       </button>
                                                       <div className="my-1 border-t border-slate-100" />
-                                                      <button type="button" onClick={async () => { setActiveMenuMemberId(null); if (!window.confirm(`Remove ${m.name || 'this member'} from this cell group?`)) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
+                                                      <button type="button" onClick={async () => { setActiveMenuMemberId(null); if (!window.confirm(`Remove ${m.name || 'this member'} from this cell group?`)) return; try { await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() } catch (err) { console.error('Failed to remove member', err); alert(isCellMemberConflict(err) ? err.message : 'Failed to remove member. Please try again.') } }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                                                           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
                                                         </svg>
@@ -8151,7 +8241,7 @@ export default function DepartmentHub() {
                                                             refreshAllCellMembers()
                                                           } catch (err) {
                                                             console.error('Failed to mark member as former', err)
-                                                            alert('Failed to mark as former. Please try again.')
+                                                            alert(isCellMemberConflict(err) ? err.message : 'Failed to mark as former. Please try again.')
                                                           }
                                                         }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
                                                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
@@ -8161,7 +8251,7 @@ export default function DepartmentHub() {
                                                         </button>
                                                       )}
                                                       <div className="my-1 border-t border-slate-100" />
-                                                      <button type="button" onClick={async () => { setActiveMenuMemberId(null); if (!window.confirm(`Remove ${m.name || 'this member'} from this cell group?`)) return; await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
+                                                      <button type="button" onClick={async () => { setActiveMenuMemberId(null); if (!window.confirm(`Remove ${m.name || 'this member'} from this cell group?`)) return; try { await deleteCellGroupMember(cell.id, m.id); const list = await getCellGroupMembers(cell.id); setCellMembers(list); setCellGroups((prev) => prev.map((c) => (c.id === cell.id ? { ...c, memberCount: list.length } : c))); refreshAllCellMembers() } catch (err) { console.error('Failed to remove member', err); alert(isCellMemberConflict(err) ? err.message : 'Failed to remove member. Please try again.') } }} className="w-full flex items-center gap-2 text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50 font-medium transition-colors">
                                                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0">
                                                           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
                                                         </svg>
@@ -8281,6 +8371,7 @@ export default function DepartmentHub() {
                       setCellGroups((prev) => [...prev, { id, cellId: logicalCellId, cellName: newCellGroupForm.cellName, leader: newCellGroupForm.leader, leaderPersonId: newCellGroupForm.leaderPersonId, meetingDay: newCellGroupForm.meetingDay, launchDate: newCellGroupForm.launchDate, status: newCellGroupForm.status || 'active', memberCount: 0, department: department.name }])
                       setCellGroupModalOpen(false)
                       setNewCellGroupForm({ cellId: '', cellName: '', leader: '', leaderPersonId: '', meetingDay: '', launchDate: '', status: 'active' })
+                      syncCellLeaderToRoster(id)
                     } catch (err) {
                       console.error(err)
                       alert('Failed to save')
@@ -8349,6 +8440,7 @@ export default function DepartmentHub() {
                       setCellGroups((prev) => prev.map((c) => (c.id === editingCellGroupId ? { ...c, ...cellGroupEditForm } : c)))
                       setCellGroupEditModalOpen(false)
                       setEditingCellGroupId(null)
+                      syncCellLeaderToRoster(editingCellGroupId)
                     } catch (err) {
                       console.error(err)
                       alert('Failed to save')
@@ -8794,6 +8886,8 @@ export default function DepartmentHub() {
                           onClick={async () => {
                             setTransferringCellMember(true)
                             try {
+                              // Checked first: the row is added to the new cell before it leaves this one.
+                              await assertNotLastCellLeaderRow(fromCellId, member)
                               await addCellGroupMember(c.id, {
                                 name: member.name || '',
                                 phone: member.phone || '',

@@ -82,7 +82,15 @@ export class CellMemberConflictError extends Error {
     this.cellName = cellName
   }
 }
-export const isCellMemberConflict = (err) => err?.name === 'CellMemberConflictError'
+// A cell leader is also a member of their own cell, so their roster row can't be
+// removed, deactivated or transferred while they lead it.
+export class CellLeaderMemberError extends Error {
+  constructor(memberName, cellName) {
+    super(`${memberName || 'This person'} leads ${cellName || 'this cell'}, and a leader stays on its roster. Appoint a new leader first.`)
+    this.name = 'CellLeaderMemberError'
+  }
+}
+export const isCellMemberConflict = (err) => err?.name === 'CellMemberConflictError' || err?.name === 'CellLeaderMemberError'
 
 // Users (read/update by auth)
 export async function getUser(uid) {
@@ -2735,6 +2743,7 @@ export async function getCellGroupMembers(cellId) {
       memberCategory: data.memberCategory || '',
       attendanceCountAtExit: Number.isFinite(data.attendanceCountAtExit) ? data.attendanceCountAtExit : null,
       visitorId: data.visitorId || '',
+      mergedInto: data.mergedInto || '',
       createdAt: toDate(data.createdAt),
     }
   })
@@ -2792,11 +2801,67 @@ export async function findMemberInOtherCell(cellId, { visitorId, name } = {}, ex
   return null
 }
 
+// The cell's leader as a person: cell_groups.leaderPersonId is a People id, or a
+// visitor id when the leader has no People record.
+async function getCellLeaderPerson(group) {
+  const person = await getPerson(group.leaderPersonId).catch(() => null)
+  return { person, visitorId: person ? person.visitorId || '' : group.leaderPersonId || '' }
+}
+
+const isCellLeaderRow = (group, leaderVisitorId, row) =>
+  [row.name, row.displayName].some((n) => normalizeMemberName(n) === normalizeMemberName(group.leader)) ||
+  (!!leaderVisitorId && row.visitorId === leaderVisitorId)
+
+/**
+ * Throws if taking `row` off this cell's roster would leave its leader with no active
+ * row. A duplicate of the leader can still go, and a closed cell has no leader to protect.
+ */
+export async function assertNotLastCellLeaderRow(cellId, row) {
+  if (!db || !cellId || !row || row.status === 'inactive') return
+  const group = (await getDoc(doc(db, CELL_GROUPS_COLLECTION, cellId))).data()
+  if (!normalizeMemberName(group?.leader) || group.status === 'inactive') return
+  const { visitorId } = await getCellLeaderPerson(group)
+  if (!isCellLeaderRow(group, visitorId, row)) return
+  const others = (await getCellGroupMembers(cellId)).filter((m) =>
+    m.id !== row.id && m.status !== 'inactive' && !m.mergedInto && isCellLeaderRow(group, visitorId, m))
+  if (!others.length) throw new CellLeaderMemberError(row.name, group.cellName)
+}
+
+/**
+ * Puts a cell's leader on its roster if they aren't there: reactivates their old row
+ * (keeping its history) or adds a new one. Past attendance matches by name, so a new
+ * row still picks it up. Returns { name, status: 'already' | 'reactivated' | 'added' },
+ * or {} when the cell has no leader or is closed.
+ */
+export async function ensureCellLeaderOnRoster(cellId) {
+  if (!db || !cellId) return {}
+  const group = (await getDoc(doc(db, CELL_GROUPS_COLLECTION, cellId))).data()
+  const name = String(group?.leader || '').trim()
+  if (!name || group.status === 'inactive') return {}
+  const { person, visitorId } = await getCellLeaderPerson(group)
+  const rows = (await getAllCellGroupMembers()).filter((m) =>
+    m.cellId === cellId && !m.mergedInto && isCellLeaderRow(group, visitorId, m))
+  if (rows.some((m) => m.status !== 'inactive')) return { name, status: 'already' }
+  if (rows.length) {
+    await updateCellGroupMember(cellId, rows[0].id, { status: 'active' })
+    return { name, status: 'reactivated' }
+  }
+  // The phone goes on afterwards: addCellGroupMember treats a shared phone in this cell
+  // as "already added", which would skip a leader who shares a number with their spouse.
+  const { id } = await addCellGroupMember(cellId, {
+    name, visitorId, existingPerson: true, createdSource: 'cell_leader_roster',
+    email: person?.email || '', birthday: person?.dob || '',
+  })
+  if (person?.phone) await updateCellGroupMember(cellId, id, { phone: person.phone })
+  return { name, status: 'added' }
+}
+
 export async function addCellGroupMember(cellId, data) {
   if (!db || !cellId) return { id: null, created: false }
   // Moving an existing roster row between cells (`transferOfExisting`) isn't a new
-  // person, so legacy rows without a visitorId may still be transferred.
-  if (!data.transferOfExisting) requireLinkedPerson(data.visitorId)
+  // person, so legacy rows without a visitorId may still be transferred. Same for a
+  // leader joining their own roster (`existingPerson`): the name is already on the cell.
+  if (!data.transferOfExisting && !data.existingPerson) requireLinkedPerson(data.visitorId)
 
   // Duplicate guard — every UI path that adds a member (Assign from a referral,
   // approving an "add" pending change, the Director's own Add Member form, the
@@ -2886,6 +2951,7 @@ export async function updateCellGroupMember(cellId, memberId, data) {
   // linking of a visitor record to an unlinked row (that's the same row, not a new entry).
   const memberRef = doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId)
   const current = (await getDoc(memberRef)).data() || {}
+  if (clean.status === 'inactive') await assertNotLastCellLeaderRow(cellId, { id: memberId, ...current })
   const willBeActive = (clean.status ?? current.status) !== 'inactive'
   const identityChanged =
     (clean.name !== undefined && normalizeMemberName(clean.name) !== normalizeMemberName(current.name)) ||
@@ -2901,7 +2967,9 @@ export async function updateCellGroupMember(cellId, memberId, data) {
 
 export async function deleteCellGroupMember(cellId, memberId) {
   if (!db || !cellId || !memberId) return
-  await deleteDoc(doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId))
+  const memberRef = doc(db, CELL_GROUPS_COLLECTION, cellId, 'members', memberId)
+  await assertNotLastCellLeaderRow(cellId, { id: memberId, ...(await getDoc(memberRef)).data() })
+  await deleteDoc(memberRef)
   const members = await getCellGroupMembers(cellId)
   await updateDoc(doc(db, CELL_GROUPS_COLLECTION, cellId), { memberCount: members.length })
 }
@@ -3315,6 +3383,7 @@ export function subscribeLatestCellReports(limitCount, onChange, onError) {
         meetingDay: data.meetingDay || '',
         membersAttended: Number(data.membersAttended) || 0,
         visitors: Number(data.visitors) || 0,
+        visitorsList: Array.isArray(data.visitorsList) ? data.visitorsList : [],
         children: Number(data.children) || 0,
         reportDate: data.reportDate || '',
         startTime: data.startTime || '',
@@ -5288,6 +5357,7 @@ export async function transferCellMember(fromCellId, memberId, toCellId) {
   const snap = await getDoc(fromRef)
   if (!snap.exists()) throw new Error('Member not found')
   const memberData = snap.data()
+  await assertNotLastCellLeaderRow(fromCellId, { id: memberId, ...memberData })
   if (memberData.status !== 'inactive') {
     const elsewhere = await findMemberInOtherCell(toCellId, memberData, [fromCellId])
     if (elsewhere) throw new CellMemberConflictError(elsewhere.cellName, elsewhere.cellId)

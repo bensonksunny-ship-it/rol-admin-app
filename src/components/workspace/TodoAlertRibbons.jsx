@@ -20,7 +20,7 @@ const KINDS = [
     dept: 'D Light',
     one: (t) => `Cell assignment input needed: ${personOf(t) || t.taskTitle}`,
     many: (n) => `${n} cell assignment inputs pending`,
-    link: '/department/d-light?tab=summary',
+    link: '/department/d-light?tab=summary&openConsults=1',
   },
   {
     key: 'addToDLight',
@@ -28,7 +28,7 @@ const KINDS = [
     dept: 'D Light',
     one: (t) => `Add ${personOf(t) || 'person'} to D-Light`,
     many: (n) => `${n} people to add to D-Light`,
-    link: '/department/d-light?tab=visitorEntry',
+    link: '/department/d-light?tab=visitorEntry&openPcsForward=1',
   },
   {
     key: 'addToCellGroup',
@@ -36,7 +36,7 @@ const KINDS = [
     dept: 'Cell',
     one: (t) => `Add ${personOf(t) || 'person'} to a cell group`,
     many: (n) => `${n} people waiting for a cell group`,
-    link: '/department/cell',
+    link: '/department/cell?tab=summary&filter=unassigned',
   },
   {
     key: 'other',

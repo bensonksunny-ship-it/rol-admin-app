@@ -109,18 +109,22 @@ export default function MyWorkspace() {
     email: userProfile?.email || user?.email || '',
     myName: userProfile?.displayName || userProfile?.email || '',
   }
-  // Every notification / action ribbon, one below the other in a single column
-  // (each renders nothing when it has nothing): blue ones first, yellow below.
-  // The To-Do card is no longer shown.
+  // Notification / action ribbons, one below the other in a single column
+  // (each renders nothing when it has nothing). Blue ones sit near the top; the
+  // yellow ones go below the Membership Pipeline (blue) and Applications Progress
+  // (purple) widgets. The To-Do card is no longer shown.
   const ribbons = (
     <div className="flex flex-col gap-2 empty:hidden [&>*]:my-0">
-      {/* Blue */}
       <DepartmentAlertRibbons />
       <CellLeaderApprovalRibbon {...ids} />
       <DeaconInterviewRibbon {...ids} />
       <DeclarationRequestRibbon {...ids} />
-      {/* Yellow: Accounts expenses (Accounts team only), To-Do ribbons (cell
-          assignment inputs, PCS hand-offs, …), unlock requests, expense disputes. */}
+    </div>
+  )
+  // Yellow: Accounts expenses (Accounts team only), To-Do ribbons (cell
+  // assignment inputs, PCS hand-offs, …), unlock requests, expense disputes.
+  const yellowRibbons = (
+    <div className="flex flex-col gap-2 empty:hidden [&>*]:my-0">
       {!isFounder && <AccountsExpenseApprovalRibbon />}
       {(isFounder || isCellDirector) && <CellChangeApprovalRibbon />}
       <TodoAlertRibbons />
@@ -173,6 +177,7 @@ export default function MyWorkspace() {
             <WorshipWorkspaceWidget />
             {pipeline}
             {applications}
+            {yellowRibbons}
             <ApprovalsCard />
             <BoardMeetingWorkspaceWidget />
           </div>
@@ -187,6 +192,7 @@ export default function MyWorkspace() {
           <BoardMeetingWorkspaceWidget />
           {pipeline}
           {applications}
+          {yellowRibbons}
         </>
       )}
     </div>

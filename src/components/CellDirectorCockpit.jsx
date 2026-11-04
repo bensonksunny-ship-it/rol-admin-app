@@ -226,6 +226,7 @@ export function CellDirectorCockpit({
         const rawName = g.cellName || g.id
         return {
           cellId: g.id,
+          logicalCellId: g.cellId || '',
           cellName: rawName.length > 14 ? `${rawName.slice(0, 12)}…` : rawName,
           fullCellName: rawName,
           leader: g.leader || '',
@@ -246,6 +247,9 @@ export function CellDirectorCockpit({
             phoneKey: phoneKey(m.phone),
             locality: m.locality || '',
           })),
+          formerMembers: members
+            .filter((m) => m.status === 'inactive' && !m.mergedInto)
+            .map((m) => ({ name: m.name, visitorId: m.visitorId || '' })),
         }
       })
     )
@@ -680,8 +684,8 @@ export function CellDirectorCockpit({
   )
 
   // "Ask D-Light for Cell": score every active cell from the person's D-Light visitor
-  // record (locality, Sunday service, family on a shared phone — see
-  // utils/cellSuggestion.js) and send the best fit to the D-Light Director as a
+  // record and history (locality, Sunday service, family on a shared phone, referrer,
+  // past roster rows, cell visits — see utils/cellSuggestion.js) and send the best fit to the D-Light Director as a
   // consult task. Its recommendedCellId pre-selects that cell in D-Light's
   // Recommendation modal; they confirm or change it (status → 'Responded').
   const [askingDlightId, setAskingDlightId] = useState(null)
@@ -689,7 +693,7 @@ export function CellDirectorCockpit({
     async (item) => {
       setAskingDlightId(item.id)
       try {
-        const { visitor, suggestions } = suggestCellFor(item, cellMemberData, delightVisitors)
+        const { visitor, suggestions } = suggestCellFor(item, cellMemberData, delightVisitors, weeklyReports)
         const best = suggestions[0] || null
         const requestedByName = userProfile?.displayName || userProfile?.name || userProfile?.email || 'Cell Director'
         const summary = best
@@ -729,7 +733,7 @@ export function CellDirectorCockpit({
         setAskingDlightId(null)
       }
     },
-    [cellMemberData, delightVisitors, userProfile, showToast]
+    [cellMemberData, delightVisitors, weeklyReports, userProfile, showToast]
   )
 
   return (
@@ -963,150 +967,158 @@ export function CellDirectorCockpit({
                   const auto = !isPCS && consultTask?.status !== 'Responded' ? consultTask?.autoSuggestion : null
                   return (
                     <div key={item.id} className="relative">
-                      <div className={`flex items-center gap-3 bg-white border rounded-2xl px-4 py-3 shadow-sm ${
+                      {/* Stacked card: name row → badges row → recommendation → actions row,
+                          so nothing is squeezed into a narrow column on a phone. */}
+                      <div className={`flex flex-col gap-2 bg-white border rounded-2xl p-3 sm:px-4 shadow-sm ${
                         isPCS ? 'border-indigo-100' : 'border-slate-100'
                       }`}>
-                        <div className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${
-                          isPCS ? 'bg-indigo-100 text-indigo-700' : 'bg-violet-100 text-violet-700'
-                        }`}>
-                          {initials(item.name)}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={`w-9 h-9 rounded-full text-sm font-bold flex items-center justify-center flex-shrink-0 ${
+                            isPCS ? 'bg-indigo-100 text-indigo-700' : 'bg-violet-100 text-violet-700'
+                          }`}>
+                            {initials(item.name)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-900 text-sm break-words">{item.name}</p>
+                            <p className="text-xs text-slate-500">
+                              {isPCS
+                                ? item.phone || 'PCS referral'
+                                : `${item.weekCount} Sunday${item.weekCount !== 1 ? 's' : ''} attended`}
+                            </p>
+                          </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <p className="font-semibold text-slate-900 text-sm">{item.name}</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          <span
+                            title="Where this notification originated"
+                            className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                              isPCS ? 'bg-indigo-100 text-indigo-700' : 'bg-violet-100 text-violet-700'
+                            }`}
+                          >
+                            {isPCS ? 'From Caring (PCS)' : 'From Sunday Worship Log'}
+                          </span>
+                          {!isPCS && item.nonCell && (
+                            <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">
+                              Non-Cell
+                            </span>
+                          )}
+                          {consultTask && (
                             <span
-                              title="Where this notification originated"
+                              title={consultTask.status === 'Responded' ? consultTask.recommendation || (isPCS ? 'Recommendation submitted' : 'D Light responded') : 'Awaiting D Light Director input'}
                               className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                                isPCS ? 'bg-indigo-100 text-indigo-700' : 'bg-violet-100 text-violet-700'
+                                consultTask.status === 'Responded'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-orange-100 text-orange-700'
                               }`}
                             >
-                              {isPCS ? 'From Caring (PCS)' : 'From Sunday Worship Log'}
+                              {consultTask.status === 'Responded'
+                                ? (consultTask.recommendedCellName
+                                    ? `Recommendation: ${consultTask.recommendedCellName}`
+                                    : (isPCS ? 'Recommendation Submitted' : 'D-Light Responded'))
+                                : 'Pending D Light Input'}
                             </span>
-                            {!isPCS && item.nonCell && (
-                              <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">
-                                Non-Cell
-                              </span>
-                            )}
-                            {consultTask && (
-                              <span
-                                title={consultTask.status === 'Responded' ? consultTask.recommendation || (isPCS ? 'Recommendation submitted' : 'D Light responded') : 'Awaiting D Light Director input'}
-                                className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
-                                  consultTask.status === 'Responded'
-                                    ? 'bg-emerald-100 text-emerald-700'
-                                    : 'bg-orange-100 text-orange-700'
-                                }`}
-                              >
-                                {consultTask.status === 'Responded'
-                                  ? (consultTask.recommendedCellName
-                                      ? `Recommendation: ${consultTask.recommendedCellName}`
-                                      : (isPCS ? 'Recommendation Submitted' : 'D-Light Responded'))
-                                  : 'Pending D Light Input'}
-                              </span>
-                            )}
-                            {cellMatch && (
-                              <span
-                                title={cellMatch.level === 'definite'
-                                  ? `On the ${cellMatch.cellName} roster as "${cellMatch.member}" — don't add them to another cell.`
-                                  : `"${cellMatch.member}" in ${cellMatch.cellName} may be the same person — check before assigning.`}
-                                className={`text-xs px-1.5 py-0.5 rounded-full font-semibold border ${
-                                  cellMatch.level === 'definite'
-                                    ? 'bg-red-50 text-red-700 border-red-200'
-                                    : 'bg-amber-50 text-amber-800 border-amber-200'
-                                }`}
-                              >
-                                ⚠ {cellMatch.level === 'definite' ? 'Already in' : 'Possibly in'} {cellMatch.cellName}
-                                {cellMatch.level === 'possible' && ` (as ${cellMatch.member})`}
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            {isPCS
-                              ? item.phone || 'PCS referral'
-                              : `${item.weekCount} Sunday${item.weekCount !== 1 ? 's' : ''} attended`}
-                          </p>
-                          {consultTask?.status === 'Responded' && consultTask.recommendation && (
-                            <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 mt-1.5 italic">
-                              "{consultTask.recommendation}"
-                            </p>
                           )}
-                          {consultTask?.status === 'Responded' && consultTask.recommendedCellId && (
-                            <button
-                              type="button"
-                              disabled={assigning}
-                              onClick={() => handleAssign(item, consultTask.recommendedCellId)}
-                              className="mt-1.5 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50 transition-colors"
+                          {cellMatch && (
+                            <span
+                              title={cellMatch.level === 'definite'
+                                ? `On the ${cellMatch.cellName} roster as "${cellMatch.member}" — don't add them to another cell.`
+                                : `"${cellMatch.member}" in ${cellMatch.cellName} may be the same person — check before assigning.`}
+                              className={`text-xs px-1.5 py-0.5 rounded-full font-semibold border ${
+                                cellMatch.level === 'definite'
+                                  ? 'bg-red-50 text-red-700 border-red-200'
+                                  : 'bg-amber-50 text-amber-800 border-amber-200'
+                              }`}
                             >
-                              {assigning ? 'Assigning…' : `Accept & Assign to ${consultTask.recommendedCellName || 'Cell'}`}
-                            </button>
-                          )}
-                          {auto && (
-                            <div className="text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-lg px-2 py-1.5 mt-1.5">
-                              {auto.cellName ? (
-                                <>
-                                  <p><span className="font-semibold">D-Light suggests {auto.cellName}</span> — {auto.reasons.join('; ')}</p>
-                                  {auto.alternatives?.length > 0 && (
-                                    <p className="text-sky-700/80 mt-0.5">Also: {auto.alternatives.map((a) => a.cellName).join(', ')}</p>
-                                  )}
-                                  <p className="text-sky-700/80 mt-0.5">Awaiting the D-Light Director&rsquo;s confirmation.</p>
-                                  {cellMatch?.level !== 'definite' && (
-                                    <button
-                                      type="button"
-                                      disabled={assigning}
-                                      onClick={() => handleAssign(item, auto.cellId)}
-                                      className="mt-1 px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold disabled:opacity-50 transition-colors"
-                                    >
-                                      {assigning ? 'Assigning…' : `Assign to ${auto.cellName}`}
-                                    </button>
-                                  )}
-                                </>
-                              ) : (
-                                <p>No automatic match{auto.locality ? ` for ${auto.locality}` : ''} — waiting for the D-Light Director to suggest a cell.</p>
-                              )}
-                            </div>
-                          )}
-                          {!consultTask && cellMatch?.level !== 'definite' && (
-                            <button
-                              type="button"
-                              disabled={askingDlightId === item.id}
-                              onClick={() => handleAskDlight(item)}
-                              title="D-Light suggests a cell from this person's locality, Sunday service and family, then the D-Light Director confirms it"
-                              className="mt-1.5 px-2.5 py-1 rounded-lg border border-sky-300 text-sky-700 hover:bg-sky-50 text-xs font-bold disabled:opacity-50 transition-colors"
-                            >
-                              {askingDlightId === item.id ? 'Asking D-Light…' : 'Ask D-Light for Cell'}
-                            </button>
+                              ⚠ {cellMatch.level === 'definite' ? 'Already in' : 'Possibly in'} {cellMatch.cellName}
+                              {cellMatch.level === 'possible' && ` (as ${cellMatch.member})`}
+                            </span>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          disabled={cellMatch?.level === 'definite'}
-                          title={cellMatch?.level === 'definite' ? `Already in ${cellMatch.cellName}` : undefined}
-                          onClick={() => {
-                            setAssignOpenName(assignOpenName === item.name ? null : item.name)
-                            setAssignSelectedCellId('')
-                            setConsultOpenName(null)
-                            setConsultNote('')
-                          }}
-                          className={`px-3 py-1.5 text-white text-xs font-semibold rounded-xl flex-shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                            isPCS
-                              ? 'bg-indigo-600 hover:bg-indigo-700'
-                              : 'bg-violet-600 hover:bg-violet-700'
-                          }`}
-                        >
-                          Assign {assignOpenName === item.name ? '▲' : '▼'}
-                        </button>
-                        <button
-                          type="button"
-                          title="Dismiss"
-                          onClick={(e) => {
-                            // Stops this from bubbling to anything listening further up the
-                            // row/drawer (e.g. the backdrop's click-outside-to-close check).
-                            e.stopPropagation()
-                            handleRemove(item)
-                          }}
-                          className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 hover:text-slate-600 flex-shrink-0 transition-colors text-xs leading-none"
-                        >
-                          ✕
-                        </button>
+                        {consultTask?.status === 'Responded' && consultTask.recommendation && (
+                          <p className="text-xs text-emerald-700 bg-emerald-50 rounded-lg px-2 py-1 italic">
+                            "{consultTask.recommendation}"
+                          </p>
+                        )}
+                        {consultTask?.status === 'Responded' && consultTask.recommendedCellId && (
+                          <button
+                            type="button"
+                            disabled={assigning}
+                            onClick={() => handleAssign(item, consultTask.recommendedCellId)}
+                            className="self-start px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-50 transition-colors"
+                          >
+                            {assigning ? 'Assigning…' : `Accept & Assign to ${consultTask.recommendedCellName || 'Cell'}`}
+                          </button>
+                        )}
+                        {auto && (
+                          <div className="text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-lg px-2 py-1.5">
+                            {auto.cellName ? (
+                              <>
+                                <p><span className="font-semibold">D-Light suggests {auto.cellName}</span> — {auto.reasons.join('; ')}</p>
+                                {auto.alternatives?.length > 0 && (
+                                  <p className="text-sky-700/80 mt-0.5">Also: {auto.alternatives.map((a) => a.cellName).join(', ')}</p>
+                                )}
+                                <p className="text-sky-700/80 mt-0.5">Awaiting the D-Light Director&rsquo;s confirmation.</p>
+                                {cellMatch?.level !== 'definite' && (
+                                  <button
+                                    type="button"
+                                    disabled={assigning}
+                                    onClick={() => handleAssign(item, auto.cellId)}
+                                    className="mt-1 px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold disabled:opacity-50 transition-colors"
+                                  >
+                                    {assigning ? 'Assigning…' : `Assign to ${auto.cellName}`}
+                                  </button>
+                                )}
+                              </>
+                            ) : (
+                              <p>No automatic match{auto.locality ? ` for ${auto.locality}` : ''} — waiting for the D-Light Director to suggest a cell.</p>
+                            )}
+                          </div>
+                        )}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {!consultTask && cellMatch?.level !== 'definite' && (
+                              <button
+                                type="button"
+                                disabled={askingDlightId === item.id}
+                                onClick={() => handleAskDlight(item)}
+                                title="D-Light suggests a cell from this person's area, family, referrer and past cell links, then the D-Light Director confirms it"
+                                className="px-3 py-1.5 rounded-xl border border-sky-300 text-sky-700 hover:bg-sky-50 text-xs font-bold whitespace-nowrap disabled:opacity-50 transition-colors"
+                              >
+                                {askingDlightId === item.id ? 'Asking D-Light…' : 'Ask D-Light for Cell'}
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={cellMatch?.level === 'definite'}
+                              title={cellMatch?.level === 'definite' ? `Already in ${cellMatch.cellName}` : undefined}
+                              onClick={() => {
+                                setAssignOpenName(assignOpenName === item.name ? null : item.name)
+                                setAssignSelectedCellId('')
+                                setConsultOpenName(null)
+                                setConsultNote('')
+                              }}
+                              className={`px-3 py-1.5 text-white text-xs font-semibold rounded-xl flex-shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                isPCS
+                                  ? 'bg-indigo-600 hover:bg-indigo-700'
+                                  : 'bg-violet-600 hover:bg-violet-700'
+                              }`}
+                            >
+                              Assign {assignOpenName === item.name ? '▲' : '▼'}
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            title="Dismiss"
+                            onClick={(e) => {
+                              // Stops this from bubbling to anything listening further up the
+                              // row/drawer (e.g. the backdrop's click-outside-to-close check).
+                              e.stopPropagation()
+                              handleRemove(item)
+                            }}
+                            className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 hover:bg-slate-200 hover:text-slate-600 flex-shrink-0 transition-colors text-xs leading-none"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
 
                       {assignOpenName === item.name && (
