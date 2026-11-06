@@ -58,19 +58,19 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
                   const inIncome = posted(iso, s.category)
                   return (
                     <td key={s.key} className="px-4 py-3 text-right tabular-nums">
-                      {c ? <span className="font-semibold text-slate-800">₹{fmtAmount(serviceTotal(c, s.key))}</span> : <span className="text-slate-300">–</span>}
+                      {c ? <span className="font-semibold text-slate-800">₹ {fmtAmount(serviceTotal(c, s.key))}</span> : <span className="text-slate-300">–</span>}
                       {c && !confirmed && inIncome !== serviceTotal(c, s.key) && (
-                        <span className="block text-[10px] text-slate-400">income ₹{fmtAmount(inIncome)}</span>
+                        <span className="block text-[10px] text-slate-400">income ₹ {fmtAmount(inIncome)}</span>
                       )}
                     </td>
                   )
                 })}
                 <td className="px-4 py-3 text-right tabular-nums">
                   {c && otherCashLines(c).length ? (
-                    <span className="font-semibold text-slate-800">₹{fmtAmount(otherCashTotal(c))}<span className="block text-[10px] text-slate-400">{otherCashLines(c).length} {otherCashLines(c).length === 1 ? 'line' : 'lines'}</span></span>
+                    <span className="font-semibold text-slate-800">₹ {fmtAmount(otherCashTotal(c))}<span className="block text-[10px] text-slate-400">{otherCashLines(c).length} {otherCashLines(c).length === 1 ? 'line' : 'lines'}</span></span>
                   ) : <span className="text-slate-300">–</span>}
                 </td>
-                <td className="px-4 py-3 text-right font-bold tabular-nums text-slate-800">{c ? `₹${fmtAmount(countTotal(c))}` : ''}</td>
+                <td className="px-4 py-3 text-right font-bold tabular-nums text-slate-800">{c ? `₹ ${fmtAmount(countTotal(c))}` : ''}</td>
                 <td className="px-4 py-3 text-right">
                   {!c ? (
                     <span className="text-[11px] text-slate-400">Not counted yet</span>

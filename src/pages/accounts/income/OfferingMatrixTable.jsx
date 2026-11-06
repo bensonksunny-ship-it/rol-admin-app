@@ -60,6 +60,8 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
   const rowTotal = iso => COLUMNS.reduce((s, col) => s + cellAmount(iso, col.key), 0)
   const columnTotals = COLUMNS.map(col => rows.reduce((s, row) => s + (row.iso ? cellAmount(row.iso, col.key) : 0), 0))
   const grandTotal = columnTotals.reduce((a, b) => a + b, 0)
+  // A one-column table (Online) needs no Row Total — it would repeat the column.
+  const showRowTotal = COLUMNS.length > 1
 
   useEffect(() => {
     const req = focusReq.current
@@ -226,7 +228,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <SaveStatus state={saveState} />
-          <p className={`text-sm font-bold tabular-nums ${styles.text}`}>₹{fmtAmount(grandTotal)}</p>
+          <p className={`text-sm font-bold tabular-nums ${styles.text}`}>₹ {fmtAmount(grandTotal)}</p>
         </div>
       </div>
 
@@ -236,7 +238,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
             <tr className="bg-slate-50 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               <th className="px-4 py-3 border-b border-slate-200 w-40">Date</th>
               {COLUMNS.map(col => <th key={col.key} className="px-4 py-3 border-b border-slate-200 text-right">{col.label}</th>)}
-              <th className="px-4 py-3 border-b border-slate-200 text-right">Row Total</th>
+              {showRowTotal && <th className="px-4 py-3 border-b border-slate-200 text-right">Row Total</th>}
               <th className="w-10 border-b border-slate-200" aria-label="Actions" />
             </tr>
           </thead>
@@ -286,9 +288,11 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
                       </td>
                     )
                   })}
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-700 border-r border-slate-100">
-                    {row.iso ? `₹${fmtAmount(rowTotal(row.iso))}` : ''}
-                  </td>
+                  {showRowTotal && (
+                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-700 border-r border-slate-100">
+                      {row.iso ? `₹ ${fmtAmount(rowTotal(row.iso))}` : ''}
+                    </td>
+                  )}
                   <td className="p-0 text-center">
                     {(row.extra || hasEntries) && (
                       <button
@@ -310,9 +314,9 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
             <tr className={styles.header}>
               <td className="px-4 py-3 font-semibold text-slate-600 border-t-2 border-slate-200">Total</td>
               {columnTotals.map((t, i) => (
-                <td key={COLUMNS[i].key} className={`px-4 py-3 text-right font-bold tabular-nums border-t-2 border-slate-200 ${styles.text}`}>₹{fmtAmount(t)}</td>
+                <td key={COLUMNS[i].key} className={`px-4 py-3 text-right font-bold tabular-nums border-t-2 border-slate-200 ${styles.text}`}>₹ {fmtAmount(t)}</td>
               ))}
-              <td className={`px-4 py-3 text-right font-bold tabular-nums border-t-2 border-slate-200 ${styles.text}`}>₹{fmtAmount(grandTotal)}</td>
+              {showRowTotal && <td className={`px-4 py-3 text-right font-bold tabular-nums border-t-2 border-slate-200 ${styles.text}`}>₹ {fmtAmount(grandTotal)}</td>}
               <td className="border-t-2 border-slate-200" />
             </tr>
           </tfoot>

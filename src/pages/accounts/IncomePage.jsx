@@ -13,6 +13,7 @@ import OfferingMatrixTable from './income/OfferingMatrixTable'
 import CategoryListTable from './income/CategoryListTable'
 import PasteReviewDialog from './income/PasteReviewDialog'
 import { IncomeSectionCard, IncomeSectionModal } from './income/IncomeSectionCard'
+import OfferingPopupBody from './income/OfferingPopupBody'
 import CashCountPanel from './income/CashCountPanel'
 import { cellOps, mergeOps, fmtAmount } from './income/gridUtils'
 import { CASH_SERVICES, serviceTotal, sundaysOfMonth, otherCashLines } from '../../utils/cashCount'
@@ -457,10 +458,13 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
           {/* Keyed by month so grid-local state (unsaved new rows, row order) starts fresh. */}
           {openSection === 'offering'
             ? (
-              // Cash (the counter's Sunday counts + English / Tamil ledger) beside Online.
-              <div className="grid gap-5 lg:grid-cols-[3fr_2fr] items-start">
-                <section className="space-y-4 min-w-0">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Cash Offering</h4>
+              // Month summary, then Cash (Sunday counts → English / Tamil ledger) and Online tabs.
+              <OfferingPopupBody
+                englishTotal={sumOf(categorized.englishOffering)}
+                tamilTotal={sumOf(categorized.tamilOffering)}
+                onlineTotal={sumOf(categorized.onlineOffering)}
+                pendingCounts={pendingCounts}
+                cashCounts={(
                   <CashCountPanel
                     counts={cashCounts}
                     sundays={sundaysOfMonth(activeMonth)}
@@ -469,15 +473,16 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
                     onConfirm={confirmCashCount}
                     onReopen={reopenCashCount}
                   />
-                  <OfferingMatrixTable key={`offering-cash-${monthKey}`} title="Cash Offering (English / Tamil)" columnKeys={['English Offering', 'Tamil Offering']}
+                )}
+                cashLedger={(
+                  <OfferingMatrixTable key={`offering-cash-${monthKey}`} title="English & Tamil" columnKeys={['English Offering', 'Tamil Offering']}
                     entries={[...categorized.englishOffering, ...categorized.tamilOffering]} {...gridProps('offering')} />
-                </section>
-                <section className="space-y-4 min-w-0">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">Online Offering</h4>
-                  <OfferingMatrixTable key={`offering-online-${monthKey}`} title="Online Offering (UPI / Bank)" columnKeys={['Online Offering']}
+                )}
+                online={(
+                  <OfferingMatrixTable key={`offering-online-${monthKey}`} title="UPI / Bank" columnKeys={['Online Offering']}
                     entries={categorized.onlineOffering} {...gridProps('offering')} />
-                </section>
-              </div>
+                )}
+              />
             )
             : LIST_SECTIONS.filter(s => s.key === openSection).map(s => {
               // Cash (cash, cheque, other — and entries with no mode yet) above Online.
