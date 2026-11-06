@@ -9,7 +9,7 @@ import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWor
 import ApprovalsCard from '../components/workspace/ApprovalsCard'
 import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
 import ApplicationsProgressWidget from '../components/workspace/ApplicationsProgressWidget'
-import { isDepartmentDirectorInPositions, isSpOfficeOnly } from '../utils/access'
+import { getDepartmentRole, isDepartmentDirectorInPositions, isSpOfficeOnly } from '../utils/access'
 import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
 import DeclarationRequestRibbon from '../components/workspace/DeclarationRequestRibbon'
 import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
@@ -88,13 +88,14 @@ export default function MyWorkspace() {
   }, [spOfficeOnly, navigate])
   // Membership Onboarding Pipeline: Caring staff + Founder / Senior Pastor manage it;
   // the First Lady (anyone holding a First Lady department position) signs off the
-  // pastoral-oversight stages — Membership Interview + Pastoral Approval; Cell
-  // Directors follow it read-only (PCS records are Caring-written).
+  // pastoral-oversight stages — Membership Interview + Pastoral Approval; SP Office
+  // (the secretary) follows it read-only. No one else sees it — not Cell Directors.
   const canCaring = isFounder || canManageDepartment('Caring')
   const canPastor = isFounder || isSeniorPastor
   const isFirstLady = (userProfile?.positions || []).some(p => p?.department === 'First Lady')
     || (userProfile?.departments || []).includes('First Lady')
-  const showPipeline = canCaring || canPastor || isFirstLady || isCellDirector
+  const isSpOffice = !!getDepartmentRole(userProfile, 'SP Office')
+  const showPipeline = canCaring || canPastor || isFirstLady || isSpOffice
   // Rule: every application's level-wise progress is on the Founder's, the Caring
   // Director's and the First Lady's workspace (utils/applicationProgress.js).
   const showApplications = isFounder || isFirstLady || isDepartmentDirectorInPositions(userProfile, 'Caring')

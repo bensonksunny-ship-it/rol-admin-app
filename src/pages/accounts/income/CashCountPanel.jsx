@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { format, parseISO } from 'date-fns'
 import { Banknote, CheckCircle2, RotateCcw, X } from 'lucide-react'
-import { CASH_SERVICES, CASH_DENOMINATIONS, serviceTotal, countTotal, otherCashLines, otherCashTotal } from '../../../utils/cashCount'
+import { CASH_SERVICES, CASH_DENOMINATIONS, CASH_SET_ASIDE_FUNDS, serviceTotal, titheTotal, titheCountTotal, setAsideAmount, setAsideTotal, countTotal, otherCashLines, otherCashTotal } from '../../../utils/cashCount'
 import SundayCashCount from '../../../components/finance/SundayCashCount'
 import { matchesCategory, toDate } from './incomeCategorize'
 import { fmtAmount } from './gridUtils'
@@ -36,7 +36,8 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
           <tr className="bg-slate-50 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
             <th className="px-4 py-2.5">Sunday</th>
             {CASH_SERVICES.map(s => <th key={s.key} className="px-4 py-2.5 text-right">{s.label.replace(' Service', '')} count</th>)}
-            <th className="px-4 py-2.5 text-right" title="Tithe, contribution and other cash lines">Other cash</th>
+            <th className="px-4 py-2.5 text-right" title="Loose tithe cash counted note by note (English + Tamil)">Tithe count</th>
+            <th className="px-4 py-2.5 text-right" title="Named tithe envelopes, contribution and other cash lines">Other cash</th>
             <th className="px-4 py-2.5 text-right">Total</th>
             <th className="px-4 py-2.5 w-36" />
           </tr>
@@ -48,7 +49,9 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
             const differs = c && CASH_SERVICES.some(s => posted(iso, s.category) !== serviceTotal(c, s.key))
             const detail = c ? [
               ...CASH_SERVICES.map(s => `${s.label}: ${CASH_DENOMINATIONS.filter(d => c[s.key]?.notes?.[d]).map(d => `₹${d}×${c[s.key].notes[d]}`).join(', ') || '—'}`),
-              ...otherCashLines(c).map(l => `${l.category}: ${l.name || '—'} ₹${fmtAmount(l.amount)}`),
+              ...CASH_SERVICES.filter(s => titheTotal(c, s.key)).map(s => `${s.label} tithe: ${CASH_DENOMINATIONS.filter(d => c.tithe?.[s.key]?.notes?.[d]).map(d => `₹${d}×${c.tithe[s.key].notes[d]}`).join(', ')}`),
+              ...CASH_SET_ASIDE_FUNDS.filter(f => setAsideAmount(c, f)).map(f => `Set aside → ${f}: ₹${fmtAmount(setAsideAmount(c, f))}`),
+              ...otherCashLines(c).map(l =>`${l.category}: ${l.name || '—'} ₹${fmtAmount(l.amount)}`),
               `Counted by ${c.countedBy || '—'}`,
             ].filter(Boolean).join('\n') : ''
             return (
@@ -66,11 +69,19 @@ export default function CashCountPanel({ counts, sundays, entries, busyIso, onCo
                   )
                 })}
                 <td className="px-4 py-3 text-right tabular-nums">
+                  {c && titheCountTotal(c) ? <span className="font-semibold text-slate-800">₹ {fmtAmount(titheCountTotal(c))}</span> : <span className="text-slate-300">–</span>}
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums">
                   {c && otherCashLines(c).length ? (
                     <span className="font-semibold text-slate-800">₹ {fmtAmount(otherCashTotal(c))}<span className="block text-[10px] text-slate-400">{otherCashLines(c).length} {otherCashLines(c).length === 1 ? 'line' : 'lines'}</span></span>
                   ) : <span className="text-slate-300">–</span>}
                 </td>
-                <td className="px-4 py-3 text-right font-bold tabular-nums text-slate-800">{c ? `₹ ${fmtAmount(countTotal(c))}` : ''}</td>
+                <td className="px-4 py-3 text-right font-bold tabular-nums text-slate-800">
+                  {c ? `₹ ${fmtAmount(countTotal(c))}` : ''}
+                  {c && setAsideTotal(c) > 0 && (
+                    <span className="block text-[10px] font-semibold text-indigo-600" title="Added to Savings on confirm">₹ {fmtAmount(setAsideTotal(c))} to funds</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-right">
                   {!c ? (
                     <span className="text-[11px] text-slate-400">Not counted yet</span>

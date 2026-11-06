@@ -24,6 +24,8 @@ import WeeklyEntryPage from './WeeklyEntryPage'
 import { isExpenseDisputed } from '../../utils/expenseDispute'
 import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
 import FinanceMonthLockBanner from '../../components/finance/FinanceMonthLockBanner'
+import FinanceStatementReport from '../../components/finance/FinanceStatementReport'
+import { buildExpenseStatement } from '../../utils/financeStatement'
 import SavingsPage from './SavingsPage'
 
 const ROW_FIELDS = ['date', 'item', 'billNo', 'amount']
@@ -207,6 +209,8 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
   // the placeholder row (see startDraftEntry). Reset each time a card is opened.
   const [draftOpenDept, setDraftOpenDept] = useState(null)
   const [deptEditState, setDeptEditState] = useState({})
+  // A completed month opens as its statement; "Edit" switches that month back to the grid.
+  const [editingCompletedMonth, setEditingCompletedMonth] = useState(null)
 
   function getDeptState(dept) {
     return deptEditState[dept] || DEFAULT_DEPT_STATE
@@ -385,6 +389,10 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
     : combinedEntries.filter(e => normalizeDepartmentName(e.department || e.category) === filterDept)
 
   const totalExpense = visibleEntries.reduce((s, e) => s + (Number(e.amount) || 0), 0)
+  const monthKey = format(activeMonth, 'yyyy-MM')
+  const monthUnlock = monthUnlocks[monthKey]
+  const monthCompleted = monthUnlock?.completed === true
+  const showStatement = monthCompleted && editingCompletedMonth !== monthKey
 
   // This month's net contribution to the 3 real savings funds — read straight
   // from finance_savings (the same data the embedded Savings tile below edits),
@@ -788,6 +796,30 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
           <button type="button" onClick={prevMonth} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none" aria-label="Previous month">‹</button>
           <span className="text-base font-semibold text-slate-800 w-36 text-center">{format(activeMonth, 'MMMM yyyy')}</span>
           <button type="button" onClick={nextMonth} className="p-2 rounded-lg hover:bg-slate-100 text-slate-600 transition text-lg leading-none" aria-label="Next month">›</button>
+        </div>
+      )}
+
+      {showStatement ? (
+        loading
+          ? <div className="text-center text-sm text-slate-500 py-6">Loading…</div>
+          : (
+            <FinanceStatementReport
+              statement={buildExpenseStatement(combinedEntries, activeMonth, monthUnlock, {
+                departmentOf: e => normalizeDepartmentName(e.department || e.category),
+                departmentOrder: deptOptions,
+                fundReserved,
+              })}
+              onEdit={() => setEditingCompletedMonth(monthKey)}
+            />
+          )
+      ) : (
+      <>
+      {monthCompleted && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+          <p className="text-sm text-amber-800">Editing a completed month. Changes save as usual where this month is open for editing.</p>
+          <button type="button" onClick={() => setEditingCompletedMonth(null)} className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-800 text-xs font-semibold hover:bg-amber-100">
+            Back to statement
+          </button>
         </div>
       )}
 
@@ -1538,6 +1570,8 @@ export default function ExpensePage({ controlledMonth, onMonthChange } = {}) {
           </>
         )}
       </div>
+      </>
+      )}
       </>
       )}
     </div>

@@ -6,9 +6,26 @@ import { format } from 'date-fns'
 export const CASH_DENOMINATIONS = [500, 200, 100, 50, 20, 10, 5, 2, 1]
 
 export const CASH_SERVICES = [
-  { key: 'english', label: 'English Service', category: 'English Offering' },
-  { key: 'tamil', label: 'Tamil Service', category: 'Tamil Offering' },
+  { key: 'english', label: 'English Service', category: 'English Offering', titheCategory: 'Tithe - English' },
+  { key: 'tamil', label: 'Tamil Service', category: 'Tamil Offering', titheCategory: 'Tithe - Tamil' },
 ]
+
+// What a service card is counting: the offering (count.english / count.tamil) or
+// loose tithe cash (count.tithe.english / count.tithe.tamil), same note shape.
+export const CASH_COUNT_TYPES = [
+  { key: 'offering', label: 'Offering' },
+  { key: 'tithe', label: 'Tithe' },
+]
+export const titheTotal = (count, key) => Number(count?.tithe?.[key]?.total) || 0
+export const titheCountTotal = (count) => CASH_SERVICES.reduce((s, sv) => s + titheTotal(count, sv.key), 0)
+export const offeringCountTotal = (count) => CASH_SERVICES.reduce((s, sv) => s + serviceTotal(count, sv.key), 0)
+
+// Part of the offering separated out while counting: count.setAside = { 'Reserve
+// Fund': 2000, … }. The full offering is still income; on confirm each amount is
+// a deposit into that Savings fund (finance_savings, constants/savingsFunds.js).
+export const CASH_SET_ASIDE_FUNDS = ['Reserve Fund', 'Emergency Fund']
+export const setAsideAmount = (count, fund) => Number(count?.setAside?.[fund]) || 0
+export const setAsideTotal = (count) => CASH_SET_ASIDE_FUNDS.reduce((s, f) => s + setAsideAmount(count, f), 0)
 
 export const emptyNotes = () => Object.fromEntries(CASH_DENOMINATIONS.map((d) => [String(d), '']))
 
@@ -30,7 +47,7 @@ export const OTHER_CASH_GROUPS = [
 export const otherCashLines = (count) => (Array.isArray(count?.lines) ? count.lines : [])
 export const otherCashTotal = (count) => otherCashLines(count).reduce((s, l) => s + (Number(l.amount) || 0), 0)
 
-export const countTotal = (count) => CASH_SERVICES.reduce((s, sv) => s + serviceTotal(count, sv.key), 0) + otherCashTotal(count)
+export const countTotal = (count) => offeringCountTotal(count) + titheCountTotal(count) + otherCashTotal(count)
 
 /** Every Sunday of the month containing `monthDate`, as yyyy-MM-dd. */
 export function sundaysOfMonth(monthDate) {

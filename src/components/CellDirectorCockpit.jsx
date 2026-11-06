@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { format } from 'date-fns'
 import { useSearchParams } from 'react-router-dom'
+import { looseNameKey } from '../utils/cellDuplicates'
 import { AnimatePresence, motion } from 'framer-motion'
 
 const MotionDiv = motion.div
@@ -262,8 +263,10 @@ export function CellDirectorCockpit({
     () => cellMemberData.reduce((s, c) => s + c.memberCount, 0),
     [cellMemberData]
   )
+  // Loose keys (spacing/punctuation-blind) so "Daisy K J" on a Sunday list still
+  // counts as the roster's "Daisy KJ" and doesn't show up as unassigned.
   const memberNamesSet = useMemo(
-    () => new Set(cellMemberData.flatMap((c) => c.names)),
+    () => new Set(cellMemberData.flatMap((c) => c.names.map(looseNameKey))),
     [cellMemberData]
   )
 
@@ -278,7 +281,7 @@ export function CellDirectorCockpit({
     cellMemberData.forEach((c) => (c.members || []).forEach((m) => {
       if (m.visitorId) byVisitorId.add(m.visitorId)
       if (m.phoneKey) byPhone.add(m.phoneKey)
-      if (m.nameKey) byName.add(m.nameKey)
+      if (m.nameKey) byName.add(looseNameKey(m.nameKey))
     }))
     return { byVisitorId, byPhone, byName }
   }, [cellMemberData])
@@ -288,7 +291,7 @@ export function CellDirectorCockpit({
     if (item.visitorId && memberIdentity.byVisitorId.has(item.visitorId)) return true
     const ph = phoneKey(item.phone)
     if (ph && memberIdentity.byPhone.has(ph)) return true
-    const nameKey = String(item.name || '').trim().toLowerCase()
+    const nameKey = looseNameKey(item.name)
     if (nameKey && memberIdentity.byName.has(nameKey)) return true
     return false
   }, [memberIdentity])
@@ -353,7 +356,7 @@ export function CellDirectorCockpit({
         }
         const unassigned = []
         for (const [key, entry] of nameMap) {
-          if (!memberNamesSet.has(key)) unassigned.push(entry)
+          if (!memberNamesSet.has(looseNameKey(key))) unassigned.push(entry)
         }
         unassigned.sort((a, b) => b.weekCount - a.weekCount)
         setUnassignedVisitors(unassigned)

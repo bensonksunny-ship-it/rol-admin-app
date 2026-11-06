@@ -8001,14 +8001,30 @@ export function subscribeFinanceMonthUnlocks(onChange) {
 export async function setFinanceMonthUnlock(month, days, by, type = 'expense') {
   // Locking (days 0 — "Mark entry completed" / Lock now) uses the server clock so
   // firestore.rules can let the finance team re-lock but never extend an unlock.
-  const until = days > 0 ? Timestamp.fromDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000)) : serverTimestamp()
-  await setDoc(doc(db, FINANCE_MONTH_UNLOCKS, unlockDocId(type, month)), {
-    month,
-    type,
-    unlockedUntil: until,
-    ...(days > 0
-      ? { unlockedBy: by || '', unlockedAt: Timestamp.now(), unlockDays: days, unlockCount: increment(1) }
-      : { lockedBy: by || '', lockedAt: Timestamp.now() }),
+  const ref = doc(db, FINANCE_MONTH_UNLOCKS, unlockDocId(type, month))
+  if (days > 0) {
+    await setDoc(ref, {
+      month,
+      type,
+      unlockedUntil: Timestamp.fromDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000)),
+      unlockedBy: by || '',
+      unlockedAt: Timestamp.now(),
+      unlockDays: days,
+      unlockCount: increment(1),
+    }, { merge: true })
+    return
+  }
+  // "Entry completed": `completed: true` is what firestore.rules require from the
+  // finance team and what the Months Closed progress / ✓ Completed badge read.
+  // month/type only go on a new doc — an older doc without `type` would otherwise
+  // make the update touch a key the finance team's rule doesn't allow.
+  const exists = (await getDoc(ref)).exists()
+  await setDoc(ref, {
+    ...(exists ? {} : { month, type }),
+    unlockedUntil: serverTimestamp(),
+    completed: true,
+    lockedBy: by || '',
+    lockedAt: Timestamp.now(),
   }, { merge: true })
 }
 
@@ -10416,6 +10432,28 @@ export async function saveOfferingCashCount(iso, data) {
 export async function confirmOfferingCashCount(iso, by) {
   if (!db || !iso) return
   await updateDoc(doc(db, OFFERING_CASH_COUNTS, iso), { status: 'confirmed', confirmedBy: by || '', confirmedAt: serverTimestamp(), updatedAt: serverTimestamp() })
+}
+
+/**
+ * Accounts: post a count's "Set aside from offering" amounts as Savings deposits
+ * (finance_savings). One doc per Sunday + fund (`cashcount_{iso}_{fund}`), so
+ * confirming again after a correction updates it, and a ₹0 amount removes it.
+ */
+export async function syncCashCountSetAside(iso, setAside, by) {
+  if (!db || !iso) return
+  const [y, m, d] = iso.split('-').map(Number)
+  const date = Timestamp.fromDate(new Date(y, m - 1, d))
+  const reference = `Sunday cash count ${d.toString().padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`
+  await Promise.all(Object.entries(setAside || {}).map(([fund, raw]) => {
+    const ref = doc(db, 'finance_savings', `cashcount_${iso}_${fund.replace(/\W+/g, '_')}`)
+    const amount = Number(raw) || 0
+    if (amount <= 0) return deleteDoc(ref)
+    return setDoc(ref, {
+      date, fund, type: 'deposit', amount,
+      item: 'Set aside from Sunday offering', reference,
+      cashCountDate: iso, createdBy: by || '', updatedAt: Timestamp.now(),
+    }, { merge: true })
+  }))
 }
 
 /** Accounts: send a confirmed count back to the counter for correction. */

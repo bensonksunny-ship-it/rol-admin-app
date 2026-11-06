@@ -1,15 +1,20 @@
 import { useEffect, useState } from 'react'
 import { format, parseISO } from 'date-fns'
-import { Banknote, CheckCircle2, Lock, Plus, Trash2 } from 'lucide-react'
+import { Banknote, CheckCircle2, Lock, PiggyBank, Plus, Trash2 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { subscribeOfferingCashCount, saveOfferingCashCount } from '../../services/firestore'
-import { CASH_DENOMINATIONS, CASH_SERVICES, OTHER_CASH_GROUPS, emptyNotes, notesTotal, recentSundays } from '../../utils/cashCount'
+import {
+  CASH_DENOMINATIONS, CASH_SERVICES, CASH_COUNT_TYPES, CASH_SET_ASIDE_FUNDS, OTHER_CASH_GROUPS,
+  emptyNotes, notesTotal, recentSundays,
+} from '../../utils/cashCount'
 
 const inr = (n) => `₹${Number(n || 0).toLocaleString('en-IN')}`
 
 /**
  * Sunday cash count entry: pick a Sunday, enter how many of each note / coin were
- * counted for the English and Tamil services, name who counted, and submit. Accounts confirms it in the Offering popup, which posts it as
+ * counted for the English and Tamil services — offering and loose tithe cash, one
+ * toggle per service — set aside part of the offering for the Reserve / Emergency
+ * Fund, name who counted, and submit. Accounts confirms it in the Offering popup, which posts it as
  * income; a confirmed count is read-only. Used by the Sunday Cash Count page and
  * the Offering popup's "Open count page" window.
  * sundays: the Sundays to choose from (default: the last 8); initialIso picks one.
@@ -25,7 +30,7 @@ export default function SundayCashCount({ sundays: sundaysProp, initialIso }) {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Banknote size={22} className="text-[#005044]" /> Sunday Cash Count</h1>
-          <p className="text-sm text-slate-500">Count the offering cash for each service, then submit it to Accounts.</p>
+          <p className="text-sm text-slate-500">Count the offering and tithe cash for each service, then submit it to Accounts.</p>
         </div>
         <label className="text-xs font-semibold text-slate-500">
           Sunday
@@ -45,6 +50,8 @@ function CashCountForm({ iso, myName, uid }) {
   const [form, setForm] = useState(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState(null) // { type, text }
+  // Which count each service card is showing: 'offering' or 'tithe'.
+  const [mode, setMode] = useState(() => Object.fromEntries(CASH_SERVICES.map((s) => [s.key, 'offering'])))
 
   // The form fills from the first snapshot only, so later snapshots never overwrite typing.
   useEffect(() => subscribeOfferingCashCount(iso, (c) => {
@@ -52,27 +59,47 @@ function CashCountForm({ iso, myName, uid }) {
     setForm((f) => f || {
       english: { ...emptyNotes(), ...(c?.english?.notes || {}) },
       tamil: { ...emptyNotes(), ...(c?.tamil?.notes || {}) },
+      tithe: Object.fromEntries(CASH_SERVICES.map((s) => [s.key, { ...emptyNotes(), ...(c?.tithe?.[s.key]?.notes || {}) }])),
+      setAside: Object.fromEntries(CASH_SET_ASIDE_FUNDS.map((f) => [f, c?.setAside?.[f] ? String(c.setAside[f]) : ''])),
       countedBy: c?.countedBy || myName,
       lines: (c?.lines || []).map((l) => ({ ...l, amount: String(l.amount ?? '') })),
     })
   }, () => setMsg({ type: 'error', text: 'Could not load this Sunday. Please refresh.' })), [iso, myName])
 
   const confirmed = saved?.status === 'confirmed'
-  const setNote = (svc, d, v) => setForm((f) => ({ ...f, [svc]: { ...f[svc], [d]: v.replace(/[^\d]/g, '') } }))
+  const notesFor = (svc, type) => (type === 'tithe' ? form.tithe[svc] : form[svc])
+  const setNote = (svc, type, d, v) => setForm((f) => {
+    const clean = v.replace(/[^\d]/g, '')
+    return type === 'tithe'
+      ? { ...f, tithe: { ...f.tithe, [svc]: { ...f.tithe[svc], [d]: clean } } }
+      : { ...f, [svc]: { ...f[svc], [d]: clean } }
+  })
   const totals = form ? Object.fromEntries(CASH_SERVICES.map((s) => [s.key, notesTotal(form[s.key])])) : {}
+  const titheTotals = form ? Object.fromEntries(CASH_SERVICES.map((s) => [s.key, notesTotal(form.tithe[s.key])])) : {}
+  const offeringTotal = CASH_SERVICES.reduce((t, s) => t + (totals[s.key] || 0), 0)
+  const titheTotal = CASH_SERVICES.reduce((t, s) => t + (titheTotals[s.key] || 0), 0)
   const otherTotal = form ? form.lines.reduce((s, l) => s + (Number(l.amount) || 0), 0) : 0
-  const grand = (totals.english || 0) + (totals.tamil || 0) + otherTotal
+  const grand = offeringTotal + titheTotal + otherTotal
+  const setAsideTotal = form ? CASH_SET_ASIDE_FUNDS.reduce((t, f) => t + (Number(form.setAside[f]) || 0), 0) : 0
+  const setAsideTooMuch = setAsideTotal > offeringTotal
   const setLine = (id, patch) => setForm((f) => ({ ...f, lines: f.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)) }))
   const addLine = () => setForm((f) => ({ ...f, lines: [...f.lines, { id: `l${Date.now().toString(36)}${f.lines.length}`, category: f.lines.at(-1)?.category || 'Tithe - English', name: '', amount: '' }] }))
   const removeLine = (id) => setForm((f) => ({ ...f, lines: f.lines.filter((l) => l.id !== id) }))
+  const setFund = (fund, v) => setForm((f) => ({ ...f, setAside: { ...f.setAside, [fund]: v.replace(/[^\d.]/g, '') } }))
 
   async function submit() {
+    if (setAsideTooMuch) {
+      setMsg({ type: 'error', text: `The amount set aside (${inr(setAsideTotal)}) is more than the offering counted (${inr(offeringTotal)}).` })
+      return
+    }
     setBusy(true); setMsg(null)
     try {
-      const svc = (k) => ({ notes: Object.fromEntries(Object.entries(form[k]).map(([d, v]) => [d, Number(v) || 0])), total: totals[k] })
+      const svc = (notes) => ({ notes: Object.fromEntries(Object.entries(notes).map(([d, v]) => [d, Number(v) || 0])), total: notesTotal(notes) })
       await saveOfferingCashCount(iso, {
-        english: svc('english'),
-        tamil: svc('tamil'),
+        english: svc(form.english),
+        tamil: svc(form.tamil),
+        tithe: Object.fromEntries(CASH_SERVICES.map((s) => [s.key, svc(form.tithe[s.key])])),
+        setAside: Object.fromEntries(CASH_SET_ASIDE_FUNDS.map((f) => [f, Number(form.setAside[f]) || 0])),
         countedBy: form.countedBy.trim(),
         lines: form.lines
           .filter((l) => Number(l.amount) > 0)
@@ -106,54 +133,110 @@ function CashCountForm({ iso, myName, uid }) {
       ) : (
         <>
           <div className="grid gap-4 md:grid-cols-2">
-            {CASH_SERVICES.map((s) => (
-              <section key={s.key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 bg-emerald-50/70 border-b border-slate-100">
-                  <h2 className="text-sm font-bold text-slate-800">{s.label}</h2>
-                  <p className="text-base font-bold tabular-nums text-emerald-700">{inr(totals[s.key])}</p>
-                </div>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 bg-slate-50">
-                      <th className="px-4 py-2 text-left">Note / coin</th>
-                      <th className="px-4 py-2 text-left w-28">Count</th>
-                      <th className="px-4 py-2 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {CASH_DENOMINATIONS.map((d) => {
-                      const n = Number(form[s.key][String(d)]) || 0
-                      return (
-                        <tr key={d}>
-                          <td className="px-4 py-1.5 font-semibold text-slate-700 tabular-nums">₹{d}</td>
-                          <td className="px-4 py-1.5">
-                            <input
-                              inputMode="numeric"
-                              aria-label={`${s.label} ₹${d} count`}
-                              value={form[s.key][String(d)]}
-                              disabled={confirmed}
-                              onChange={(e) => setNote(s.key, String(d), e.target.value)}
-                              placeholder="0"
-                              className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm tabular-nums disabled:bg-slate-50"
-                            />
-                          </td>
-                          <td className="px-4 py-1.5 text-right tabular-nums text-slate-600">{n ? inr(n * d) : '–'}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </section>
-            ))}
+            {CASH_SERVICES.map((s) => {
+              const type = mode[s.key]
+              const notes = notesFor(s.key, type)
+              return (
+                <section key={s.key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className={`px-4 py-3 border-b border-slate-100 space-y-2 ${type === 'tithe' ? 'bg-amber-50/70' : 'bg-emerald-50/70'}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <h2 className="text-sm font-bold text-slate-800">{s.label}</h2>
+                      <p className={`text-base font-bold tabular-nums ${type === 'tithe' ? 'text-amber-700' : 'text-emerald-700'}`}>
+                        {inr(type === 'tithe' ? titheTotals[s.key] : totals[s.key])}
+                      </p>
+                    </div>
+                    {/* Offering / Tithe: which cash this card is counting. Each keeps its own notes. */}
+                    <div role="group" aria-label={`${s.label}: what you're counting`} className="flex flex-wrap items-center gap-2">
+                      <div className="inline-flex rounded-lg bg-white border border-slate-200 p-0.5">
+                        {CASH_COUNT_TYPES.map((t) => (
+                          <button key={t.key} type="button" aria-pressed={type === t.key}
+                            onClick={() => setMode((m) => ({ ...m, [s.key]: t.key }))}
+                            className={`px-3 py-1 rounded-md text-xs font-bold transition-colors ${
+                              type === t.key
+                                ? (t.key === 'tithe' ? 'bg-amber-500 text-white' : 'bg-emerald-600 text-white')
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}>
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                      <span className="text-[11px] text-slate-500 tabular-nums">
+                        Offering {inr(totals[s.key])} · Tithe {inr(titheTotals[s.key])}
+                      </span>
+                    </div>
+                  </div>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 bg-slate-50">
+                        <th className="px-4 py-2 text-left">Note / coin</th>
+                        <th className="px-4 py-2 text-left w-28">Count</th>
+                        <th className="px-4 py-2 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {CASH_DENOMINATIONS.map((d) => {
+                        const n = Number(notes[String(d)]) || 0
+                        return (
+                          <tr key={d}>
+                            <td className="px-4 py-1.5 font-semibold text-slate-700 tabular-nums">₹{d}</td>
+                            <td className="px-4 py-1.5">
+                              <input
+                                inputMode="numeric"
+                                aria-label={`${s.label} ${type} ₹${d} count`}
+                                value={notes[String(d)]}
+                                disabled={confirmed}
+                                onChange={(e) => setNote(s.key, type, String(d), e.target.value)}
+                                placeholder="0"
+                                className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm tabular-nums disabled:bg-slate-50"
+                              />
+                            </td>
+                            <td className="px-4 py-1.5 text-right tabular-nums text-slate-600">{n ? inr(n * d) : '–'}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </section>
+              )
+            })}
           </div>
 
-          {/* Other cash received: tithe envelopes, contributions, … one line each. */}
+          {/* Part of the offering separated into savings funds while counting. */}
           <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 bg-emerald-50/70 border-b border-slate-100">
-              <h2 className="text-sm font-bold text-slate-800">Other cash received <span className="font-normal text-slate-500">(tithe, contribution, …)</span></h2>
+            <div className="flex items-center justify-between gap-2 px-4 py-3 bg-indigo-50/70 border-b border-slate-100">
+              <h2 className="text-sm font-bold text-slate-800 flex items-center gap-1.5"><PiggyBank size={16} className="text-indigo-600" /> Set aside from offering</h2>
+              <p className="text-base font-bold tabular-nums text-indigo-700">{inr(setAsideTotal)}</p>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-xs text-slate-500">
+                Separate part of the offering ({inr(offeringTotal)}) for a fund. The full offering is still recorded as income;
+                each amount is added to that fund in Savings when Accounts confirms the count.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {CASH_SET_ASIDE_FUNDS.map((f) => (
+                  <label key={f} className="text-xs font-semibold text-slate-600">{f} (₹)
+                    <input inputMode="decimal" value={form.setAside[f]} disabled={confirmed} placeholder="0"
+                      onChange={(e) => setFund(f, e.target.value)}
+                      className={`${input} mt-1 tabular-nums`} />
+                  </label>
+                ))}
+              </div>
+              {setAsideTooMuch ? (
+                <p className="text-xs font-semibold text-red-600">More than the offering counted ({inr(offeringTotal)}). Please check the amounts.</p>
+              ) : setAsideTotal > 0 && (
+                <p className="text-xs text-slate-600">Offering left after setting aside: <b className="tabular-nums">{inr(offeringTotal - setAsideTotal)}</b></p>
+              )}
+            </div>
+          </section>
+
+          {/* Other cash received: named tithe envelopes, contributions, … one line each. */}
+          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between gap-2 px-4 py-3 bg-emerald-50/70 border-b border-slate-100">
+              <h2 className="text-sm font-bold text-slate-800">Other cash received <span className="font-normal text-slate-500">(named tithe envelopes, contribution, …)</span></h2>
               <p className="text-base font-bold tabular-nums text-emerald-700">{inr(otherTotal)}</p>
             </div>
             {form.lines.length > 0 && (
+              <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 bg-slate-50">
@@ -181,7 +264,7 @@ function CashCountForm({ iso, myName, uid }) {
                           className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-50" />
                       </td>
                       <td className="px-4 py-1.5">
-                        <input inputMode="decimal" value={l.amount} disabled={confirmed} onChange={(e) => setLine(l.id, { amount: e.target.value.replace(/[^d.]/g, '') })} placeholder="0" aria-label="Amount"
+                        <input inputMode="decimal" value={l.amount} disabled={confirmed} onChange={(e) => setLine(l.id, { amount: e.target.value.replace(/[^\d.]/g, '') })} placeholder="0" aria-label="Amount"
                           className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm tabular-nums disabled:bg-slate-50" />
                       </td>
                       <td className="px-2 py-1.5 text-center">
@@ -195,6 +278,7 @@ function CashCountForm({ iso, myName, uid }) {
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
             {!confirmed && (
               <button type="button" onClick={addLine}
@@ -211,11 +295,18 @@ function CashCountForm({ iso, myName, uid }) {
           </section>
 
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white rounded-2xl border border-slate-200 shadow-sm px-4 py-3">
-            <div className="text-sm text-slate-600">
-              English <b className="tabular-nums">{inr(totals.english)}</b> · Tamil <b className="tabular-nums">{inr(totals.tamil)}</b> · Other <b className="tabular-nums">{inr(otherTotal)}</b> · <span className="text-slate-900 font-bold">Total <span className="tabular-nums">{inr(grand)}</span></span>
+            <div className="text-sm text-slate-600 space-y-0.5">
+              <p>
+                Offering <b className="tabular-nums">{inr(offeringTotal)}</b> · Tithe <b className="tabular-nums">{inr(titheTotal)}</b> · Other <b className="tabular-nums">{inr(otherTotal)}</b> · <span className="text-slate-900 font-bold">Total <span className="tabular-nums">{inr(grand)}</span></span>
+              </p>
+              {setAsideTotal > 0 && (
+                <p className="text-xs text-indigo-700">
+                  Set aside: {CASH_SET_ASIDE_FUNDS.filter((f) => Number(form.setAside[f]) > 0).map((f) => `${f} ${inr(form.setAside[f])}`).join(' · ')}
+                </p>
+              )}
             </div>
             {!confirmed && (
-              <button type="button" onClick={submit} disabled={busy}
+              <button type="button" onClick={submit} disabled={busy || setAsideTooMuch}
                 className="px-5 min-h-[42px] rounded-xl bg-[#005044] hover:bg-[#00695a] text-white text-sm font-bold disabled:opacity-60">
                 {busy ? 'Submitting…' : saved ? 'Update count' : 'Submit to Accounts'}
               </button>

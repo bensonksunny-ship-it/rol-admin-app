@@ -4,6 +4,11 @@
 
 export const normalizeMemberName = (name) => String(name || '').trim().toLowerCase().replace(/\s+/g, ' ')
 
+// Spacing/punctuation-blind key for "is this the same person?" checks, so a roster
+// "Daisy KJ" still matches a Sunday list's "Daisy K J" / "Daisy K.J." / "daisy  kj".
+export const looseNameKey = (name) =>
+  String(name || '').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}]/gu, '')
+
 const memberKeys = (m) => [
   m.visitorId ? `v:${m.visitorId}` : '',
   normalizeMemberName(m.name) ? `n:${normalizeMemberName(m.name)}` : '',

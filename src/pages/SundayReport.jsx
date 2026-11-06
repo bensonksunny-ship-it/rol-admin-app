@@ -41,6 +41,7 @@ import ProgramConfirmSheet from '../components/ProgramConfirmSheet'
 import useSeniorPastor from '../hooks/useSeniorPastor'
 import BackButton from '../components/BackButton'
 import DateInput from '../components/DateInput'
+import { looseNameKey } from '../utils/cellDuplicates'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'nonCell', title: 'Non Cell' },
@@ -831,7 +832,7 @@ function BulkImportPanel({ isOpen, onClose, selectedDate, report, updateReport, 
   const detectSection = (personName) => {
     const key = nn(personName)
     if (rkKidsNorms?.has(key)) return { section: 'riverKids', cellId: '' }
-    const entry = cellMemberMap.get(key)
+    const entry = cellMemberMap.get(key) || cellMemberMap.get(looseNameKey(key))
     if (entry) return { section: 'cell', cellId: entry.cellId }
     return { section: 'nonCell', cellId: '' }
   }
@@ -1363,7 +1364,7 @@ export default function SundayReport({ embedded = false }) {
     return [...rosterMembers, ...leaders]
   }, [rosterMembers, cellGroups, peopleDirectory])
   const cellMemberNames = useMemo(
-    () => new Set(allCellMembers.map((m) => String(m.name).trim().toLowerCase())),
+    () => new Set(allCellMembers.map((m) => looseNameKey(m.name))),
     [allCellMembers]
   )
   const [pcsEntriesAll, setPcsEntriesAll] = useState([])
@@ -2111,7 +2112,7 @@ export default function SundayReport({ embedded = false }) {
     const names = recentAttendeeNames.filter((n) => {
       const key = n.trim().toLowerCase()
       if (!key || nonCellSet.has(key)) return false
-      if (cellMemberNames?.has(key)) return false
+      if (cellMemberNames?.has(looseNameKey(key))) return false
       // Anyone currently a D-Light Recommendation belongs in that panel only —
       // keeping them here too would render them twice.
       if (dlightRecommendationNames.has(key)) return false
@@ -2140,7 +2141,10 @@ export default function SundayReport({ embedded = false }) {
     const m = new Map()
     for (const member of allCellMembers) {
       const key = (member.name || '').replace(/\s+/g, ' ').trim().toLowerCase()
-      if (key && member.cellId) m.set(key, { cellId: member.cellId })
+      if (key && member.cellId) {
+        m.set(key, { cellId: member.cellId })
+        m.set(looseNameKey(key), { cellId: member.cellId })
+      }
     }
     return m
   }, [allCellMembers])
@@ -2154,6 +2158,46 @@ export default function SundayReport({ embedded = false }) {
     }
     return s
   }, [allRkKids])
+
+  // A cell member must never sit in Non Cell. Names that were put there before the
+  // person joined a cell (or typed with different spacing, "Daisy K J" vs the roster's
+  // "Daisy KJ") are moved into their own cell's attendance under the roster name.
+  // Once per date, only on an editable, not-yet-filed report.
+  const nonCellCleanedRef = useRef('')
+  useEffect(() => {
+    if (!report || report.filed || !canEditEffective || !allCellMembers.length || !cellGroups.length) return
+    if (nonCellCleanedRef.current === selectedDate) return
+    nonCellCleanedRef.current = selectedDate
+    const cellIds = new Set(cellGroups.map((g) => g.id))
+    const byKey = new Map()
+    for (const m of allCellMembers) {
+      if (m.status === 'inactive' || !cellIds.has(m.cellId)) continue
+      const k = looseNameKey(m.name)
+      if (k && !byKey.has(k)) byKey.set(k, m)
+    }
+    const keep = []
+    const sca = { ...(report.sundayCellAttendance || {}) }
+    const touched = new Set()
+    const moved = []
+    for (const n of (report.nonCell || [])) {
+      const m = byKey.get(looseNameKey(n))
+      if (!m) { keep.push(n); continue }
+      const rosterName = String(m.name).trim()
+      const list = sca[m.cellId] || []
+      if (!list.some((x) => looseNameKey(x) === looseNameKey(rosterName))) sca[m.cellId] = [...list, rosterName]
+      touched.add(m.cellId)
+      moved.push(rosterName)
+    }
+    if (!moved.length) return
+    updateReport({ nonCell: keep, sundayCellAttendance: sca })
+    const by = userProfile?.email || 'unknown'
+    Promise.all([
+      patchSundayReportNameField(selectedDate, 'nonCell', keep, by),
+      ...[...touched].map((cid) => patchSundayReportCellAttendance(selectedDate, cid, sca[cid], by)),
+    ])
+      .then(() => showAwayToast(`Moved ${moved.join(', ')} from Non Cell to ${moved.length === 1 ? 'their cell' : 'their cells'}.`))
+      .catch((err) => console.error('Moving cell members out of Non Cell failed:', err))
+  }, [report, canEditEffective, allCellMembers, cellGroups, selectedDate])
 
   /**
    * Where a directory person belongs on this report: River Kids registry → River Kids,
@@ -2169,7 +2213,7 @@ export default function SundayReport({ embedded = false }) {
       return { section: 'riverKids', name, label: 'River Kids', alreadyThere: has(report?.riverKids, name) }
     }
     const member = allCellMembers.find(
-      (m) => normName(m.name) === key || (person?.source === 'visitor' && m.visitorId === person.id)
+      (m) => (person?.source === 'visitor' && m.visitorId === person.id) || looseNameKey(m.name) === looseNameKey(name)
     )
     const cell = member && cellGroups.find((g) => g.id === member.cellId)
     if (cell) {

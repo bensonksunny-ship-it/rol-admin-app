@@ -3,10 +3,12 @@ import { Navigate } from 'react-router-dom'
 import { format, addMonths, subMonths, startOfMonth } from 'date-fns'
 import { useAuth } from '../../context/AuthContext'
 import { canAccessAccountsEntry } from '../../utils/accountsEntryAccess'
-import { getFinanceIncome, applyFinanceIncomeOps, subscribeOfferingCashCounts, confirmOfferingCashCount, reopenOfferingCashCount } from '../../services/firestore'
+import { getFinanceIncome, applyFinanceIncomeOps, subscribeOfferingCashCounts, confirmOfferingCashCount, reopenOfferingCashCount, syncCashCountSetAside } from '../../services/firestore'
 import useFinanceMonthLocks from '../../hooks/useFinanceMonthLocks'
 import { unlockDocId } from '../../utils/financeEntryLock'
 import FinanceMonthLockBanner from '../../components/finance/FinanceMonthLockBanner'
+import FinanceStatementReport from '../../components/finance/FinanceStatementReport'
+import { buildIncomeStatement } from '../../utils/financeStatement'
 import { categorizeEntries, matchesCategory, OTHER_INCOME_CATEGORY_OPTIONS, RSM_CATEGORY_OPTIONS, toDate, offeringPaymentMode, ONLINE_MODE, isOnlineEntry } from './income/incomeCategorize'
 import IncomeSummaryTable from './income/IncomeSummaryTable'
 import OfferingMatrixTable from './income/OfferingMatrixTable'
@@ -16,7 +18,7 @@ import { IncomeSectionCard, IncomeSectionModal } from './income/IncomeSectionCar
 import OfferingPopupBody from './income/OfferingPopupBody'
 import CashCountPanel from './income/CashCountPanel'
 import { cellOps, mergeOps, fmtAmount } from './income/gridUtils'
-import { CASH_SERVICES, serviceTotal, sundaysOfMonth, otherCashLines } from '../../utils/cashCount'
+import { CASH_SERVICES, CASH_SET_ASIDE_FUNDS, serviceTotal, titheTotal, setAsideAmount, sundaysOfMonth, otherCashLines } from '../../utils/cashCount'
 
 // The list-style Income sections, in page order. `categories[0]` is what new
 // rows and pasted rows are filed under; multi-category sections get a Category column.
@@ -86,6 +88,8 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
   // Sunday Cash Counter submissions for the month (offering_cash_counts).
   const [cashCounts, setCashCounts] = useState([])
   const [cashBusy, setCashBusy] = useState(null) // date being confirmed / reopened
+  // A completed month opens as its statement; "Edit" switches that month back to the tables.
+  const [editingCompletedMonth, setEditingCompletedMonth] = useState(null)
 
   const entriesRef = useRef(entries)
   entriesRef.current = entries
@@ -249,8 +253,15 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
     })
     // Other cash lines (tithe envelopes, …): one Cash entry each, tagged with
     // cashCountLine so re-confirming after a correction updates instead of duplicating.
+    // Each service's loose tithe count posts the same way, as one Tithe - English /
+    // Tamil line — tagged, so it never overwrites tithes entered by name.
     const lineKey = l => `${iso}/${l.id}`
-    const lines = otherCashLines(count)
+    const lines = [
+      ...otherCashLines(count),
+      ...CASH_SERVICES
+        .filter(s => titheTotal(count, s.key) > 0)
+        .map(s => ({ id: `tithe-${s.key}`, category: s.titheCategory, name: 'Sunday tithe (cash count)', amount: titheTotal(count, s.key) })),
+    ]
     const keys = new Set(lines.map(lineKey))
     const tagged = entriesRef.current.filter(e => String(e.cashCountLine || '').startsWith(`${iso}/`))
     lines.forEach(l => {
@@ -268,7 +279,12 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
     setCashBusy(iso)
     try {
       const ok = await applyOps('offering', ops, { label: `Cash count for ${day} posted — Ctrl+Z to undo` })
-      if (ok) await confirmOfferingCashCount(iso, userProfile?.name || user?.email || '')
+      if (ok) {
+        const by = userProfile?.name || user?.email || ''
+        // Reserve / Emergency Fund set-asides → Savings deposits for that Sunday.
+        await syncCashCountSetAside(iso, Object.fromEntries(CASH_SET_ASIDE_FUNDS.map(f => [f, setAsideAmount(count, f)])), by)
+        await confirmOfferingCashCount(iso, by)
+      }
     } catch (err) {
       console.error('confirmCashCount', err)
       showToast('Posted to income, but the count could not be marked confirmed. Please try again.', 'error')
@@ -340,6 +356,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
   const offeringEntries = [...categorized.englishOffering, ...categorized.tamilOffering, ...categorized.onlineOffering]
   const monthKey = format(activeMonth, 'yyyy-MM')
   const pendingCounts = cashCounts.filter(c => c.status !== 'confirmed').length
+  const monthUnlock = monthUnlocks[unlockDocId('income', monthKey)]
+  const monthCompleted = monthUnlock?.completed === true
+  const showStatement = monthCompleted && editingCompletedMonth !== monthKey
 
   function gridProps(section) {
     return {
@@ -417,6 +436,21 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
         />
       )}
 
+      {showStatement ? (
+        loading
+          ? <div className="text-center text-sm text-slate-500 py-6">Loading…</div>
+          : <FinanceStatementReport statement={buildIncomeStatement(entries, activeMonth, monthUnlock)} onEdit={() => setEditingCompletedMonth(monthKey)} />
+      ) : (
+      <>
+      {monthCompleted && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
+          <p className="text-sm text-amber-800">Editing a completed month. Changes save as usual where this month is open for editing.</p>
+          <button type="button" onClick={() => setEditingCompletedMonth(null)} className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-amber-800 text-xs font-semibold hover:bg-amber-100">
+            Back to statement
+          </button>
+        </div>
+      )}
+
       <h2 className="text-sm font-semibold text-slate-600">Income Breakdown</h2>
 
       {loading && (
@@ -452,6 +486,8 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
           />
         ))}
       </div>
+      </>
+      )}
 
       {openSection && (
         <IncomeSectionModal title={SECTION_TITLES[openSection]} monthLabel={format(activeMonth, 'MMMM yyyy')} onClose={() => setOpenSection(null)}>

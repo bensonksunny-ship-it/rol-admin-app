@@ -74,7 +74,7 @@ const isBaptised = (p) => String(p?.baptised || '').toLowerCase() === 'yes' || !
 
 /**
  * "Membership Onboarding Pipeline" on My Workspace (Caring staff, Founder, Senior
- * Pastor; Cell Directors read-only): everyone with a membership pipeline (started
+ * Pastor, First Lady; SP Office read-only): everyone with a membership pipeline (started
  * from their PCS profile), each with the 8-stage progress line, "Stage N of 8: …
  * Pending" and the one-click action for their current stage.
  *

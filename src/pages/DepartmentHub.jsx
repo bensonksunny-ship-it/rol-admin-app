@@ -122,7 +122,7 @@ import {
   subscribeToRecentSundayAttendanceWeeks,
 } from '../services/firestore'
 import { getMemberDisplayName } from '../utils/displayName'
-import { findDuplicateCellMembers, normalizeMemberName, cellConflictMessage } from '../utils/cellDuplicates'
+import { findDuplicateCellMembers, normalizeMemberName, cellConflictMessage, looseNameKey } from '../utils/cellDuplicates'
 import ApplicationsQueueCard from '../components/caring/ApplicationsQueueCard'
 import { APPLICATION_TYPE_KEYS } from '../utils/pastoralApplications'
 import CaringEventsTab from '../components/caring/CaringEventsTab'
@@ -1735,16 +1735,25 @@ export default function DepartmentHub() {
     try {
       const updatedBy = userProfile?.email || userProfile?.displayName || 'unknown'
       const current = await getSundayReport(visitorAttendanceDate)
-      const membership = visitorAttendanceCellMembers.find((m) =>
-        m.status !== 'inactive' && String(m.name || '').trim().toLowerCase() === norm
-      )
+      // A cell member is marked in their own cell (under the roster name), never Non
+      // Cell — matched by visitorId first, then a spacing-blind name ("Daisy K J" = "Daisy KJ").
+      const loose = looseNameKey(trimmedName)
+      const active = visitorAttendanceCellMembers.filter((m) => m.status !== 'inactive')
+      const membership = (visitor.id && active.find((m) => m.visitorId === visitor.id))
+        || active.find((m) => looseNameKey(m.name) === loose)
+      const sameName = (n) => { const k = looseNameKey(n); return k === loose || (!!membership && k === looseNameKey(membership.name)) }
+      const rosterName = membership ? String(membership.name || '').trim() || trimmedName : trimmedName
       const applyNext = (existing) => wasPresent
-        ? existing.filter((n) => String(n).trim().toLowerCase() !== norm)
-        : (existing.some((n) => String(n).trim().toLowerCase() === norm) ? existing : [...existing, trimmedName])
+        ? existing.filter((n) => !sameName(n))
+        : (existing.some(sameName) ? existing : [...existing, rosterName])
 
       if (membership) {
         const next = applyNext(current?.sundayCellAttendance?.[membership.cellId] || [])
         await patchSundayReportCellAttendance(visitorAttendanceDate, membership.cellId, next, updatedBy)
+        const nonCell = current?.nonCell || []
+        if (nonCell.some(sameName)) {
+          await patchSundayReportNameField(visitorAttendanceDate, 'nonCell', nonCell.filter((n) => !sameName(n)), updatedBy)
+        }
       } else {
         const next = applyNext(current?.nonCell || [])
         await patchSundayReportNameField(visitorAttendanceDate, 'nonCell', next, updatedBy)
