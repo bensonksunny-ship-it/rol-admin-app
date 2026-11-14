@@ -57,6 +57,8 @@ service cloud.firestore {
         {'department': departmentId, 'position': 'Coordinator'},
         {'department': departmentId, 'position': 'Cell Leader'},
         {'department': departmentId, 'position': 'Associate'},
+        // Offered only under Caring (see isCaringAssistantOnly below).
+        {'department': departmentId, 'position': 'Caring Assistant'},
         {'department': departmentId, 'role': 'DIRECTOR'},
         {'department': departmentId, 'role': 'COORDINATOR'},
         {'department': departmentId, 'role': 'LEADER'},
@@ -84,6 +86,41 @@ service cloud.firestore {
         (departmentId in userDepartments()) ||
         hasAnyPositionInDept(departmentId)
       );
+    }
+    // Caring Assistant (utils/access.js isCaringAssistantOnly): Caring's day-to-day
+    // operations, but not the Director's decisions — approving / rejecting
+    // applications, deleting submitted applications or events, removing people from
+    // PCS. True only when it is the person's ONLY Caring role. The cheap position
+    // check runs first, so for everyone else this is a single hasAny.
+    function isCaringAssistantOnly() {
+      return isSignedIn()
+        && userPositions().hasAny([{'department': 'Caring', 'position': 'Caring Assistant'}])
+        && !userPositions().hasAny([
+             {'department': 'Caring', 'position': 'Director'},
+             {'department': 'Caring', 'position': 'Coordinator'},
+             {'department': 'Caring', 'role': 'DIRECTOR'},
+             {'department': 'Caring', 'role': 'COORDINATOR'}
+           ])
+        && !isFullAccess()
+        && getUserRole() != 'Senior Pastor';
+    }
+    // An application update that decides it (→ approved / rejected) or undoes a
+    // decision (approved / rejected → anything else). Held back from the Caring Assistant.
+    function isApplicationDecision() {
+      return request.resource.data.get('status', '') != resource.data.get('status', '')
+        && (request.resource.data.get('status', '') in ['approved', 'rejected']
+            || resource.data.get('status', '') in ['approved', 'rejected']);
+    }
+    // Caring staff write to an application: everyone with Caring access, except a
+    // Caring Assistant making a decision.
+    function caringAppUpdate() {
+      return isFullAccess()
+        || (canAccessDept('Caring') && (!isApplicationDecision() || !isCaringAssistantOnly()));
+    }
+    // Caring deletes an application: the Caring Assistant only an unsent (pending) link.
+    function caringAppDelete() {
+      return isFullAccess()
+        || (canAccessDept('Caring') && (resource.data.get('status', '') == 'pending' || !isCaringAssistantOnly()));
     }
     // Same three-tier check as canAccessDept, but against a LIST of departments in a
     // single pass — for rules that need "any of these N departments". OR-ing several
@@ -593,7 +630,12 @@ service cloud.firestore {
     }
     function pcsStaffUpdate(keys) {
       return isFullAccess()
-        || (!keys.hasAny(['deaconOffice']) && deptAccessNoFull('Caring'))
+        || (!keys.hasAny(['deaconOffice']) && deptAccessNoFull('Caring')
+            // Remove from PCS / duplicate merge (→ status inactive) is not the Caring
+            // Assistant's; the status test short-circuits for every other edit.
+            && (request.resource.data.get('status', '') != 'inactive'
+                || resource.data.get('status', '') == 'inactive'
+                || !isCaringAssistantOnly()))
         || (keys.hasOnly(['deaconOffice']) && isDeaconManager())
         || (keys.hasOnly(['membershipPipeline'])
             && (getUserRole() == 'Senior Pastor' || deptAccessNoFull('First Lady')));
@@ -608,7 +650,7 @@ service cloud.firestore {
       // Founder or the Senior Pastor may appoint / edit / end (rule below).
       allow create: if isSignedIn() && (isFullAccess()
         || (canAccessDept('Caring') && !('deaconOffice' in request.resource.data)));
-      allow delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Caring') && !isCaringAssistantOnly()));
       // Staff updates, as ONE rule so the role checks run once (pcsStaffUpdate below):
       //  - Caring writes PCS except the Deacon Office (deaconOffice);
       //  - Deacon Office — Senior Pastor, or the authorised admin account (Founder via
@@ -736,8 +778,9 @@ service cloud.firestore {
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
         || resource.data.expiresAt > request.time
         || resource.data.get('examOpenUntil', timestamp.value(0)) > request.time;
-      allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
-      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+      allow list, create: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow delete: if isSignedIn() && caringAppDelete();
+      allow update: if (isSignedIn() && caringAppUpdate())
         || (resource.data.status == 'pending'
             && resource.data.expiresAt > request.time
             && request.resource.data.status == 'submitted'
@@ -770,10 +813,11 @@ service cloud.firestore {
       allow update: if spOfficeAppUpdate();
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
         || resource.data.expiresAt > request.time;
-      allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow list, create: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow delete: if isSignedIn() && caringAppDelete();
       // First Lady: read-only (Applications Progress, as baptism_applications above).
       allow list: if isSignedIn() && canAccessDept('First Lady');
-      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+      allow update: if (isSignedIn() && caringAppUpdate())
         || (resource.data.status == 'pending'
             && resource.data.expiresAt > request.time
             && request.resource.data.status == 'submitted'
@@ -795,7 +839,8 @@ service cloud.firestore {
       allow get: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
         || resource.data.get('closedAt', null) == null
         || resource.data.status != 'pending';
-      allow list, create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow list, create: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow delete: if isSignedIn() && caringAppDelete();
       // Senior Pastor / First Lady read applications for the Membership Onboarding
       // Pipeline on My Workspace (stage 3 + Pastoral Approval).
       allow list: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady'));
@@ -803,7 +848,7 @@ service cloud.firestore {
       allow update: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady'))
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['pipelineProgress', 'status', 'decidedBy', 'decidedAt', 'familySyncedAt', 'familySyncError', 'closedAt', 'closedBy', 'closedReason']);
-      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring')))
+      allow update: if (isSignedIn() && caringAppUpdate())
         || (resource.data.status == 'pending'
             && resource.data.get('closedAt', null) == null
             && request.resource.data.status == 'submitted'
@@ -844,8 +889,9 @@ service cloud.firestore {
       allow list: if isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canRevealSurpriseName());
       // First Lady: read-only (Applications Progress, as baptism_applications above).
       allow list: if isSignedIn() && canAccessDept('First Lady');
-      allow create, delete: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
-      allow update: if (isSignedIn() && (isFullAccess() || canAccessDept('Caring') || canRevealSurpriseName())
+      allow create: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow delete: if isSignedIn() && caringAppDelete();
+      allow update: if (isSignedIn() && (caringAppUpdate() || canRevealSurpriseName())
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['revealed'])
               || canRevealSurpriseName()
               || (request.resource.data.get('revealEventId', '') != ''
@@ -895,7 +941,9 @@ service cloud.firestore {
     // burial). Saving one also writes member_profiles / people / caring_pcs, which
     // Caring can already write.
     match /caring_events/{eventId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      allow read, create, update: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
+      // Deleting an event is the Caring Director's, not the Caring Assistant's.
+      allow delete: if isSignedIn() && (isFullAccess() || (canAccessDept('Caring') && !isCaringAssistantOnly()));
       // First Lady: read-only (Applications Progress shows each application's event).
       allow read: if isSignedIn() && canAccessDept('First Lady');
       // SP Office: read-only (the Applications Desk shows each application's event).

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useAuth } from '../../context/AuthContext'
+import { canMakeCaringDecisions } from '../../utils/access'
 import QRCode from 'qrcode'
 import {
   createBaptismApplication, subscribeBaptismApplicationsForEntry, updateBaptismApplication, deleteBaptismApplication,
@@ -26,6 +28,10 @@ const STATUS_CLS = {
 // preferred baptism place and batch / service date there). Caring then assigns the
 // formal Batch No. + Serial No. (Form ID), adds office notes and prints it.
 export default function BaptismApplicationModal({ entry, prefill, userEmail, onClose }) {
+  // Caring Assistant: may withdraw only an unsent (pending) link — a submitted
+  // application is withdrawn or decided by the Caring Director.
+  const { userProfile: authProfile } = useAuth()
+  const canDecide = canMakeCaringDecisions(authProfile)
   const [apps, setApps] = useState(null)
   const [batch, setBatch] = useState(readBatch)
   const [serial, setSerial] = useState('')
@@ -253,7 +259,7 @@ export default function BaptismApplicationModal({ entry, prefill, userEmail, onC
                 <button type="button" onClick={() => openBaptismFormPrint({ ...app, officeNotes: notes })} className="flex-1 min-h-[44px] rounded-xl bg-[#1e3a5f] text-white text-sm font-bold">
                   Print / Export PDF
                 </button>
-                <button type="button" onClick={withdraw} className="px-4 min-h-[44px] rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50">Withdraw</button>
+                {(canDecide || app.status === 'pending') && <button type="button" onClick={withdraw} className="px-4 min-h-[44px] rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50">Withdraw</button>}
               </div>
               <button type="button" disabled={creating} onClick={startNew} className="text-xs font-semibold text-slate-500 hover:text-slate-700">{creating ? 'Creating…' : '+ New application'}</button>
             </>

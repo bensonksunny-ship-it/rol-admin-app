@@ -26,7 +26,13 @@ export const POSITION_OPTIONS = [
   // Offered only under Accounts (see `departments`). Opens the Sunday cash count
   // page and nothing else — it is left out of departments[] below.
   { value: 'Sunday Cash Counter', label: 'Sunday Cash Counter', departments: ['Accounts'] },
+  // Offered only under Caring. Day-to-day Caring operations (PCS, applications,
+  // events) without the Director's decisions — see isCaringAssistantOnly (utils/access.js).
+  { value: 'Caring Assistant', label: 'Caring Assistant', departments: ['Caring'] },
 ]
+
+/** Position value for the Caring Assistant (Caring). */
+export const CARING_ASSISTANT_POSITION = 'Caring Assistant'
 
 /** Position value for the Sunday Cash Counter (Accounts). */
 export const CASH_COUNTER_POSITION = 'Sunday Cash Counter'

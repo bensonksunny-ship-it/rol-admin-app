@@ -9,7 +9,7 @@ import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWor
 import ApprovalsCard from '../components/workspace/ApprovalsCard'
 import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
 import ApplicationsProgressWidget from '../components/workspace/ApplicationsProgressWidget'
-import { getDepartmentRole, isDepartmentDirectorInPositions, isSpOfficeOnly } from '../utils/access'
+import { getDepartmentRole, isDepartmentDirectorInPositions, isSpOfficeOnly, isCaringAssistantOnly } from '../utils/access'
 import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
 import DeclarationRequestRibbon from '../components/workspace/DeclarationRequestRibbon'
 import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
@@ -98,7 +98,8 @@ export default function MyWorkspace() {
   const showPipeline = canCaring || canPastor || isFirstLady || isSpOffice
   // Rule: every application's level-wise progress is on the Founder's, the Caring
   // Director's and the First Lady's workspace (utils/applicationProgress.js).
-  const showApplications = isFounder || isFirstLady || isDepartmentDirectorInPositions(userProfile, 'Caring')
+  // The Caring Assistant sees it too, to push applications forward.
+  const showApplications = isFounder || isFirstLady || isDepartmentDirectorInPositions(userProfile, 'Caring') || isCaringAssistantOnly(userProfile)
   const applications = showApplications && <ApplicationsProgressWidget />
   const {
     notifications, handleNotifAction, dismissNotification,

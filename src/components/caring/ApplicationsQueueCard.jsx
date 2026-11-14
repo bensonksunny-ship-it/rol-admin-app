@@ -7,6 +7,8 @@ import { getMemberDisplayName } from '../../utils/displayName'
 import SubmittedApplicationViewer from './SubmittedApplicationViewer'
 import BaptismStageTracker from './BaptismStageTracker'
 import { baptismReadyForApproval } from '../../utils/baptismProgress'
+import { useAuth } from '../../context/AuthContext'
+import { canMakeCaringDecisions } from '../../utils/access'
 
 const fmtD = (d) => {
   const dt = d instanceof Date ? d : d ? new Date(d) : null
@@ -29,6 +31,10 @@ const CATEGORIES = [
  * chosen upcoming Caring > Events batch (saveCaringEvent also writes it into PCS).
  */
 export default function ApplicationsQueueCard({ pcsEntries, allCellMembers, cellGroups, canEdit, savedBy, onOpenEvents }) {
+  // Approve / reject is the Caring Director's call — a Caring Assistant prepares the
+  // application and pushes it along, then it waits here for the Director.
+  const { userProfile } = useAuth()
+  const canDecide = canMakeCaringDecisions(userProfile)
   const [apps, setApps] = useState({ baptism: [], dedication: [], marriage: [], membership: [] })
   const [events, setEvents] = useState([])
   const [category, setCategory] = useState('all')
@@ -109,6 +115,14 @@ export default function ApplicationsQueueCard({ pcsEntries, allCellMembers, cell
     const btn = compact ? 'px-2.5 py-1 text-[11px]' : 'min-h-[40px] px-4 text-sm'
     // Baptism: final approval waits for Cell Leader sign-off and a passed MCQ exam.
     const stagesPending = type === 'baptism' && !baptismReadyForApproval(app)
+    if (!canDecide) {
+      return (
+        <>
+          <span className={`${btn} inline-flex items-center rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-semibold`}>Awaiting Director&apos;s decision</span>
+          <button type="button" disabled={busy} onClick={() => { setNote(''); setDeclining({ type, app }) }} className={`${btn} rounded-lg border border-orange-200 text-orange-700 font-semibold hover:bg-orange-50 disabled:opacity-50`}>Request Info</button>
+        </>
+      )
+    }
     return (
       <>
         {APPLICATION_TYPES[type].eventType ? (
@@ -230,11 +244,11 @@ export default function ApplicationsQueueCard({ pcsEntries, allCellMembers, cell
                 await decide(declining.type, declining.app, { status: 'info_requested', officeNotes: `${prev}Info requested: ${note.trim()}`.trim() }, 'Could not save.')
                 setDeclining(null); setViewing(null)
               }} className="px-4 py-2 rounded-xl bg-orange-500 text-white text-sm font-bold disabled:opacity-50">Request Info</button>
-              <button type="button" disabled={busy} onClick={async () => {
+              {canDecide && <button type="button" disabled={busy} onClick={async () => {
                 const prev = declining.app.officeNotes ? `${declining.app.officeNotes}\n` : ''
                 await decide(declining.type, declining.app, { status: 'rejected', officeNotes: `${prev}${note.trim() ? `Not approved: ${note.trim()}` : 'Not approved'}` }, 'Could not save.')
                 setDeclining(null); setViewing(null)
-              }} className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-bold disabled:opacity-50">Reject</button>
+              }} className="px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-bold disabled:opacity-50">Reject</button>}
             </div>
           </div>
         </div>,

@@ -55,7 +55,7 @@ Lives in the `caring` slug of `DepartmentHub`. Key collections:
 - `pcs_lookup` – denormalized name/phone lookup for fast search
 
 ### Applications Progress (rule)
-Every application made through the app (Baptism, Baby Dedication, Marriage, Membership, and any future type) must show its level-wise progress on the My Workspace of the **Founder, the Caring Director and the First Lady** — `components/workspace/ApplicationsProgressWidget.jsx`. Levels come from `utils/applicationProgress.js` (`applicationLevels`). A new application type must: be added to `APPLICATION_TYPE_KEYS`/`APPLICATION_TYPES` (`utils/pastoralApplications.js`) and to `APPLICATION_COLLECTIONS` (`services/firestore.js`), get a case in `applicationLevels`, and have its collection's `list` opened to `canAccessDept('First Lady')` in `firestore.rules`.
+Every application made through the app (Baptism, Baby Dedication, Marriage, Membership, and any future type) must show its level-wise progress on the My Workspace of the **Founder, the Caring Director, the Caring Assistant and the First Lady** — `components/workspace/ApplicationsProgressWidget.jsx`. Levels come from `utils/applicationProgress.js` (`applicationLevels`). A new application type must: be added to `APPLICATION_TYPE_KEYS`/`APPLICATION_TYPES` (`utils/pastoralApplications.js`) and to `APPLICATION_COLLECTIONS` (`services/firestore.js`), get a case in `applicationLevels`, and have its collection's `list` opened to `canAccessDept('First Lady')` in `firestore.rules`.
 
 ### Key Firestore Collections
 | Collection | Purpose |
@@ -80,3 +80,6 @@ Uses the new `@tailwindcss/vite` plugin. No `tailwind.config.js` — configurati
 
 ### Firestore Security Rules
 `firestore.rules` uses helper functions `isSignedIn()`, `isFullAccess()`, `canAccessDept(deptName)`. When adding a new collection, add a matching `match` block following the existing pattern — `canAccessDept('Cell')` for cell-scoped writes, `canAccessDept('Caring')` for caring-scoped writes, etc.
+
+### Caring Assistant (role)
+A `Caring Assistant` position (Caring only) runs Caring's day-to-day operations (PCS, applications, events, moving applications through stages) and sees Applications Progress. It is treated as `COORDINATOR` by `getDepartmentRole`, but `isCaringAssistantOnly()` / `canMakeCaringDecisions()` (`utils/access.js`) hold back Director decisions: approve/reject applications, Pastoral Approval, withdrawing submitted applications, Remove from PCS, duplicate merges, deleting events, Caring Team and Finance tabs. `firestore.rules` mirrors this with `isCaringAssistantOnly()`, `caringAppUpdate()`, `caringAppDelete()`.

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useAuth } from '../../context/AuthContext'
+import { canMakeCaringDecisions } from '../../utils/access'
 import { getPCSEntries, requestMembershipInterview, getAllCellGroupMembers, getCellGroups, requestCellLeaderApproval, getMemberProfile, returnMembershipApplicationForRevision } from '../../services/firestore'
 import { findPcsCellMember } from '../../utils/pcsEngagement'
 import { auth } from '../../lib/firebase'
@@ -328,6 +330,9 @@ export default function MembershipStageModal({
   const cur = currentStage(stages)
   const isCur = cur?.key === stage.key
   const block = isCur ? advanceBlockReason(stage, stages, { canCaring, canPastor, canFirstLady }) : ''
+  // Pastoral Approval (stage 7) is a decision — never the Caring Assistant's.
+  const { userProfile: authProfile } = useAuth()
+  const canDecide = canMakeCaringDecisions(authProfile)
   const canAct = isCur && !block
   const verificationDone = stages.find((s) => s.key === 'verification')?.done
   const applicationDone = stages.find((s) => s.key === 'applicationSubmitted')?.done
@@ -635,8 +640,11 @@ export default function MembershipStageModal({
           )}
 
           {/* Stage 7 — pastoral approval */}
-          {canAct && stage.key === 'pastoralApproval' && (
+          {canAct && canDecide && stage.key === 'pastoralApproval' && (
             <button type="button" disabled={busy} onClick={() => done({ approvedBy: by })} className={btn}>Give Pastoral Approval</button>
+          )}
+          {canAct && !canDecide && stage.key === 'pastoralApproval' && (
+            <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">Awaiting Pastoral Approval: the Senior Pastor, First Lady or Caring Director gives it.</p>
           )}
 
           {/* Stage 8 — certificate & card */}
@@ -656,7 +664,7 @@ export default function MembershipStageModal({
             </div>
           )}
 
-          {canCaring && undoKey === stage.key && (
+          {canCaring && undoKey === stage.key && (canDecide || stage.key !== 'pastoralApproval') && (
             <button type="button" disabled={busy} onClick={() => { onUndo(stage.key); onClose() }} className="text-xs font-semibold text-slate-500 hover:text-red-600">Undo this stage</button>
           )}
           </div>

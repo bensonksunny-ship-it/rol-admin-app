@@ -1,4 +1,4 @@
-import { basePositionName, departmentNameVariants } from '../constants/roles'
+import { basePositionName, departmentNameVariants, CARING_ASSISTANT_POSITION } from '../constants/roles'
 
 export const GLOBAL_ROLES = {
   FOUNDER: 'FOUNDER',
@@ -40,6 +40,9 @@ export function getDepartmentRole(user, departmentName) {
       const pos = basePositionName(positionField).toLowerCase()
       if (pos === 'director') return 'DIRECTOR'
       if (pos === 'coordinator' || pos === 'cell leader') return 'COORDINATOR'
+      // Caring Assistant works the Caring page like a Coordinator; the Director-only
+      // decisions are held back separately (isCaringAssistantOnly below).
+      if (pos === CARING_ASSISTANT_POSITION.toLowerCase()) return 'COORDINATOR'
       // A named non-head position (e.g. "Associate") — not a department head.
       return null
     }
@@ -113,6 +116,30 @@ export function isDeptExpenseConfirmer(user, expenseDepartment) {
     const pos = basePositionName(p?.position).toLowerCase()
     return pos === 'director' || pos === 'coordinator'
   })
+}
+
+// Caring Assistant: does Caring's day-to-day operations (PCS, applications, events,
+// moving applications through their stages) but not the Director's decisions —
+// approving / rejecting applications, Pastoral Approval, removing people from PCS,
+// merging duplicates, deleting events or submitted applications, Caring team and
+// Caring finance. True only when Caring Assistant is the person's ONLY Caring role,
+// so a Director / Coordinator who also holds it is never restricted.
+// firestore.rules mirrors this as isCaringAssistantOnly().
+export function isCaringAssistantOnly(user) {
+  if (!user || isFounder(user) || user.role === 'Founder' || user.role === 'Senior Pastor') return false
+  const positions = Array.isArray(user.positions) ? user.positions : []
+  const caring = positions.filter((p) => String(p?.department || '').trim().toLowerCase() === 'caring')
+  if (!caring.some((p) => basePositionName(p?.position) === CARING_ASSISTANT_POSITION)) return false
+  return !caring.some((p) => {
+    const role = String(p?.role || '').trim().toUpperCase()
+    const pos = basePositionName(p?.position).toLowerCase()
+    return role === 'DIRECTOR' || role === 'COORDINATOR' || pos === 'director' || pos === 'coordinator'
+  })
+}
+
+/** Caring decisions held back from a Caring Assistant (approve/reject, delete, team, finance). */
+export function canMakeCaringDecisions(user) {
+  return !isCaringAssistantOnly(user)
 }
 
 export function hasAccess(user, departmentName, requiredRole) {

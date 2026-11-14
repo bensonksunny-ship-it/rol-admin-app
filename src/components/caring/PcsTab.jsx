@@ -1,4 +1,5 @@
 import { Fragment, useState, useEffect } from 'react'
+import { canMakeCaringDecisions } from '../../utils/access'
 import { AnimatePresence, motion } from 'framer-motion'
 import { dedupeProfiles } from '../../utils/pcsDedupe'
 import {
@@ -168,6 +169,8 @@ export default function PcsTab({
   user,
   userProfile,
 }) {
+  // Caring Assistant: Remove from PCS and duplicate merges stay with the Caring Director.
+  const canDecide = canMakeCaringDecisions(userProfile)
   const [pcsPickerOpen, setPcsPickerOpen] = useState(false)
   const [cellReferralOpen, setCellReferralOpen] = useState(false)
   const [removedFromCellOpen, setRemovedFromCellOpen] = useState(false)
@@ -456,6 +459,7 @@ export default function PcsTab({
 
   const handleRemoveFromPCS = async (entry) => {
     if (entry.status === 'pending_discard') { alert(`${entry.name}'s profile is under review of the Pastoral Office for discard.`); return }
+    if (!canDecide) { alert('Only the Caring Director can remove someone from PCS.'); setPcsMenuOpenId(null); return }
     if (!window.confirm(`Remove ${entry.name} from PCS?`)) return
     try {
       await deactivatePCSEntry(entry.id, userProfile?.email || '')
@@ -837,7 +841,7 @@ export default function PcsTab({
               <span aria-hidden>↺</span>
               Restore attendance after name change
             </button>
-            <button
+            {canDecide && <button
               type="button"
               onClick={e => { e.stopPropagation(); handleRemoveFromPCS(entry) }}
               className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 font-medium flex items-center gap-2"
@@ -846,7 +850,7 @@ export default function PcsTab({
                 <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
               </svg>
               Remove from PCS
-            </button>
+            </button>}
           </div>
         )}
       </div>
@@ -3266,8 +3270,8 @@ export default function PcsTab({
             {' '}({pcsDuplicateGroups.map(g => g.master?.name).filter(Boolean).slice(0, 3).join(', ')}{pcsDuplicateGroups.length > 3 ? '…' : ''}).
             {' '}Showing one card each.
           </p>
-          <button type="button" onClick={() => setPcsDupesSnapshot(pcsDuplicateGroups.filter(g => g.master))}
-            className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700">Review &amp; Merge</button>
+          {canDecide && <button type="button" onClick={() => setPcsDupesSnapshot(pcsDuplicateGroups.filter(g => g.master))}
+            className="px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-bold hover:bg-amber-700">Review &amp; Merge</button>}
         </div>
       )}
       {pcsDupesSnapshot && (

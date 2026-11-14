@@ -9,7 +9,7 @@ import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import { DEPARTMENT_LIST, getDepartmentPath } from '../constants/departments'
 import { visibleCellTabs } from './cellTabVisibility'
 import { getAllowedWorshipTabs, shouldBypassWorshipGrid, hasFullWorshipAccess, hasWorshipRoleAccess, getWorshipLandingTab } from './worshipAccess'
-import { hasAccess } from './access'
+import { hasAccess, isCaringAssistantOnly } from './access'
 import { isPreServiceLeaderInPositions } from './sundayMinistryAccess'
 
 const SUNDAY_MINISTRY_PRE_SERVICE_PATH = '/department/sunday-ministry/assign'
@@ -193,7 +193,23 @@ const DEFAULT_OPS_CHILDREN = [
   { key: 'planning',      label: 'Planning',        Icon: CalendarDays },
 ]
 
-export function getOperationsChildren(slug) {
+// Caring Assistant: no Caring Finance tab, and no Team / Sub Department management
+// under Operations (Planning only) — those stay with the Caring Director.
+export function isCaringAssistantView(slug, userProfile) {
+  return slug === 'caring' && isCaringAssistantOnly(userProfile)
+}
+const CARING_ASSISTANT_HIDDEN_TABS = ['finance']
+const CARING_ASSISTANT_OPS_CHILDREN = ['planning']
+
+/** Hub tabs with the Caring Assistant's hidden ones removed. */
+export function filterTabsForUser(slug, tabs, userProfile) {
+  return isCaringAssistantView(slug, userProfile) ? tabs.filter((t) => !CARING_ASSISTANT_HIDDEN_TABS.includes(t)) : tabs
+}
+
+export function getOperationsChildren(slug, userProfile = null) {
+  if (isCaringAssistantView(slug, userProfile)) {
+    return DEFAULT_OPS_CHILDREN.filter((c) => CARING_ASSISTANT_OPS_CHILDREN.includes(c.key))
+  }
   // Media and D-Light have no Operations tab at all (see getDepartmentHubTabs) —
   // both manage Team + Sub-Departments from a top-level "Team" tab instead (Team
   // holds its own "+ Add Sub Department" modal, DepartmentHub.jsx), so this is
@@ -242,7 +258,7 @@ export function getDepartmentSubpages(slug, userProfile) {
   // Pre-Service-only users: the Sunday Ministry tile goes straight to Pre-Service
   // (getDepartmentNavPath) — every other Sunday Ministry tab is Director-only.
   if (slug === 'sunday-ministry' && isSundayMinistryPreServiceOnly(userProfile)) return []
-  const allTabs = getDepartmentHubTabs(slug)
+  const allTabs = filterTabsForUser(slug, getDepartmentHubTabs(slug), userProfile)
   const tabs = slug === 'cell'
     ? visibleCellTabs(userProfile).filter((t) => allTabs.includes(t))
     // Worship Leader/Member: no picker grid at all — DepartmentDock navigates straight
@@ -270,7 +286,7 @@ export function getDepartmentSubpages(slug, userProfile) {
     if (tab === 'operations') {
       return {
         ...base,
-        children: getOperationsChildren(slug).map((c) => ({
+        children: getOperationsChildren(slug, userProfile).map((c) => ({
           ...c,
           to: `/department/${slug}?tab=operations&opsSub=${encodeURIComponent(c.key)}`,
         })),

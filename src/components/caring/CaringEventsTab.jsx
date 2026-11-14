@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useAuth } from '../../context/AuthContext'
+import { canMakeCaringDecisions } from '../../utils/access'
 import {
   subscribeCaringEvents, saveCaringEvent, deleteCaringEvent, getPCSEntries, getDepartmentChildren,
   setCaringEventStatus, subscribeSubmittedDedicationApplications, revealDedicationApplication, getDedicationSecretName,
@@ -305,6 +307,9 @@ function PcsChildAdder({ riverKids, onAdd }) {
 
 /** Caring → Events: pastoral lifecycle registry that syncs into PCS profiles. */
 export default function CaringEventsTab({ canEdit, canReveal, savedBy, defaultOfficiant }) {
+  // Deleting an event (and unwinding what it wrote into PCS) is the Caring Director's call.
+  const { userProfile: authProfile } = useAuth()
+  const canDelete = canMakeCaringDecisions(authProfile)
   const [events, setEvents] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [pcsEntries, setPcsEntries] = useState([])
@@ -529,9 +534,9 @@ export default function CaringEventsTab({ canEdit, canReveal, savedBy, defaultOf
                             ? <button type="button" disabled={busyId === ev.id} onClick={() => reopen(ev)} className="min-h-[40px] px-4 rounded-xl border border-slate-300 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50">Reopen</button>
                             : <button type="button" disabled={busyId === ev.id} onClick={() => complete(ev)} className="min-h-[40px] px-4 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 disabled:opacity-50">{busyId === ev.id ? 'Working…' : 'Mark Completed'}</button>}
                           <button type="button" onClick={() => setEditing(ev)} className="min-h-[40px] px-4 rounded-xl border border-slate-300 text-sm font-semibold text-slate-700 hover:bg-slate-50">Edit</button>
-                          <button type="button" disabled={busyId === ev.id} onClick={() => remove(ev)} className="min-h-[40px] px-4 rounded-xl border border-red-200 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50">
+                          {canDelete && <button type="button" disabled={busyId === ev.id} onClick={() => remove(ev)} className="min-h-[40px] px-4 rounded-xl border border-red-200 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50">
                             {busyId === ev.id ? 'Deleting…' : 'Delete'}
-                          </button>
+                          </button>}
                         </>
                       )}
                     </div>

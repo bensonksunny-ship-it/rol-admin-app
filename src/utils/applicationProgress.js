@@ -4,7 +4,7 @@
 // (components/workspace/ApplicationsProgressWidget.jsx).
 //
 // RULE: every application type must appear here with its levels, and on the
-// Founder's, the Caring Director's and the First Lady's My Workspace. A new
+// Founder's, the Caring Director's, the Caring Assistant's and the First Lady's My Workspace. A new
 // application type = add it to APPLICATION_TYPE_KEYS (pastoralApplications.js) and
 // a case to applicationLevels below, and open its collection's `list` to First Lady
 // in firestore.rules.

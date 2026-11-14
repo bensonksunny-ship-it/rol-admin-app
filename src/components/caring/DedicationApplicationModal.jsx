@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useAuth } from '../../context/AuthContext'
+import { canMakeCaringDecisions } from '../../utils/access'
 import QRCode from 'qrcode'
 import {
   createDedicationApplication, subscribeDedicationApplicationsForEntry, updateDedicationApplication,
@@ -16,6 +18,10 @@ const fmt = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit',
 // parents' phone (the application is created on open), then shows what they
 // submitted. A surprise name stays hidden here unless the viewer may reveal it.
 export default function DedicationApplicationModal({ entry, prefill, userEmail, canReveal, onClose }) {
+  // Caring Assistant: may withdraw only an unsent (pending) link — a submitted
+  // application is withdrawn or decided by the Caring Director.
+  const { userProfile: authProfile } = useAuth()
+  const canDecide = canMakeCaringDecisions(authProfile)
   const [apps, setApps] = useState(null)
   const [creating, setCreating] = useState(false)
   const [qr, setQr] = useState('')
@@ -166,7 +172,7 @@ export default function DedicationApplicationModal({ entry, prefill, userEmail, 
               )}
 
               <div className="flex flex-wrap items-center gap-3 pt-1">
-                <button type="button" onClick={withdraw} className="px-4 min-h-[40px] rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50">Withdraw</button>
+                {(canDecide || app.status === 'pending') && <button type="button" onClick={withdraw} className="px-4 min-h-[40px] rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50">Withdraw</button>}
                 <button type="button" disabled={creating} onClick={startNew} className="text-xs font-semibold text-slate-500 hover:text-slate-700">{creating ? 'Creating…' : '+ New application (another child)'}</button>
               </div>
             </>

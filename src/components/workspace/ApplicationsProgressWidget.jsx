@@ -18,7 +18,7 @@ const PILL = {
 /**
  * My Workspace → Applications Progress: every Baptism, Baby Dedication, Marriage and
  * Membership application made through the app, with its level-wise progress
- * (utils/applicationProgress.js). Shown to the Founder, the Caring Director and the
+ * (utils/applicationProgress.js). Shown to the Founder, the Caring Director, the Caring Assistant and the
  * First Lady — see the rule in applicationProgress.js.
  */
 export default function ApplicationsProgressWidget() {

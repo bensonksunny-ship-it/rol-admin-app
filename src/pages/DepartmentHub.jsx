@@ -158,7 +158,7 @@ import AdvancePayoutReviewer from '../components/AdvancePayoutReviewer'
 import DeptExpenseTab from '../components/DeptExpenseTab'
 import FinanceTabBar from '../components/finance/FinanceTabBar'
 import OperationsTabBar from '../components/OperationsTabBar'
-import { getOperationsChildren } from '../utils/departmentSubpages'
+import { getOperationsChildren, filterTabsForUser, isCaringAssistantView } from '../utils/departmentSubpages'
 import { subDeptMatchKey } from '../utils/subDeptMatch'
 import SecCoreFinance from './seccore/SecCoreFinance'
 import DailySchedule from './spoffice/DailySchedule'
@@ -1305,13 +1305,14 @@ export default function DepartmentHub() {
   const [teamSubDeptEditDraft, setTeamSubDeptEditDraft] = useState({ name: '', servingArea: '' })
 
   const tabs = useMemo(() => {
-    const allTabs = getDepartmentHubTabs(slug)
+    // Caring Assistant: no Finance tab (filterTabsForUser).
+    const allTabs = filterTabsForUser(slug, getDepartmentHubTabs(slug), userProfile)
     // Cell leaders only see their own tabs, not the director's overview
     if (slug === 'cell' && !canViewAllCells) {
       return allTabs.filter(t => t === 'shepherdCare' || t === 'midweek' || t === 'reports')
     }
     return allTabs
-  }, [slug, canViewAllCells])
+  }, [slug, canViewAllCells, userProfile])
 
   const isAccountsEntryRoute =
     slug === 'accounts' && String(location?.pathname || '').includes('/department/accounts/entry')
@@ -1319,7 +1320,7 @@ export default function DepartmentHub() {
   const tabFromUrl = searchParams.get('tab')
   const isCellLeader = slug === 'cell' && !canViewAllCells
   useEffect(() => {
-    const nextTabs = getDepartmentHubTabs(slug)
+    const nextTabs = filterTabsForUser(slug, getDepartmentHubTabs(slug), userProfile)
     if (slug === 'cell') {
       // Wait for profile before committing to a cell tab — avoids summary flash for cell leaders
       if (!userProfile) return
@@ -1366,8 +1367,11 @@ export default function DepartmentHub() {
   const opsSubFromUrl = searchParams.get('opsSub')
   useEffect(() => {
     if (activeTab !== 'operations') return
-    setOpsSubTab(opsSubFromUrl || 'team')
-  }, [activeTab, opsSubFromUrl])
+    // Only this user's Operations children (a Caring Assistant gets Planning only).
+    const allowed = getOperationsChildren(slug, userProfile).map((c) => c.key)
+    const wanted = opsSubFromUrl || 'team'
+    setOpsSubTab(allowed.includes(wanted) ? wanted : (allowed[0] || 'team'))
+  }, [activeTab, opsSubFromUrl, slug, userProfile])
 
   // Same idea, for Finance's Expense/Budget/Payout Request children (moved out of
   // Operations into their own tab) — driven by ?financeSub= instead.
@@ -3141,13 +3145,14 @@ export default function DepartmentHub() {
                             <p className="text-sm font-bold text-slate-800">PCS</p>
                             <p className="text-xs text-slate-500 mt-0.5">{pcsEntries.length} people</p>
                           </button>
-                          <button type="button"
+                          {/* Team and Budget stay with the Caring Director (not the Caring Assistant). */}
+                          {!isCaringAssistantView(slug, userProfile) && <button type="button"
                             onClick={() => { setOpsSubTab('team'); setActiveTab('operations'); setSearchParams({ tab: 'operations' }, { replace: true }) }}
                             className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-violet-200 hover:shadow-md transition-all group">
                             <div className="w-9 h-9 rounded-xl bg-violet-100 group-hover:bg-violet-200 flex items-center justify-center text-base mb-3 transition-colors">🤝</div>
                             <p className="text-sm font-bold text-slate-800">Team</p>
                             <p className="text-xs text-slate-500 mt-0.5">Caring team members</p>
-                          </button>
+                          </button>}
                           <button type="button"
                             onClick={() => { setOpsSubTab('planning'); setActiveTab('operations'); setSearchParams({ tab: 'operations' }, { replace: true }) }}
                             className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-amber-200 hover:shadow-md transition-all group">
@@ -3155,13 +3160,13 @@ export default function DepartmentHub() {
                             <p className="text-sm font-bold text-slate-800">Planning</p>
                             <p className="text-xs text-slate-500 mt-0.5">{pending.length} task{pending.length !== 1 ? 's' : ''}</p>
                           </button>
-                          <button type="button"
+                          {!isCaringAssistantView(slug, userProfile) && <button type="button"
                             onClick={() => { setFinanceSubTab('budget'); setActiveTab('finance'); setSearchParams({ tab: 'finance' }, { replace: true }) }}
                             className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-left hover:border-teal-200 hover:shadow-md transition-all group">
                             <div className="w-9 h-9 rounded-xl bg-teal-100 group-hover:bg-teal-200 flex items-center justify-center text-base mb-3 transition-colors">💰</div>
                             <p className="text-sm font-bold text-slate-800">Budget</p>
                             <p className="text-xs text-slate-500 mt-0.5">Financial overview</p>
-                          </button>
+                          </button>}
                         </div>
 
                         {/* ── Recent additions ── */}
@@ -4941,7 +4946,7 @@ export default function DepartmentHub() {
 
           {activeTab === 'operations' && (
             <OperationsTabBar
-              tabs={getOperationsChildren(slug)}
+              tabs={getOperationsChildren(slug, userProfile)}
               active={opsSubTab}
               onChange={(key) => {
                 setOpsSubTab(key)

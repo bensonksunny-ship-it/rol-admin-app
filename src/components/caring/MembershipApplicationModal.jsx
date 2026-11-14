@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useAuth } from '../../context/AuthContext'
+import { canMakeCaringDecisions } from '../../utils/access'
 import QRCode from 'qrcode'
 import { ClipboardCopy, Link2 } from 'lucide-react'
 import { copyImageDataUrlToClipboard } from '../../utils/shareImage'
@@ -33,6 +35,10 @@ const STATUS_CLS = {
 // `baptismBlockedMessage` — set when the person has no recorded baptism: creating a
 // new application is refused with that message (existing ones stay viewable).
 export default function MembershipApplicationModal({ entry, prefill, userName, userEmail, onClose, baptismBlockedMessage = '' }) {
+  // Caring Assistant: may withdraw only an unsent (pending) link — a submitted
+  // application is withdrawn or decided by the Caring Director.
+  const { userProfile: authProfile } = useAuth()
+  const canDecide = canMakeCaringDecisions(authProfile)
   const [apps, setApps] = useState(null)
   const [creating, setCreating] = useState(false)
   const [showCreate, setShowCreate] = useState(false)
@@ -233,7 +239,10 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
               )}
 
               {/* Pastoral approval — once the applicant has submitted */}
-              {app.status !== 'pending' && (
+              {app.status !== 'pending' && !canDecide && !['approved', 'rejected'].includes(app.status) && (
+                <p className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">Awaiting the Caring Director&apos;s decision.</p>
+              )}
+              {app.status !== 'pending' && canDecide && (
                 <div className="flex flex-wrap gap-2">
                   <button type="button" disabled={saving || app.status === 'approved'} onClick={() => decide('approved')}
                     className="flex-1 min-h-[44px] rounded-xl bg-emerald-600 text-white text-sm font-bold disabled:opacity-50">Approve</button>
@@ -266,7 +275,7 @@ export default function MembershipApplicationModal({ entry, prefill, userName, u
                 <button type="button" onClick={() => openMembershipFormPrint({ ...app, officeNotes: notes }, { verification: entry.membershipPipeline?.stages?.verification })} className="flex-1 min-h-[44px] rounded-xl bg-[#1e3a5f] text-white text-sm font-bold">
                   Print / Export PDF
                 </button>
-                <button type="button" onClick={withdraw} className="px-4 min-h-[44px] rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50">Withdraw</button>
+                {(canDecide || app.status === 'pending') && <button type="button" onClick={withdraw} className="px-4 min-h-[44px] rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50">Withdraw</button>}
               </div>
               <button type="button" onClick={() => setShowCreate(true)} className="text-xs font-semibold text-slate-500 hover:text-slate-700">+ New application</button>
             </>

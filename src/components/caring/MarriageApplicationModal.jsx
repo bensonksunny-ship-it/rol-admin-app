@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useAuth } from '../../context/AuthContext'
+import { canMakeCaringDecisions } from '../../utils/access'
 import QRCode from 'qrcode'
 import {
   createMarriageApplication, subscribeMarriageApplicationsForEntry, updateMarriageApplication, deleteMarriageApplication,
@@ -20,6 +22,10 @@ const show = (app, key) => { const v = marriageFieldValue(app, key); return v &&
 // fill in partner, wedding and family details on their phone. The office decision
 // (Approve & Link to a Marriage event / Reject) happens in the Caring Hub queue.
 export default function MarriageApplicationModal({ entry, prefill, userEmail, onClose }) {
+  // Caring Assistant: may withdraw only an unsent (pending) link — a submitted
+  // application is withdrawn or decided by the Caring Director.
+  const { userProfile: authProfile } = useAuth()
+  const canDecide = canMakeCaringDecisions(authProfile)
   const [apps, setApps] = useState(null)
   const [creating, setCreating] = useState(false)
   const [qr, setQr] = useState('')
@@ -181,7 +187,7 @@ export default function MarriageApplicationModal({ entry, prefill, userEmail, on
               )}
 
               <div className="flex flex-wrap gap-2 pt-1">
-                <button type="button" onClick={withdraw} className="px-4 min-h-[44px] rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50">Withdraw</button>
+                {(canDecide || app.status === 'pending') && <button type="button" onClick={withdraw} className="px-4 min-h-[44px] rounded-xl border border-red-200 text-red-600 text-sm font-semibold hover:bg-red-50">Withdraw</button>}
               </div>
               <button type="button" disabled={creating} onClick={startNew} className="text-xs font-semibold text-slate-500 hover:text-slate-700">{creating ? 'Creating…' : '+ New application'}</button>
             </>
