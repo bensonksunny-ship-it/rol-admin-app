@@ -95,6 +95,7 @@ import {
   syncVisitorDataEverywhere,
   updateCellMembersByVisitorId,
   updatePCSEntriesByVisitorId,
+  cascadeNameChangeToAttendance,
   updateDeptTeamMembersByVisitorId,
   updateWorshipTeamMembersByVisitorId,
   getBoardPoints,
@@ -4669,6 +4670,11 @@ export default function DepartmentHub() {
                       if (editingDelightVisitorId) {
                         const before = delightVisitors.find((x) => x.id === editingDelightVisitorId) || null
                         await updateDelightVisitor(editingDelightVisitorId, delightVisitorForm)
+                        // Attendance history is matched by name — carry a rename into it.
+                        if (before?.name && String(before.name).trim().toLowerCase() !== String(delightVisitorForm.name || '').trim().toLowerCase()) {
+                          cascadeNameChangeToAttendance({ visitorId: editingDelightVisitorId, oldNames: [before.name], newName: delightVisitorForm.name })
+                            .catch((err) => console.error('cascadeNameChangeToAttendance failed:', err))
+                        }
                         updateCellMembersByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone, birthday: delightVisitorForm.dob }).catch(() => {})
                         updatePCSEntriesByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone }).catch(() => {})
                         updateDeptTeamMembersByVisitorId(editingDelightVisitorId, { name: delightVisitorForm.name, phone: delightVisitorForm.phone }).catch(() => {})
@@ -10001,6 +10007,11 @@ function PCSDetailSheet({ entry, onClose, onUpdate, onRemove }) {
                 setSaving(true)
                 const { name, phone, attendedDate, membershipNumber, leadershipPosition, email, dob, nativity, currentPlace, serviceAttended, howKnown, year } = form
                 onUpdate({ id: entry.id, name, phone, attendedDate, membershipNumber, leadershipPosition, year: year ? Number(year) : null })
+                // Attendance history is matched by name — carry a rename into it.
+                if (entry.name && String(name || '').trim() && String(entry.name).trim().toLowerCase() !== String(name).trim().toLowerCase()) {
+                  cascadeNameChangeToAttendance({ visitorId: entry.visitorId || '', oldNames: [entry.name], newName: name })
+                    .catch((err) => console.error('cascadeNameChangeToAttendance failed:', err))
+                }
                 await Promise.all([
                   updatePCSEntry(entry.id, { name, phone, attendedDate, membershipNumber, leadershipPosition, year }),
                   entry.visitorId ? updateDelightVisitor(entry.visitorId, { name, phone, email, dob, nativity, currentPlace, serviceAttended, attendedDate, howKnown }) : Promise.resolve(),

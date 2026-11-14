@@ -557,9 +557,15 @@ service cloud.firestore {
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(resource.data.cellId)) || canAccessDept('Caring') || isFirstLady());
       allow create: if isSignedIn() && (isFullAccess() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(request.resource.data.cellId)));
       allow update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(resource.data.cellId)));
+      // Name edit carried into history (cascadeNameChangeToAttendance) — awayNames only.
+      allow update: if isSignedIn() && canAccessAnyDept(['Caring', 'D Light'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['awayNames']);
       allow delete: if isSignedIn() && (isFullAccess() || isCellDirector());
     }
     match /cell_reports/{reportId}/attendees/{attendeeId} {
+      // Name edit carried into history (cascadeNameChangeToAttendance) — the name only.
+      allow update: if isSignedIn() && canAccessAnyDept(['Caring', 'D Light', 'Cell'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']);
       allow read: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', ''))) || canAccessDept('Caring') || isFirstLady());
       allow create, update: if isSignedIn() && (isFullAccess() || isCellDirector() || (canAccessDept('Cell') && userLinkedCellMatchesDocId(get(/databases/$(database)/documents/cell_reports/$(reportId)).data.get('cellId', ''))));
       // A leader's Live Meeting sync may remove the rows it wrote itself (source 'live')
@@ -1236,6 +1242,10 @@ service cloud.firestore {
       // patchSundayReportRiverKids(), which was permission-denied for a River Kids
       // account, surfacing as a generic "Failed to save" alert with no detail.
       allow create, update, delete: if isCellDirector() || canAccessAnyDept(['Sunday Ministry', 'D Light', 'River Kids']);
+      // A person's name edit (PCS / Visitor Entry / cell roster) rewrites their old
+      // name to the new one in the attendance name lists — cascadeNameChangeToAttendance.
+      allow update: if isSignedIn() && canAccessAnyDept(['Caring', 'Cell'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nonCell', 'newComers', 'pastoralAttendees', 'secondWeekAttendeesNames', 'thirdWeekAttendeesNames', 'fourthWeekAttendeesNames', 'sundayCellAttendance', 'sundayCellAway']);
     }
 
     // Per-person Sunday attendance (recordPersonSundayAttendance) — written alongside

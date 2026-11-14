@@ -35,6 +35,7 @@ import {
   updateDelightVisitor,
   updateCellMembersByVisitorId,
   updatePCSEntriesByVisitorId,
+  cascadeNameChangeToAttendance,
   updateDeptTeamMembersByVisitorId,
   updateWorshipTeamMembersByVisitorId,
   upsertMemberProfile,
@@ -487,6 +488,30 @@ export default function PcsTab({
   // assignSeniorPastor service (services/firestore.js) is kept for a future,
   // less exposed entry point.
 
+  // Repair for a rename made before names were carried into attendance history:
+  // old names are found from the person's cell attendee rows (still linked by
+  // roster id); the user can add any other old spelling(s) they were recorded under.
+  const handleRestoreAttendanceAfterRename = async (entry) => {
+    setPcsMenuOpenId(null)
+    const typed = window.prompt(
+      `Restore past attendance for ${entry.name}.\n\nOld name(s) they were recorded under, comma-separated (leave blank to find them from cell reports automatically):`,
+      ''
+    )
+    if (typed === null) return
+    const oldNames = typed.split(',').map(s => s.trim()).filter(Boolean)
+    try {
+      const r = await cascadeNameChangeToAttendance({ visitorId: entry.visitorId || '', oldNames, newName: entry.name })
+      if (!r.oldNames.length) {
+        alert(`No earlier name was found for ${entry.name}. Type the old name and try again.`)
+        return
+      }
+      alert(`Attendance recorded as ${r.oldNames.map(n => `"${n}"`).join(', ')} now counts for ${entry.name}.\n\nCell reports updated: ${r.cellReports}\nSunday reports updated: ${r.sundayReports}\n\nReload the page to see it.`)
+    } catch (err) {
+      console.error('Restore attendance failed:', err)
+      alert(`Could not restore attendance (${err?.code || err?.message || 'error'}).`)
+    }
+  }
+
   const handleDismissInactiveCellAlert = async (entry) => {
     try {
       await dismissInactiveCellAlert(entry.id)
@@ -804,6 +829,14 @@ export default function PcsTab({
                 {deaconStatusOf(entry.deaconOffice) === 'Active' ? 'End Deacon Office' : 'Mark as Deacon'}
               </button>
             )}
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); handleRestoreAttendanceAfterRename(entry) }}
+              className="w-full text-left px-4 py-2.5 text-sm text-emerald-700 hover:bg-emerald-50 font-medium flex items-center gap-2"
+            >
+              <span aria-hidden>↺</span>
+              Restore attendance after name change
+            </button>
             <button
               type="button"
               onClick={e => { e.stopPropagation(); handleRemoveFromPCS(entry) }}
@@ -2673,6 +2706,18 @@ export default function PcsTab({
                     // Legacy PCS entry with no D-Light visitor record: the visitor-first
                     // rule forbids creating a People record for it, so only PCS is saved.
                     resolvedPersonId = ''
+                  }
+
+                  // Attendance (cell + Sunday) is matched by name — carry a name change
+                  // into the history, or every past attendance would be orphaned.
+                  const prevRosterName = findPcsCellMember(entry, allCellMembers)?.name
+                  const oldNames = [entry.name, prevRosterName].filter(n => n && String(n).trim().toLowerCase() !== String(name || '').trim().toLowerCase())
+                  if (oldNames.length && String(name || '').trim()) {
+                    cascadeNameChangeToAttendance({ visitorId: entry.visitorId || '', oldNames, newName: name })
+                      .catch(err => {
+                        console.error('cascadeNameChangeToAttendance failed:', err)
+                        alert(`${name}'s name was saved, but their past cell/Sunday attendance could not be moved to the new name (${err?.code || err?.message || 'error'}). Use "Restore attendance after name change" in the ⋮ menu, or ask the Founder.`)
+                      })
                   }
 
                   await updatePCSEntry(entry.id, { name, phone, email, dob, nativity, currentPlace, serviceAttended, howKnown, attendedDate, membershipNumber, leadershipPosition, year: resolvedYear, ministries: ministries || [], personId: resolvedPersonId, engagementType, displayName: displayName || '', howKnownRefId: howKnownRefId || '' })

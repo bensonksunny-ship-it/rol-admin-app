@@ -6838,7 +6838,20 @@ export async function updateWorshipTeamMembersByVisitorId(visitorId, data) {
  */
 export async function syncVisitorDataEverywhere(visitorId, { name, phone, dob } = {}) {
   if (!db || !visitorId) return
+  // Attendance history is matched by name: capture the old name(s) before they are
+  // overwritten, then carry the rename into past cell + Sunday reports.
+  let oldNames = []
+  if (name !== undefined && String(name).trim()) {
+    const [v, rows] = await Promise.all([
+      getDoc(doc(db, DELIGHT_VISITORS_COLLECTION, visitorId)).catch(() => null),
+      getCellMembersByVisitorId(visitorId).catch(() => []),
+    ])
+    oldNames = [v?.data()?.name, ...rows.map((r) => r.name)].filter((n) => n && nameNorm(n) !== nameNorm(name))
+  }
   await Promise.all([
+    oldNames.length
+      ? cascadeNameChangeToAttendance({ visitorId, oldNames, newName: name }).catch((err) => console.error('cascadeNameChangeToAttendance failed:', err))
+      : Promise.resolve(),
     name || phone || dob ? updateDelightVisitor(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }), ...(dob !== undefined && { dob }) }) : Promise.resolve(),
     updateCellMembersByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }), ...(dob !== undefined && { birthday: dob }) }),
     updatePCSEntriesByVisitorId(visitorId, { ...(name !== undefined && { name }), ...(phone !== undefined && { phone }) }),
@@ -9702,6 +9715,142 @@ async function moveCellRowAttendance(cellId, fromRowId, toRowId, name) {
     }
   }
   return touched
+}
+
+// ─── Name change → attendance history ────────────────────────────────────────
+// Cell-meeting and Sunday attendance are matched by NAME, so editing someone's
+// name orphaned all their past attendance (Kingston/Mercy, Nov 2026). Every name
+// edit now rewrites the old name to the new one in:
+//  • cell_reports/{id}/attendees of the person's cell(s) — rows linked by memberId
+//    (the roster row id) always; name-only rows only when no other roster row in
+//    that cell shares the name — plus the report's awayNames;
+//  • sunday_reports.sundayCellAttendance / sundayCellAway under the person's cell(s);
+//  • the church-wide Sunday name lists (Non Cell, New Comers, …) only when no other
+//    person in the church goes by the old name.
+// Old names also come from the attendee rows themselves (memberId still points at
+// the roster row), so running it with no oldNames repairs an earlier rename.
+
+const ATTENDANCE_NAME_SUNDAY_LISTS = ['nonCell', 'newComers', 'pastoralAttendees', 'secondWeekAttendeesNames', 'thirdWeekAttendeesNames', 'fourthWeekAttendeesNames']
+
+/** Normalized names every OTHER person in the church uses (cell rosters + PCS). */
+async function namesUsedByOthers(visitorId, rowIds) {
+  const used = new Set()
+  const [members, pcs] = await Promise.all([
+    getDocs(collectionGroup(db, 'members')).catch(() => null),
+    getDocs(collection(db, PCS_LOOKUP_COLLECTION)).catch(() => null),
+  ])
+  // Can't see everyone → can't prove the name is unique; the caller then leaves the
+  // church-wide lists alone rather than risk taking a namesake's attendance.
+  if (!members || !pcs) return null
+  members.docs.forEach((d) => {
+    const m = d.data()
+    if (rowIds.has(d.id) || (visitorId && m.visitorId === visitorId) || m.status === 'inactive') return
+    used.add(nameNorm(m.name))
+  })
+  pcs.docs.forEach((d) => {
+    const p = d.data()
+    if (visitorId && p.visitorId === visitorId) return
+    used.add(nameNorm(p.name))
+  })
+  return used
+}
+
+/**
+ * Carry a person's name change into their cell + Sunday attendance history.
+ * `oldNames` = name(s) they were recorded under (may be empty — then the old names
+ * are discovered from their cell attendee rows). Returns counts + the old names used.
+ * Throws on a write failure so the caller can tell the user.
+ */
+export async function cascadeNameChangeToAttendance({ visitorId = '', cellRowIds = [], oldNames = [], newName }) {
+  const toName = String(newName || '').trim()
+  if (!db || !toName) return { cellReports: 0, sundayReports: 0, oldNames: [] }
+  const toKey = nameNorm(toName)
+
+  // The person's cell roster rows → { rowId, cellId }.
+  const rows = []
+  if (visitorId) {
+    const docs = await getCellMembersByVisitorId(visitorId)
+    docs.forEach((d) => { if (d.ref.parent.parent) rows.push({ rowId: d.id, cellId: d.ref.parent.parent.id, name: d.name }) })
+  }
+  const rowIds = new Set([...rows.map((r) => r.rowId), ...cellRowIds.filter(Boolean)])
+  const cellIds = [...new Set(rows.map((r) => r.cellId))]
+
+  const fromNorms = new Set(oldNames.map(nameNorm).filter((k) => k && k !== toKey))
+
+  // 1) Cell meeting attendance. A cell this user can't read (e.g. D Light) is skipped
+  //    so the Sunday part still runs; the error is re-thrown at the end.
+  let cellReports = 0
+  let cellError = null
+  for (const cellId of cellIds) try {
+    const roster = await getDocs(collection(db, CELL_GROUPS_COLLECTION, cellId, 'members'))
+    const otherRosterNames = new Set(roster.docs.filter((d) => !rowIds.has(d.id)).map((d) => nameNorm(d.data().name)))
+    const reports = await getDocs(query(collection(db, CELL_REPORTS_COLLECTION), where('cellId', '==', cellId)))
+    // First pass: learn old names from rows linked to this person by memberId.
+    const perReport = []
+    for (const r of reports.docs) {
+      const att = await getDocs(cellReportAttendeesRef(r.id))
+      perReport.push({ r, att })
+      att.docs.forEach((a) => {
+        const { memberId, name } = a.data()
+        const k = nameNorm(name)
+        if (rowIds.has(memberId) && k && k !== toKey && !otherRosterNames.has(k)) fromNorms.add(k)
+      })
+    }
+    for (const { r, att } of perReport) {
+      let touched = false
+      for (const a of att.docs) {
+        const { memberId, name } = a.data()
+        const k = nameNorm(name)
+        if (k === toKey) continue
+        const mine = rowIds.has(memberId) || (!memberId && fromNorms.has(k) && !otherRosterNames.has(k))
+        if (!mine) continue
+        await updateDoc(a.ref, { name: toName })
+        touched = true
+      }
+      const away = r.data().awayNames
+      if (Array.isArray(away)) {
+        const safe = new Set([...fromNorms].filter((k) => !otherRosterNames.has(k)))
+        const next = safe.size ? renameInList(away, safe, toName) : null
+        if (next) { await updateDoc(r.ref, { awayNames: next }); touched = true }
+      }
+      if (touched) cellReports++
+    }
+  } catch (err) { cellError = cellError || err }
+
+  // 2) Sunday reports.
+  let sundayReports = 0
+  if (fromNorms.size) {
+    const usedElsewhere = await namesUsedByOthers(visitorId, rowIds)
+    const globalNorms = new Set(usedElsewhere ? [...fromNorms].filter((k) => !usedElsewhere.has(k)) : [])
+    // Per-cell lists are scoped to the person's own cell, so only a same-cell
+    // namesake blocks them.
+    const cellSafe = {}
+    for (const cellId of cellIds) {
+      const roster = await getDocs(collection(db, CELL_GROUPS_COLLECTION, cellId, 'members')).catch(() => null)
+      if (!roster) continue
+      const others = new Set(roster.docs.filter((d) => !rowIds.has(d.id)).map((d) => nameNorm(d.data().name)))
+      cellSafe[cellId] = new Set([...fromNorms].filter((k) => !others.has(k)))
+    }
+    const snap = await getDocs(collection(db, SUNDAY_REPORTS_COLLECTION))
+    for (const d of snap.docs) {
+      const data = d.data()
+      const patch = {}
+      if (globalNorms.size) {
+        ATTENDANCE_NAME_SUNDAY_LISTS.forEach((f) => { const next = renameInList(data[f], globalNorms, toName); if (next) patch[f] = next })
+      }
+      SUNDAY_NAME_MAP_FIELDS.forEach((f) => {
+        cellIds.forEach((cellId) => {
+          if (!cellSafe[cellId]?.size) return
+          const next = renameInList(data[f]?.[cellId], cellSafe[cellId], toName)
+          if (next) patch[`${f}.${cellId}`] = next
+        })
+      })
+      if (Object.keys(patch).length) { await updateDoc(d.ref, patch); sundayReports++ }
+    }
+  }
+
+  if (cellError) throw cellError
+  return { cellReports, sundayReports, oldNames: [...fromNorms] }
 }
 
 /**
