@@ -7183,6 +7183,19 @@ function directorySource(label, promise) {
   })
 }
 
+// Two names that could be the same person: identical ignoring spaces/punctuation,
+// the same first name ("Blessy" / "Blessy Ng"), or one inside the other ("Priya" /
+// "Priyakumari"). "Blessy Ng" vs "Sarah Nag" is not. A blank name matches anything.
+const compatNameTokens = (n) => String(n || '').toLowerCase().normalize('NFKD').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean)
+export function namesCompatible(a, b) {
+  const ta = compatNameTokens(a), tb = compatNameTokens(b)
+  if (!ta.length || !tb.length) return true
+  const ka = ta.join(''), kb = tb.join('')
+  if (ka === kb || ta[0] === tb[0]) return true
+  const [short, long] = ka.length <= kb.length ? [ka, kb] : [kb, ka]
+  return short.length >= 4 && long.includes(short)
+}
+
 export async function getMergedPeopleDirectory() {
   const [people, cellMembers, pcsEntries, deptTeams, worshipTeams, cellGroups, visitors, sundayAttendance] = await Promise.all([
     directorySource('people', getPeople()),
@@ -7209,8 +7222,14 @@ export async function getMergedPeopleDirectory() {
 
   // Build from people collection (primary source — written by PCS)
   const byId = {}
-  // Also index by phone for visitor merging (phone is the best legacy key)
-  const byPhone = {}
+  // Also index by phone for visitor merging. A phone is shared inside families
+  // (Blessy Ng and Sarah Nag), so it only joins two records when their NAMES are
+  // also compatible (namesCompatible). Joining on phone alone attached Sarah's
+  // roster row to Blessy's profile, and the duplicate merge then renamed that row
+  // to "Blessy Ng" — so ticking Blessy on Sunday ticked Sarah too.
+  const byPhone = {} // phone → [entries]
+  const addPhone = (phone, entry) => { if (phone) (byPhone[phone] ||= []).push(entry) }
+  const phoneEntry = (phone, name) => (phone ? (byPhone[phone] || []).find((e) => namesCompatible(e.name, name)) || null : null)
   // Last-resort match for records with no personId/visitorId/phone at all (e.g. a
   // cell member added by typing just a name) — better than silently dropping them.
   const byName = {}
@@ -7250,7 +7269,7 @@ export async function getMergedPeopleDirectory() {
       sundayAttendance: [],
     }
     byId[p.id] = entry
-    if (p.phone) byPhone[p.phone.replace(/\s+/g, '')] = entry
+    addPhone((p.phone || '').replace(/\s+/g, ''), entry)
     const nk = nameKey(entry.name)
     if (nk && !byName[nk]) byName[nk] = entry
   })
@@ -7273,8 +7292,9 @@ export async function getMergedPeopleDirectory() {
     const phone = (p.phone || '').replace(/\s+/g, '')
     // Never replace a PCS entry already attached (by personId, or a spouse sharing the
     // phone) — this one then gets its own card instead of silently vanishing.
-    if (phone && byPhone[phone] && !byPhone[phone].pcs) {
-      byPhone[phone].pcs = p
+    const samePhone = phoneEntry(phone, p.name)
+    if (samePhone && !samePhone.pcs) {
+      samePhone.pcs = p
       return
     }
     const entry = {
@@ -7306,7 +7326,7 @@ export async function getMergedPeopleDirectory() {
       sundayAttendance: [],
     }
     merged.push(entry)
-    if (phone) byPhone[phone] = entry
+    addPhone(phone, entry)
     const nk = nameKey(entry.name)
     if (nk && !byName[nk]) byName[nk] = entry
   })
@@ -7324,7 +7344,7 @@ export async function getMergedPeopleDirectory() {
   visitors.forEach(v => {
     if (v.mergedInto) { mergedVisitors.push(v); return }
     const phone = (v.phone || '').replace(/\s+/g, '')
-    const existing = byVisitorId[v.id] || (phone && byPhone[phone])
+    const existing = byVisitorId[v.id] || phoneEntry(phone, v.name)
     if (existing) {
       if (!existing.attendedDate && v.attendedDate) existing.attendedDate = v.attendedDate
       if (!existing.serviceAttended && v.serviceAttended) existing.serviceAttended = v.serviceAttended
@@ -7362,7 +7382,7 @@ export async function getMergedPeopleDirectory() {
       sundayAttendance: [],
     }
     merged.push(entry)
-    if (phone) byPhone[phone] = entry
+    addPhone(phone, entry)
     byVisitorId[v.id] = entry
     const nk = nameKey(entry.name)
     if (nk && !byName[nk]) byName[nk] = entry
@@ -7382,7 +7402,7 @@ export async function getMergedPeopleDirectory() {
   function attachTeamRecord(record, { source }) {
     const phone = (record.phone || '').replace(/\s+/g, '')
     let entry = (record.personId && byId[record.personId]) || (record.visitorId && byVisitorId[record.visitorId])
-    if (!entry && phone) entry = byPhone[phone]
+    if (!entry) entry = phoneEntry(phone, record.name)
     if (!entry) {
       const nk = nameKey(record.name)
       if (nk) entry = byName[nk]
@@ -7417,7 +7437,7 @@ export async function getMergedPeopleDirectory() {
         sundayAttendance: [],
       }
       merged.push(entry)
-      if (phone) byPhone[phone] = entry
+      addPhone(phone, entry)
       const nk = nameKey(entry.name)
       if (nk && !byName[nk]) byName[nk] = entry
     }
@@ -9922,6 +9942,20 @@ export async function mergeDirectoryProfiles({ master, duplicates, cellGroups = 
   // adds no new name, so that's allowed (MV stays '' and nothing is keyed on it).
   const MV = directoryEntryVisitorId(master) || duplicates.map(directoryEntryVisitorId).find(Boolean) || ''
   const name = String(master.name || '').trim()
+  // Only rows that are really this person's are renamed / re-linked / folded. A roster,
+  // team or PCS row that reached an entry through a shared family phone ("Sarah Nag"
+  // on "Blessy Ng"'s profile) is left alone — renaming it is what made ticking Blessy
+  // on Sunday also tick Sarah.
+  const own = (owner) => (r) => !r || namesCompatible(r.name, owner.name) || namesCompatible(r.name, name)
+  const ownRowsOnly = (e) => ({
+    ...e,
+    cells: (e.cells || []).filter(own(e)),
+    deptTeams: (e.deptTeams || []).filter(own(e)),
+    worshipTeams: (e.worshipTeams || []).filter(own(e)),
+    pcs: own(e)(e.pcs) ? e.pcs : null,
+  })
+  master = ownRowsOnly(master)
+  duplicates = duplicates.map(ownRowsOnly)
   const stamp = { mergedAt: Timestamp.now(), mergedBy: by || 'unknown' }
   const blank = (v) => v === undefined || v === null || String(v).trim() === ''
   const result = { people: 0, visitors: 0, pcs: 0, cellRows: 0, teamRows: 0, cellReports: 0, sundayReports: 0, sundayRecords: 0 }

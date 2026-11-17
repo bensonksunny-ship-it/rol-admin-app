@@ -193,6 +193,7 @@ export default function PcsTab({
   const [pcsLoadingFormer, setPcsLoadingFormer] = useState(false)
   // Former → "Merged" list: profiles a duplicate merge archived, with Undo (Founder)
   const [pcsMergedEntries, setPcsMergedEntries] = useState([])
+  const [pcsMergedOnlyFlagged, setPcsMergedOnlyFlagged] = useState(false)
   const [pcsUnmergingId, setPcsUnmergingId] = useState(null)
   const [pcsUnmergeMsg, setPcsUnmergeMsg] = useState('')
   const [pcsInvitingId, setPcsInvitingId] = useState(null)
@@ -3831,21 +3832,63 @@ export default function PcsTab({
               ))}
             </div>
           )}
-          {pcsMergedEntries.length > 0 && (
+          {pcsMergedEntries.length > 0 && (() => {
+            // Merge review: flag merges that look like two different people, so an
+            // accidental merge (e.g. spouses / family sharing a phone) can be undone.
+            const reviewed = pcsMergedEntries.map(e => {
+              const into = pcsEntries.find(x => x.id === e.mergedInto) || pcsMergedEntries.find(x => x.id === e.mergedInto) || null
+              return { e, into, flags: mergeReviewFlags(e, into, pcsEntries) }
+            }).sort((a, b) =>
+              (b.flags.some(f => f.warn) - a.flags.some(f => f.warn)) ||
+              ((b.e.removedAt?.getTime?.() || 0) - (a.e.removedAt?.getTime?.() || 0)))
+            const flaggedCount = reviewed.filter(r => r.flags.some(f => f.warn)).length
+            const shown = pcsMergedOnlyFlagged ? reviewed.filter(r => r.flags.some(f => f.warn)) : reviewed
+            return (
             <>
-              <div className="px-4 py-3 bg-slate-50 border-y border-slate-100 flex items-center gap-2">
+              <div className="px-4 py-3 bg-slate-50 border-y border-slate-100 flex flex-wrap items-center gap-2">
                 <span className="text-sm font-bold text-slate-700">Merged into another profile</span>
                 <span className="text-xs text-slate-400 bg-slate-100 rounded-full px-2 py-0.5">{pcsMergedEntries.length}</span>
+                {flaggedCount > 0 && (
+                  <span className="text-xs font-bold text-red-700 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
+                    {flaggedCount} may be different people
+                  </span>
+                )}
+                {flaggedCount > 0 && (
+                  <label className="ml-auto flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none">
+                    <input type="checkbox" checked={pcsMergedOnlyFlagged} onChange={(ev) => setPcsMergedOnlyFlagged(ev.target.checked)} />
+                    Only flagged
+                  </label>
+                )}
               </div>
+              <p className="px-4 py-2 text-xs text-slate-500 bg-slate-50/50 border-b border-slate-100">
+                Review each merge. If two different people were merged by mistake, use <b>Undo merge</b> — don't re-add the person as new, or their old links stay attached to the other profile.
+              </p>
               {pcsUnmergeMsg && <p className="px-4 py-2 text-xs text-emerald-700 bg-emerald-50 whitespace-pre-line">{pcsUnmergeMsg}</p>}
               <div className="divide-y divide-slate-100">
-                {pcsMergedEntries.map(e => {
-                  const into = pcsEntries.find(x => x.id === e.mergedInto)
+                {shown.map(({ e, into, flags }) => {
+                  const mergedBy = String(e.removedBy || '').replace(/^merge:\s*/, '')
+                  const isFlagged = flags.some(f => f.warn)
                   return (
-                    <div key={e.id} className="px-4 py-3 flex items-center gap-3">
+                    <div key={e.id} className={`px-4 py-3 flex items-start gap-3 ${isFlagged ? 'bg-red-50/40' : ''}`}>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-700">{e.name}</p>
-                        <p className="text-xs text-slate-400">Merged into {into?.name || 'another profile'}{e.phone ? ` · ${e.phone}` : ''}</p>
+                        <p className="text-sm font-semibold text-slate-700 break-words">
+                          {e.name} <span className="text-slate-400 font-normal">→</span> {into?.name || <span className="text-slate-400 font-normal">profile not found</span>}
+                        </p>
+                        <p className="text-xs text-slate-400 break-words">
+                          {e.phone || 'no phone'}{into ? ` → ${into.phone || 'no phone'}` : ''}
+                          {e.removedAt ? ` · merged ${e.removedAt.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}` : ''}
+                          {mergedBy && mergedBy !== 'unknown' ? ` by ${mergedBy}` : ''}
+                        </p>
+                        {flags.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                            {flags.map(f => (
+                              <span key={f.label} title={f.hint}
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${f.warn ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                {f.label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       {isFounder && (
                         <button
@@ -3874,7 +3917,8 @@ export default function PcsTab({
                 })}
               </div>
             </>
-          )}
+            )
+          })()}
         </div>
       )}
 
@@ -4141,6 +4185,46 @@ export default function PcsTab({
       )}
     </div>
   )
+}
+
+// ─── Merge review flags ───────────────────────────────────────────────────────
+// Hints for the Former → "Merged into another profile" review. `warn` = this merge
+// may have joined two different people; otherwise it's a reassuring sign.
+const mergeNameTokens = (s) => String(s || '').trim().toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean)
+function mergeReviewFlags(dup, into, activeEntries = []) {
+  const flags = []
+  const a = mergeNameTokens(dup.name)
+  if (!into) {
+    flags.push({ warn: true, label: 'Kept profile missing', hint: 'The profile this was merged into is no longer active.' })
+    return flags
+  }
+  const b = mergeNameTokens(into.name)
+  // First names differ, and neither is an initial / short form of the other.
+  const fa = a[0] || '', fb = b[0] || ''
+  const sameFirst = fa && fb && (fa === fb || (fa.length > 1 && fb.length > 1 && (fa.startsWith(fb) || fb.startsWith(fa))) ||
+    (fa.length === 1 && fb.startsWith(fa)) || (fb.length === 1 && fa.startsWith(fb)))
+  if (fa && fb && !sameFirst) {
+    const shared = a.slice(1).some(t => t.length > 1 && b.includes(t))
+    flags.push({ warn: true, label: shared ? 'Different first names · same family name' : 'Different first names',
+      hint: shared ? 'Looks like family members (e.g. spouses / siblings), not one person.' : 'The two names don\'t match.' })
+  }
+  const ph = (p) => String(p || '').replace(/\D/g, '').slice(-10)
+  if (!sameFirst && ph(dup.phone) && ph(dup.phone) === ph(into.phone)) {
+    flags.push({ warn: true, label: 'Shared phone', hint: 'Family members often share a phone — a shared number alone doesn\'t make it the same person.' })
+  }
+  if (dup.visitorId && into.visitorId === dup.visitorId) {
+    flags.push({ warn: true, label: `Kept profile carries ${dup.name || 'their'} link`,
+      hint: `The kept profile took over this person's visitor record, so the PCS add list shows ${dup.name || 'them'} as already added.` })
+  }
+  // Re-added as a new profile after the merge: Undo would bring back a second copy.
+  const dupKey = a.join(' ')
+  const readded = dupKey && activeEntries.find(x => x.id !== into.id && mergeNameTokens(x.name).join(' ') === dupKey)
+  if (readded) {
+    flags.push({ warn: true, label: 'Re-added separately',
+      hint: `An active profile named ${readded.name} already exists — Undo merge would create a duplicate; merge or remove one of them afterwards.` })
+  }
+  if (sameFirst && flags.length === 0) flags.push({ warn: false, label: 'Names match', hint: 'Looks like the same person.' })
+  return flags
 }
 
 // ─── PCS Profile Modal (desktop) ──────────────────────────────────────────────
