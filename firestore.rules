@@ -1270,6 +1270,24 @@ service cloud.firestore {
 
     match /worship_applications/{docId} {
       allow read, write: if isSignedIn();
+      // Application link sent to a candidate (createWorshipApplicationInvite): the doc
+      // id is an unguessable token. Signed-out holders may GET (never LIST) an open,
+      // unexpired invite and submit the applicant fields once (invited → pending).
+      allow get: if resource.data.get('status', '') == 'invited'
+        && resource.data.expiresAt > request.time;
+      allow update: if resource.data.get('status', '') == 'invited'
+        && resource.data.expiresAt > request.time
+        && request.resource.data.status == 'pending'
+        && request.resource.data.fullName is string && request.resource.data.fullName.size() > 0
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+             'status', 'submittedVia', 'submittedAt',
+             'applicationDate', 'fullName', 'dob', 'phone', 'email', 'currentPlace', 'comingFrom',
+             'cellGroup', 'regularCellAttendee', 'permanentMember', 'churchAttendanceDuration',
+             'worshipRating', 'worshipBestPart', 'testimony', 'baptised', 'anointedByHolySpirit',
+             'ministryExperience', 'ministryDuration', 'ministryArea', 'ministryAreaOther', 'worshipInspiration',
+             'primaryInstruments', 'instrumentDetails', 'readingAbility', 'yearsExperience', 'formalTraining',
+             'portfolioLink', 'vocalRange', 'specialEvents', 'attendPractices', 'attendRehearsals',
+             'worshipDefinition', 'feedbackResponse', 'covenantAgree', 'signatureDataUrl']);
     }
 
     match /sunday_ministry_team_members/{docId} {

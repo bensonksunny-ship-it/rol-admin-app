@@ -49,7 +49,7 @@ import BudgetPage from './accounts/BudgetPage'
 import WorshipUpcomingSunday from '../components/worship/WorshipUpcomingSunday'
 import SongDesigner from './worship/SongDesigner'
 import SongViewer from './worship/SongViewer'
-import WorshipApplications from './worship/WorshipApplications'
+import WorshipApplications, { WorshipInviteModal } from './worship/WorshipApplications'
 import BackButton from '../components/BackButton'
 import DateInput from '../components/DateInput'
 import ScheduleSongModal from '../components/worship/ScheduleSongModal'
@@ -1697,9 +1697,13 @@ export default function DepartmentWorship() {
   // The Team → "Pending Applicant Reviews" panel. applicationsSummary is the
   // embedded WorshipApplications list (null until it loads).
   const [applicationsPanelOpen, setApplicationsPanelOpen] = useState(false)
+  // Team page + button: send a new-member application link to a candidate.
+  const [inviteModalOpen, setInviteModalOpen] = useState(false)
+  const [applicationsReloadKey, setApplicationsReloadKey] = useState(0)
+  const [newApplicationKey, setNewApplicationKey] = useState(0)
   const [applicationsSummary, setApplicationsSummary] = useState(null)
   const applicationsPanelRef = useRef(null)
-  const pendingApplicationCount = (applicationsSummary || []).filter(a => a.status !== 'approved').length
+  const pendingApplicationCount = (applicationsSummary || []).filter(a => a.status !== 'approved' && a.status !== 'invited').length
   // Escape dismisses the pop-over — unless one of its own modals is open on top.
   useEffect(() => {
     if (!applicationsPanelOpen) return
@@ -2949,11 +2953,10 @@ export default function DepartmentWorship() {
                             const songId = getLocalField(role, 'songId')
                             const linkedSong = songId ? songs.find(s => s.id === songId) : null
                             const q = songName.toLowerCase()
-                            // Full directory, not just songs this user designed — assigning
-                            // Lead Vocal needs to find any song so each instrumentalist/
-                            // vocalist can later view their own part in read-only mode.
+                            // Only the user's own songs (isMySong) — public songs and songs
+                            // designed by other people are left out of the Assign picker.
                             const matches = songs
-                              .filter(s => !q || s.title?.toLowerCase().includes(q))
+                              .filter(s => isMySong(s) && (!q || s.title?.toLowerCase().includes(q)))
                               .slice(0, 8)
                             return (
                               <div className="relative">
@@ -3159,7 +3162,8 @@ export default function DepartmentWorship() {
           never grows the roster card itself. */}
       {songPickerRole && (() => {
         const q = songPickerQuery.trim().toLowerCase()
-        const matches = songs.filter((s) => !q || s.title?.toLowerCase().includes(q)).slice(0, 20)
+        // Only the user's own songs (isMySong) — same rule as the desktop Assign dropdown.
+        const matches = songs.filter((s) => isMySong(s) && (!q || s.title?.toLowerCase().includes(q))).slice(0, 20)
         return (
           <div
             className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
@@ -3188,7 +3192,7 @@ export default function DepartmentWorship() {
                     autoFocus
                     value={songPickerQuery}
                     onChange={(e) => setSongPickerQuery(e.target.value)}
-                    placeholder="Search songs or type a name"
+                    placeholder="Search my songs or type a name"
                     className="w-full pl-9 pr-3 py-2.5 text-sm rounded-lg border border-slate-300 bg-white"
                   />
                 </div>
@@ -3404,6 +3408,15 @@ export default function DepartmentWorship() {
       )}
 
 
+      {inviteModalOpen && (
+        <WorshipInviteModal
+          userProfile={userProfile}
+          onClose={() => setInviteModalOpen(false)}
+          onCreated={() => setApplicationsReloadKey(k => k + 1)}
+          onFillHere={() => { setInviteModalOpen(false); setNewApplicationKey(k => k + 1); openApplicationsPanel() }}
+        />
+      )}
+
       {/* ── The Team tab ── */}
       {activeTab === 'theTeam' && (
         <div className="space-y-6 pb-24">
@@ -3457,6 +3470,8 @@ export default function DepartmentWorship() {
                   userProfile={userProfile}
                   onApplicationsChange={setApplicationsSummary}
                   onApproved={loadTeam}
+                  reloadKey={applicationsReloadKey}
+                  newRequestKey={newApplicationKey}
                 />
               </div>
             </div>
@@ -3465,9 +3480,18 @@ export default function DepartmentWorship() {
           {/* Active members */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div>
-                <h2 className="font-semibold text-slate-800">The Team</h2>
-                <p className="text-xs text-slate-400 mt-0.5">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="font-semibold text-slate-800">The Team</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
+                </div>
+                {canManageWorship && (
+                  <button type="button" onClick={() => setInviteModalOpen(true)}
+                    title="New team member application" aria-label="New team member application"
+                    className="sm:hidden w-9 h-9 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-sm hover:bg-indigo-700 active:scale-95 shrink-0">
+                    <Plus size={18} />
+                  </button>
+                )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {canManageWorship && (() => {
@@ -3504,6 +3528,13 @@ export default function DepartmentWorship() {
                     <span>Review Applications</span>
                   )}
                 </button>
+                {canManageWorship && (
+                  <button type="button" onClick={() => setInviteModalOpen(true)}
+                    title="New team member application" aria-label="New team member application"
+                    className="hidden sm:flex w-9 h-9 rounded-full bg-indigo-600 text-white items-center justify-center shadow-sm hover:bg-indigo-700 active:scale-95 shrink-0">
+                    <Plus size={18} />
+                  </button>
+                )}
               </div>
             </div>
             {loadingTeam ? (

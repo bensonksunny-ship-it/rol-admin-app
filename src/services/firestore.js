@@ -1555,6 +1555,54 @@ export async function addWorshipApplication(department, data, submittedBy) {
   return ref.id
 }
 
+// ── Application link sent to a candidate ──
+// The Worship Director creates an 'invited' application whose doc id is an
+// unguessable token; the link /worship-apply?token=… lets the candidate fill the
+// form signed-out exactly once (status invited → pending), until it expires.
+// Cell group names are copied onto the invite because a signed-out candidate
+// can't read cell_groups.
+const WORSHIP_INVITE_DAYS = 30
+
+export async function createWorshipApplicationInvite(department, { candidateName = '', phone = '', cellGroupNames = [] } = {}, createdBy = '') {
+  if (!db) throw new Error('No database')
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  const token = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  const payload = {
+    department,
+    status: 'invited',
+    inviteName: String(candidateName || '').trim(),
+    invitePhone: String(phone || '').trim(),
+    cellGroupNames: (cellGroupNames || []).filter(Boolean),
+    createdBy: createdBy || '',
+    createdAt: Timestamp.now(),
+    expiresAt: Timestamp.fromDate(new Date(Date.now() + WORSHIP_INVITE_DAYS * 24 * 60 * 60 * 1000)),
+  }
+  await setDoc(doc(db, WORSHIP_APPLICATIONS_COLLECTION, token), payload)
+  return { id: token, ...payload }
+}
+
+/** Public read by token — works signed-out while the invite is open and unexpired. */
+export async function getWorshipApplicationByToken(token) {
+  if (!db || !token) return null
+  const snap = await getDoc(doc(db, WORSHIP_APPLICATIONS_COLLECTION, token))
+  if (!snap.exists()) return null
+  const data = snap.data()
+  return { id: snap.id, ...data, expiresAt: toDate(data.expiresAt) }
+}
+
+/** Candidate submission from the public page — invited → pending, applicant fields only. */
+export async function submitWorshipApplicationByToken(token, form) {
+  if (!db || !token) throw new Error('Missing link')
+  const { directoryPersonId: _p, directoryVisitorId: _v, ...fields } = form || {}
+  await updateDoc(doc(db, WORSHIP_APPLICATIONS_COLLECTION, token), stripUndefinedDeep({
+    ...fields,
+    status: 'pending',
+    submittedVia: 'link',
+    submittedAt: Timestamp.now(),
+  }))
+}
+
 export async function updateWorshipApplication(id, data) {
   if (!db || !id) return
   await updateDoc(doc(db, WORSHIP_APPLICATIONS_COLLECTION, id), stripUndefinedDeep(data))
@@ -9761,7 +9809,7 @@ async function namesUsedByOthers(visitorId, rowIds) {
  * are discovered from their cell attendee rows). Returns counts + the old names used.
  * Throws on a write failure so the caller can tell the user.
  */
-export async function cascadeNameChangeToAttendance({ visitorId = '', cellRowIds = [], oldNames = [], newName }) {
+export async function cascadeNameChangeToAttendance({ visitorId = '', cellRowIds = [], cellRows: extraRows = [], oldNames = [], newName }) {
   const toName = String(newName || '').trim()
   if (!db || !toName) return { cellReports: 0, sundayReports: 0, oldNames: [] }
   const toKey = nameNorm(toName)
@@ -9772,6 +9820,8 @@ export async function cascadeNameChangeToAttendance({ visitorId = '', cellRowIds
     const docs = await getCellMembersByVisitorId(visitorId)
     docs.forEach((d) => { if (d.ref.parent.parent) rows.push({ rowId: d.id, cellId: d.ref.parent.parent.id, name: d.name }) })
   }
+  // Roster rows the caller already knows (e.g. a member with no visitor record).
+  extraRows.forEach((r) => { if (r?.rowId && r?.cellId && !rows.some((x) => x.rowId === r.rowId)) rows.push(r) })
   const rowIds = new Set([...rows.map((r) => r.rowId), ...cellRowIds.filter(Boolean)])
   const cellIds = [...new Set(rows.map((r) => r.cellId))]
 

@@ -6,6 +6,7 @@ import {
   updatePerson,
   updatePCSEntry,
   updateCellGroupMember,
+  cascadeNameChangeToAttendance,
   updateCellGroup,
   updateDepartmentTeamMember,
   updateWorshipTeamMember,
@@ -162,6 +163,16 @@ function EditPersonModal({ p, cellGroups, onClose, onSaved, userEmail }) {
       // when it was linked) — the cell group's own leader field too.
       // Without pushing the change out to those copies, they go stale and start
       // looking like a different person — which is what caused the duplicates.
+      // Attendance (cell + Sunday) is matched by name — carry a rename into history.
+      const renamedFrom = [p.name, ...(p.cells || []).map((c) => c.name)]
+        .filter((n) => n && String(n).trim().toLowerCase() !== personData.name.toLowerCase())
+      if (renamedFrom.length) {
+        cascadeNameChangeToAttendance({ visitorId: visitorId || '', cellRows: (p.cells || []).map((c) => ({ rowId: c.id, cellId: c.cellId })), oldNames: renamedFrom, newName: personData.name })
+          .catch((err) => {
+            console.error('cascadeNameChangeToAttendance failed:', err)
+            alert(`${personData.name}'s name was saved, but past cell/Sunday attendance could not be moved to the new name (${err?.code || err?.message || 'error'}).`)
+          })
+      }
       const copyUpdate = { name: personData.name, phone: personData.phone }
       const myIds = new Set([resolvedPersonId, ...(p._visitorIds || []), ...(p.cells || []).map((c) => c.id)].filter(Boolean))
       const leaderOfCells = (cellGroups || []).filter((g) => g.leaderPersonId && myIds.has(g.leaderPersonId))

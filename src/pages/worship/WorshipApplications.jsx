@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
-import { ArrowLeft, ChevronDown, Check, Star, Download, Lock, FileText, Image as ImageIcon } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Check, Star, Download, Lock, FileText, Image as ImageIcon, Copy, Link2, Send, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import rolccLogo from '../../assets/rolcc_logo BW.JPG'
 import {
   getWorshipApplications,
   addWorshipApplication,
   updateWorshipApplication,
+  submitWorshipApplicationByToken,
+  createWorshipApplicationInvite,
+  deleteWorshipApplication,
   getMergedPeopleDirectory,
   getCellGroups,
   getWorshipTeamMembers,
@@ -317,8 +321,13 @@ function Stepper({ steps, current }) {
 
 // ── The fill-out form — applicant-facing, shown full-screen while the Director
 // hands over the device. Deliberately renders nothing from the applications list. ──
-function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
-  const [form, setForm] = useState(emptyForm())
+// `invite` = an application link a candidate opened signed-out (/worship-apply):
+// no People Directory search (never exposed publicly), cell groups come from the
+// invite, and the submission fills that invite doc instead of creating one.
+export function ApplicationForm({ onSubmitted, onCancel, submittedBy, invite = null }) {
+  const [form, setForm] = useState(() => (invite
+    ? { ...emptyForm(), fullName: invite.inviteName || '', phone: invite.invitePhone || '' }
+    : emptyForm()))
   const [submitting, setSubmitting] = useState(false)
   const [membersList, setMembersList] = useState([])
   const [nameSuggestions, setNameSuggestions] = useState([])
@@ -336,6 +345,7 @@ function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
   // no active-tab, stage, or role filtering — `people` here is already every entry
   // getMergedPeopleDirectory merged, unfiltered).
   useEffect(() => {
+    if (invite) return
     getMergedPeopleDirectory()
       .then(({ people }) => {
         const withNames = []
@@ -365,6 +375,11 @@ function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
   // current `cellName` field, and drops any record with no resolvable name at all
   // instead of rendering a blank option.
   useEffect(() => {
+    if (invite) {
+      setCellGroups((invite.cellGroupNames || []).map(n => ({ id: n, cellName: n })))
+      setLoadingCellGroups(false)
+      return
+    }
     let alive = true
     setLoadingCellGroups(true)
     setCellGroupsError(false)
@@ -455,7 +470,8 @@ function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
     if (!canSubmit) return
     setSubmitting(true)
     try {
-      await addWorshipApplication(DEPARTMENT, form, submittedBy)
+      if (invite) await submitWorshipApplicationByToken(invite.id, form)
+      else await addWorshipApplication(DEPARTMENT, form, submittedBy)
       onSubmitted()
     } catch (err) {
       console.error('Worship application submit failed:', err, form)
@@ -487,7 +503,7 @@ function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
           {step === 0 && (
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <h3 className="text-sm font-bold text-slate-800 mb-1">I. Personal Information</h3>
-              <Field label="Full legal name *" hint="Search the People's Directory, or type a new name">
+              <Field label="Full legal name *" hint={invite ? '' : "Search the People's Directory, or type a new name"}>
                 <div className="relative">
                   <TextInput
                     required
@@ -507,7 +523,7 @@ function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
                     }}
                     onFocus={() => { if (nameSuggestions.length > 0) setShowNameSuggestions(true) }}
                     onBlur={() => setTimeout(() => setShowNameSuggestions(false), 150)}
-                    placeholder="Type to search or enter a new name…"
+                    placeholder={invite ? 'Your full legal name' : 'Type to search or enter a new name…'}
                     autoComplete="off"
                   />
                   {showNameSuggestions && (
@@ -683,11 +699,11 @@ function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
       )}
 
       <div className="flex gap-3 px-1">
-        {step === 0 ? (
+        {step === 0 ? (onCancel ? (
           <button type="button" onClick={onCancel} className="flex-1 py-3 rounded-2xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
             Cancel
           </button>
-        ) : (
+        ) : <div className="flex-1" />) : (
           <button type="button" onClick={handleBack} className="flex-1 py-3 rounded-2xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
             Back
           </button>
@@ -709,7 +725,7 @@ function ApplicationForm({ onSubmitted, onCancel, submittedBy }) {
 }
 
 // ── Thank-you screen — applicant-facing, no admin data visible ──
-function ThankYou({ onDone }) {
+export function ThankYou({ onDone }) {
   return (
     <div className="flex flex-col items-center justify-center text-center py-24 gap-4">
       <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center">
@@ -717,9 +733,9 @@ function ThankYou({ onDone }) {
       </div>
       <h2 className="text-lg font-bold text-slate-800">Application received</h2>
       <p className="text-sm text-slate-500 max-w-xs">Thank you! Your Worship Director will review this and follow up with you.</p>
-      <button type="button" onClick={onDone} className="mt-2 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-500 hover:bg-slate-50">
+      {onDone && <button type="button" onClick={onDone} className="mt-2 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-500 hover:bg-slate-50">
         Done — hand back to Director
-      </button>
+      </button>}
     </div>
   )
 }
@@ -1597,7 +1613,127 @@ function ApplicationDetail({ app, onBack, onMarkReviewed, onEditScreening, onApp
 // approved applications are hidden behind a toggle there, and the host is told
 // about the list (onApplicationsChange, for its count badge) and approvals
 // (onApproved, to reload the roster).
-export default function WorshipApplications({ canManageWorship, userProfile, backButton = null, embedded = false, onApplicationsChange, onApproved }) {
+export const worshipApplyLink = (token) => `${window.location.origin}/worship-apply?token=${token}`
+const isInvite = (a) => a?.status === 'invited'
+const inviteExpired = (a) => {
+  const e = a?.expiresAt
+  const t = e?.toDate ? e.toDate() : e?.seconds ? new Date(e.seconds * 1000) : e ? new Date(e) : null
+  return !!t && t < new Date()
+}
+const whatsappHref = (phone, text) => {
+  const d = String(phone || '').replace(/\D/g, '')
+  const to = d.length === 10 ? `91${d}` : d
+  return `https://wa.me/${to}?text=${encodeURIComponent(text)}`
+}
+const inviteMessage = (name, link) =>
+  `Hi${name ? ' ' + name.trim().split(' ')[0] : ''}, here is your River Of Life Worship Ministry application form. Please fill it in and submit it: ${link}`
+
+/**
+ * "+ New team member" on the Team page: create an application link for a candidate
+ * to fill on their own phone (copy / WhatsApp / share), or fill it on this device.
+ */
+export function WorshipInviteModal({ userProfile, onClose, onCreated, onFillHere }) {
+  const [name, setName] = useState('')
+  const [phone, setPhone] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState('')
+  const [invite, setInvite] = useState(null)
+  const [copied, setCopied] = useState(false)
+  const link = invite ? worshipApplyLink(invite.id) : ''
+
+  async function create() {
+    setError('')
+    setCreating(true)
+    try {
+      const groups = await getCellGroups('Cell').catch(() => [])
+      const cellGroupNames = (groups || [])
+        .filter(g => g.status !== 'inactive')
+        .map(g => g.cellName || g.name || g.groupName || '')
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b))
+      const inv = await createWorshipApplicationInvite(DEPARTMENT, { candidateName: name, phone, cellGroupNames }, userProfile?.email || userProfile?.name || '')
+      setInvite(inv)
+      onCreated?.()
+    } catch (err) {
+      console.error('createWorshipApplicationInvite failed:', err)
+      setError(`Could not create the link (${err?.code || err?.message || 'error'}).`)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 2000) } catch { window.prompt('Copy this link:', link) }
+  }
+  const share = async () => {
+    try { await navigator.share({ title: 'Worship Ministry Application', text: inviteMessage(name, link) }) } catch { /* cancelled */ }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[80] bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3">
+          <Link2 size={18} className="text-indigo-600 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <h3 className="font-semibold text-slate-800">New Team Member Application</h3>
+            <p className="text-xs text-slate-400">Send the application form to the candidate as a link</p>
+          </div>
+          <button type="button" onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="Close"><X size={18} /></button>
+        </div>
+
+        {!invite ? (
+          <div className="p-5 space-y-3">
+            <Field label="Candidate name" hint="Optional: pre-fills their form">
+              <TextInput value={name} onChange={e => setName(e.target.value)} placeholder="Full name" />
+            </Field>
+            <Field label="Phone number" hint="Optional: for sending on WhatsApp">
+              <TextInput value={phone} onChange={e => setPhone(e.target.value)} inputMode="tel" placeholder="10-digit mobile" />
+            </Field>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <button type="button" onClick={create} disabled={creating}
+              className="w-full py-3 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
+              <Link2 size={16} /> {creating ? 'Creating link…' : 'Create application link'}
+            </button>
+            {onFillHere && (
+              <button type="button" onClick={onFillHere}
+                className="w-full py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                Fill the form on this device instead
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="p-5 space-y-3">
+            <p className="text-sm text-slate-600">
+              Link ready{invite.inviteName ? <> for <b>{invite.inviteName}</b></> : ''}. It works without logging in, can be submitted once, and expires in 30 days.
+            </p>
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 break-all">{link}</div>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={copy}
+                className="py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-700 hover:bg-slate-50 flex items-center justify-center gap-1.5">
+                {copied ? <Check size={16} className="text-emerald-600" /> : <Copy size={16} />} {copied ? 'Copied' : 'Copy link'}
+              </button>
+              <a href={whatsappHref(phone, inviteMessage(name, link))} target="_blank" rel="noreferrer"
+                className="py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 flex items-center justify-center gap-1.5">
+                <Send size={16} /> WhatsApp
+              </a>
+            </div>
+            {typeof navigator !== 'undefined' && navigator.share && (
+              <button type="button" onClick={share}
+                className="w-full py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+                Share another way…
+              </button>
+            )}
+            <p className="text-xs text-slate-400">The submitted form appears under Pending Applicant Reviews.</p>
+            <button type="button" onClick={onClose} className="w-full py-2.5 rounded-xl bg-slate-800 text-white text-sm font-semibold hover:bg-slate-900">Done</button>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+export default function WorshipApplications({ canManageWorship, userProfile, backButton = null, embedded = false, onApplicationsChange, onApproved, reloadKey = 0, newRequestKey = 0 }) {
   const [applications, setApplications] = useState([])
   const [loading, setLoading] = useState(true)
   const [showApproved, setShowApproved] = useState(false)
@@ -1609,7 +1745,9 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
   const [approvingApp, setApprovingApp] = useState(null)
   const [approvedNote, setApprovedNote] = useState('')
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [reloadKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  // "Fill the form on this device" from the Team page's + button.
+  useEffect(() => { if (newRequestKey) { setViewing(null); setMode('new') } }, [newRequestKey])
 
   async function load() {
     setLoading(true)
@@ -1753,9 +1891,24 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
     )
   }
 
-  const pendingCount = applications.filter(a => a.status !== 'reviewed' && a.status !== 'screened' && a.status !== 'approved').length
-  const approvedCount = applications.filter(a => a.status === 'approved').length
-  const listed = embedded && !showApproved ? applications.filter(a => a.status !== 'approved') : applications
+  // Links sent to candidates but not filled yet — listed on their own, not as applications.
+  const invites = applications.filter(isInvite)
+  const received = applications.filter(a => !isInvite(a))
+  const pendingCount = received.filter(a => a.status !== 'reviewed' && a.status !== 'screened' && a.status !== 'approved').length
+  const approvedCount = received.filter(a => a.status === 'approved').length
+  const listed = embedded && !showApproved ? received.filter(a => a.status !== 'approved') : received
+
+  const copyInvite = async (inv) => {
+    const link = worshipApplyLink(inv.id)
+    try { await navigator.clipboard.writeText(link); alert('Link copied.') } catch { window.prompt('Copy this link:', link) }
+  }
+  const withdrawInvite = async (inv) => {
+    if (!window.confirm(`Withdraw the application link${inv.inviteName ? ` for ${inv.inviteName}` : ''}? It stops working.`)) return
+    try {
+      await deleteWorshipApplication(inv.id)
+      setApplications(prev => prev.filter(a => a.id !== inv.id))
+    } catch (err) { console.error(err); alert('Could not withdraw the link.') }
+  }
 
   return (
     <div className={embedded ? 'space-y-4' : 'max-w-2xl mx-auto space-y-4'}>
@@ -1765,7 +1918,7 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
           <div className="min-w-0">
             {!embedded && <h2 className="font-semibold text-slate-800">Worship Applications</h2>}
             <p className="text-xs text-slate-400">
-              {applications.length} received{pendingCount > 0 ? ` · ${pendingCount} pending review` : ''}
+              {received.length} received{pendingCount > 0 ? ` · ${pendingCount} pending review` : ''}{invites.length > 0 ? ` · ${invites.length} link${invites.length !== 1 ? 's' : ''} sent` : ''}
             </p>
             {embedded && approvedCount > 0 && (
               <button type="button" onClick={() => setShowApproved(v => !v)} className="text-xs font-semibold text-indigo-600 hover:underline">
@@ -1786,7 +1939,7 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
         <div className="text-center py-10 text-slate-400 text-sm">Loading…</div>
       ) : listed.length === 0 ? (
         <div className="text-center py-10 text-slate-400 text-sm">
-          {applications.length === 0
+          {received.length === 0
             ? 'No applications yet. Tap "+ New Application" and hand the device to the applicant.'
             : 'Every application has been decided. Nothing waiting for review.'}
         </div>
@@ -1851,6 +2004,35 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {canManageWorship && invites.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-400 pt-2">Links sent · waiting for the candidate</p>
+          {invites.map(inv => {
+            const expired = inviteExpired(inv)
+            return (
+              <div key={inv.id} className="bg-slate-50 rounded-xl border border-dashed border-slate-300 px-4 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-700 text-sm truncate">{inv.inviteName || 'Unnamed candidate'}</p>
+                  <p className={`text-xs truncate ${expired ? 'text-red-500' : 'text-slate-400'}`}>
+                    {expired ? 'Link expired' : 'Not filled yet'}{inv.invitePhone ? ` · ${inv.invitePhone}` : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {!expired && (
+                    <button type="button" onClick={() => copyInvite(inv)} className="px-2.5 py-1 rounded-full text-xs font-semibold bg-white border border-slate-200 text-slate-600 hover:bg-slate-100">
+                      Copy link
+                    </button>
+                  )}
+                  <button type="button" onClick={() => withdrawInvite(inv)} className="px-2.5 py-1 rounded-full text-xs font-semibold text-red-600 hover:bg-red-50">
+                    {expired ? 'Remove' : 'Withdraw'}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
 

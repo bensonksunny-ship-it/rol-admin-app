@@ -20,6 +20,7 @@ import MembershipApply from './pages/MembershipApply'
 import DedicationApply from './pages/DedicationApply'
 import BaptismDeclarationSign from './pages/BaptismDeclarationSign'
 import MarriageApply from './pages/MarriageApply'
+import WorshipApply from './pages/WorshipApply'
 import SundayProgram from './pages/SundayProgram'
 import SundayCrew from './pages/SundayCrew'
 import Sunday from './pages/Sunday'
@@ -65,6 +66,7 @@ function App() {
             <Route path="/baptism-declaration" element={<BaptismDeclarationSign />} />
             {/* Public — PCS marriage (Holy Matrimony) QR code (firestore.rules → marriage_applications). */}
             <Route path="/marriage-apply" element={<MarriageApply />} />
+            <Route path="/worship-apply" element={<WorshipApply />} />
             {/* Public — Media Control Center for the media desk; the token is the access (firestore.rules → media_live). */}
             <Route path="/media-live/:token" element={<MediaLiveControl />} />
             {/* Same, filtered to one operator station (projection, sound, lighting, stream, camera). */}
