@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import useModalOpenGuard from '../hooks/useModalOpenGuard'
 import MemberPicker from '../components/MemberPicker'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2, Copy, ClipboardList, CalendarPlus } from 'lucide-react'
+import { ChevronDown, CheckCircle2, Download, Pencil, Trash2, MoreVertical, Wallet, Banknote, X, Plus, Music2, Search, Eye, Mic2, Users, Guitar, Volume2, Share2, Copy, ClipboardList, CalendarPlus, Link2 } from 'lucide-react'
 import { Link, Navigate, useSearchParams } from 'react-router-dom'
 import {
   getDepartmentEntries,
@@ -1415,12 +1415,44 @@ function WorshipAnalyticsDashboard() {
 // inline — so the grid itself stays perfectly aligned regardless of how much
 // a given member has on record. Shared by both places member cards render (the
 // standalone Team tab and Operations > Team).
+// Pastel Bento tints for the active member cards (gold is reserved for anniversaries).
+const MEMBER_CARD_TINTS = [
+  { bg: 'from-sky-100 to-indigo-100', ring: 'ring-indigo-200/70', text: 'text-indigo-950' },
+  { bg: 'from-rose-100 to-pink-100', ring: 'ring-pink-200/70', text: 'text-rose-950' },
+  { bg: 'from-emerald-100 to-teal-100', ring: 'ring-teal-200/70', text: 'text-emerald-950' },
+  { bg: 'from-violet-100 to-fuchsia-100', ring: 'ring-fuchsia-200/70', text: 'text-violet-950' },
+  { bg: 'from-cyan-100 to-sky-100', ring: 'ring-sky-200/70', text: 'text-cyan-950' },
+  { bg: 'from-lime-100 to-emerald-100', ring: 'ring-emerald-200/70', text: 'text-emerald-950' },
+  { bg: 'from-purple-100 to-indigo-100', ring: 'ring-purple-200/70', text: 'text-purple-950' },
+  { bg: 'from-orange-50 to-rose-100', ring: 'ring-rose-200/70', text: 'text-rose-950' },
+]
+function hashString(s) {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return h
+}
+
+// Worship anniversary: the number of full years served when today is within 30 days
+// on or after the anniversary of `memberSince` (yyyy-MM-dd); 0 otherwise. Year 1+
+// only — a brand-new member has nothing to celebrate yet.
+const CELEBRATION_DAYS = 30
+function worshipAnniversary(memberSince, today = new Date()) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(memberSince || ''))
+  if (!m) return 0
+  const since = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  const day = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const years = differenceInYears(day, since)
+  if (years < 1) return 0
+  return differenceInDays(day, addYears(since, years)) < CELEBRATION_DAYS ? years : 0
+}
+
 function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEdit, onDelete, onLink, stats }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   useModalOpenGuard(detailOpen) // hides the mobile dock + locks page scroll while the record is open
 
   const since = new Date(m.memberSince)
+  const hasSince = !!m.memberSince && !Number.isNaN(since.getTime())
   const till = isFormer && m.formerSince ? new Date(m.formerSince) : new Date()
   const yrs = differenceInYears(till, since)
   const mos = differenceInMonths(till, addYears(since, yrs))
@@ -1431,28 +1463,49 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
   const primaryRole = m.isWorshipDirector ? 'Director' : (m.positions || [])[0] || null
   const totalSongs = stats?.total || 0
 
+  // Active cards: name only, on a pastel tint picked from the member's id (stable
+  // across renders). A member whose worship anniversary fell in the last 30 days
+  // gets the golden "celebration" card instead (worshipAnniversary below).
+  const celebrateYears = isFormer ? 0 : worshipAnniversary(m.memberSince)
+  const tint = MEMBER_CARD_TINTS[hashString(String(m.id || m.name || '')) % MEMBER_CARD_TINTS.length]
+  const cardClass = isFormer
+    ? 'rounded-xl border border-slate-200 bg-slate-50 p-3 min-h-[128px] shadow-sm'
+    : celebrateYears
+      ? 'rounded-3xl p-4 bg-gradient-to-br from-amber-200 via-yellow-100 to-orange-200 ring-2 ring-amber-300 shadow-md shadow-amber-200/60 hover:shadow-lg'
+      : `rounded-3xl p-4 bg-gradient-to-br ${tint.bg} ring-1 ${tint.ring} shadow-sm hover:shadow-md hover:-translate-y-0.5`
+
+  // Every card is one grid column and the same height (h-full + min-h). No
+  // overflow-hidden on the card, so the ⋮ menu is never clipped; while it is open
+  // the card is lifted above its neighbours (z-40) so the menu paints over them.
   return (
     <>
     <div
-      className={`relative rounded-xl border p-3 flex flex-col justify-between gap-2 shadow-sm transition-colors cursor-pointer min-h-[128px] ${
-        isFormer
-          ? 'border-slate-200 bg-slate-50'
-          : m.isWorshipDirector ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white hover:border-indigo-200'
-      }`}
+      className={`relative h-full flex flex-col justify-between gap-2 transition cursor-pointer ${isFormer ? '' : 'min-h-[128px]'} ${menuOpen ? 'z-40' : ''} ${cardClass}`}
       role="button"
       tabIndex={0}
       onClick={() => setDetailOpen(true)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDetailOpen(true) } }}
     >
+      {celebrateYears > 0 && (
+        // Soft confetti — clipped in its own layer, so the card itself needs no overflow-hidden.
+        <span aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl">
+          <span className="absolute -top-1 right-10 text-2xl opacity-60 rotate-12">🎊</span>
+          <span className="absolute bottom-1.5 right-3 text-lg opacity-50 -rotate-12">✨</span>
+        </span>
+      )}
       {/* Top: name + ⋮ actions menu */}
-      <div className="flex items-start justify-between gap-2">
-        <span className={`font-semibold text-sm leading-snug truncate ${isFormer ? 'text-slate-700' : 'text-slate-800'}`}>{getMemberDisplayName(m)}</span>
+      <div className="relative flex items-start justify-between gap-2">
+        <span className={isFormer
+          ? 'font-semibold text-sm leading-snug truncate text-slate-700'
+          : `font-bold text-lg leading-tight tracking-tight break-words ${celebrateYears ? 'text-amber-950' : tint.text}`}>
+          {getMemberDisplayName(m)}
+        </span>
         {canManageWorship && (
           <div className="relative shrink-0 -mt-1 -mr-1" onClick={(e) => e.stopPropagation()}>
             <button
               type="button"
               onClick={() => setMenuOpen(v => !v)}
-              className="w-7 h-7 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
+              className={`w-7 h-7 flex items-center justify-center rounded-full transition-colors ${isFormer ? 'text-slate-400 hover:bg-slate-100 hover:text-slate-600' : 'text-slate-500/70 hover:bg-white/60 hover:text-slate-700'}`}
               aria-label="Member actions"
             >
               <MoreVertical size={16} />
@@ -1460,7 +1513,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
             {menuOpen && (
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} aria-hidden />
-                <div className="absolute right-0 top-full mt-1 z-20 w-44 bg-white rounded-xl border border-slate-200 shadow-lg overflow-hidden">
+                <div className="absolute right-0 top-full mt-1 z-50 w-52 py-1 bg-white rounded-xl border border-slate-200 shadow-xl text-left [&>button]:justify-start [&>button]:text-left [&>button]:whitespace-nowrap [&_svg]:shrink-0">
                   <button
                     type="button"
                     onClick={() => { setMenuOpen(false); setDetailOpen(true) }}
@@ -1481,7 +1534,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
                       onClick={() => { setMenuOpen(false); onLink(m) }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-indigo-600 hover:bg-indigo-50 transition-colors"
                     >
-                      Link
+                      <Link2 size={13} /> Link to profile
                     </button>
                   )}
                   <button
@@ -1498,17 +1551,21 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
         )}
       </div>
 
-      {/* Subtext: join date / tenure, always a single line so cards line up */}
+      {/* Milestone badge — active members celebrating a worship anniversary. */}
+      {celebrateYears > 0 && (
+        <span className="relative self-start max-w-full rounded-2xl bg-white/80 px-2.5 py-1 text-[11px] leading-snug font-bold text-amber-800 ring-1 ring-amber-300 shadow-sm">
+          🎉 {celebrateYears} Year{celebrateYears === 1 ? '' : 's'} of Serving God
+        </span>
+      )}
+
+      {/* Former members keep their service dates and pills (their record is history). */}
+      {isFormer && (
+      <>
       <p className="text-[11px] text-slate-400 leading-snug">
-        {isFormer ? (
-          <>{formatDMY(m.memberSince)} → {m.formerSince ? formatDMY(m.formerSince) : 'now'} · {totalDays.toLocaleString()}d</>
-        ) : (
-          <>Since {formatDMY(m.memberSince)}</>
-        )}
+        {formatDMY(m.memberSince)} → {m.formerSince ? formatDMY(m.formerSince) : 'now'} · {totalDays.toLocaleString()}d
         {' • '}{yrs} yr {mos} mo
       </p>
 
-      {/* Bottom: compact primary-role + total-songs pills */}
       <div className="flex flex-wrap items-center gap-1.5">
         {primaryRole && (
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
@@ -1525,6 +1582,8 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
           </span>
         )}
       </div>
+      </>
+      )}
     </div>
 
     {/* Individual Record detail modal — full role breakdown + historical services/
@@ -1554,7 +1613,7 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
           <div className="shrink-0 flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-wide text-violet-500">Individual Record</p>
-              <h3 className="text-base font-bold text-slate-800 truncate">{(m.name || '').trim().split(' ')[0] || m.name}</h3>
+              <h3 className="text-base font-bold text-slate-800 truncate">{getMemberDisplayName(m) || m.name}</h3>
             </div>
             <button
               type="button"
@@ -1567,6 +1626,40 @@ function WorshipMemberCard({ member: m, isFormer = false, canManageWorship, onEd
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 pt-4 pb-[calc(3rem+env(safe-area-inset-bottom,0px))] sm:pb-6 space-y-4">
+            {/* Service — joining date and tenure (no longer on the card itself). */}
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Service</p>
+              {celebrateYears > 0 && (
+                <p className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-200 to-orange-200 px-3 py-1 text-xs font-bold text-amber-900 ring-1 ring-amber-300">
+                  🎉 {celebrateYears} Year{celebrateYears === 1 ? '' : 's'} of Serving God
+                </p>
+              )}
+              {hasSince ? (
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                    <p className="text-[10px] text-slate-400">Date of joining</p>
+                    <p className="text-sm font-bold text-slate-800 mt-0.5">{formatDMY(m.memberSince)}</p>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                    <p className="text-[10px] text-slate-400">{isFormer ? 'Served for' : 'Serving for'}</p>
+                    <p className="text-sm font-bold text-slate-800 mt-0.5">{yrs} yr {mos} mo</p>
+                  </div>
+                  {isFormer && (
+                    <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                      <p className="text-[10px] text-slate-400">Former since</p>
+                      <p className="text-sm font-bold text-slate-800 mt-0.5">{m.formerSince ? formatDMY(m.formerSince) : '—'}</p>
+                    </div>
+                  )}
+                  <div className={`rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 ${isFormer ? '' : 'col-span-2'}`}>
+                    <p className="text-[10px] text-slate-400">Total days</p>
+                    <p className="text-sm font-bold text-slate-800 mt-0.5">{differenceInDays(till, since).toLocaleString()}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400 italic">No joining date on record.</p>
+              )}
+            </div>
+
             {(m.isWorshipDirector || m.positions?.length > 0) && (
               <div>
                 <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mb-2">Roles</p>
@@ -3519,21 +3612,8 @@ export default function DepartmentWorship() {
                     </button>
                   )
                 })()}
-                <button
-                  type="button"
-                  onClick={openApplicationsPanel}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm shrink-0"
-                >
-                  <ClipboardList size={16} />
-                  {pendingApplicationCount > 0 ? (
-                    <>
-                      <span>Pending Applications</span>
-                      <span className="min-w-[1.25rem] h-5 px-1.5 rounded-full bg-white text-indigo-700 text-xs font-bold flex items-center justify-center">{pendingApplicationCount}</span>
-                    </>
-                  ) : (
-                    <span>Review Applications</span>
-                  )}
-                </button>
+                {/* No second applications button here: the "Pending Applicant Reviews"
+                    card above is the one entry point. */}
               </div>
             </div>
             {loadingTeam ? (

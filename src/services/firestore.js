@@ -1563,7 +1563,9 @@ export async function addWorshipApplication(department, data, submittedBy) {
 // can't read cell_groups.
 const WORSHIP_INVITE_DAYS = 30
 
-export async function createWorshipApplicationInvite(department, { candidateName = '', phone = '', cellGroupNames = [] } = {}, createdBy = '') {
+// The candidate is picked from the People Directory (WorshipInviteModal); personId /
+// visitorId record which profile the link belongs to.
+export async function createWorshipApplicationInvite(department, { candidateName = '', phone = '', cellGroupNames = [], personId = '', visitorId = '' } = {}, createdBy = '') {
   if (!db) throw new Error('No database')
   const bytes = new Uint8Array(16)
   crypto.getRandomValues(bytes)
@@ -1573,6 +1575,8 @@ export async function createWorshipApplicationInvite(department, { candidateName
     status: 'invited',
     inviteName: String(candidateName || '').trim(),
     invitePhone: String(phone || '').trim(),
+    invitePersonId: personId || '',
+    inviteVisitorId: visitorId || '',
     cellGroupNames: (cellGroupNames || []).filter(Boolean),
     createdBy: createdBy || '',
     createdAt: Timestamp.now(),

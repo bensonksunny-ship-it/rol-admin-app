@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { format } from 'date-fns'
-import { ArrowLeft, ChevronDown, Check, Star, Download, Lock, FileText, Image as ImageIcon, Copy, Link2, Send, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Check, Star, Download, Lock, FileText, Image as ImageIcon, Copy, Link2, Send, X, Search } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import rolccLogo from '../../assets/rolcc_logo BW.JPG'
 import {
@@ -506,10 +506,12 @@ export function ApplicationForm({ onSubmitted, onCancel, submittedBy, invite = n
           {step === 0 && (
             <div className="bg-white rounded-xl border border-slate-200 p-4">
               <h3 className="text-sm font-bold text-slate-800 mb-1">I. Personal Information</h3>
-              <Field label="Full legal name *" hint={invite ? '' : "Search the People's Directory, or type a new name"}>
+              <Field label="Full legal name *" hint={invite ? (invite.inviteName ? 'From the church records. Ask the Worship office if it needs correcting.' : '') : "Search the People's Directory, or type a new name"}>
                 <div className="relative">
                   <TextInput
                     required
+                    // A link made for a directory-selected candidate keeps that name.
+                    readOnly={!!invite?.inviteName}
                     value={form.fullName}
                     onChange={e => {
                       const q = e.target.value
@@ -1636,15 +1638,58 @@ const inviteMessage = (name, link) =>
  * to fill on their own phone (copy / WhatsApp / share), or fill it on this device.
  */
 export function WorshipInviteModal({ userProfile, onClose, onCreated, onFillHere }) {
-  const [name, setName] = useState('')
-  const [phone, setPhone] = useState('')
+  // The candidate is picked from the People Directory only (no typed-in names), so
+  // every application link belongs to a registered profile. Name and phone come
+  // from that profile.
+  const [directory, setDirectory] = useState(null) // null = loading
+  const [directoryError, setDirectoryError] = useState(false)
+  const [query, setQuery] = useState('')
+  const [candidate, setCandidate] = useState(null)
+  const name = candidate?.name || ''
+  const phone = candidate?.phone || ''
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
   const [invite, setInvite] = useState(null)
   const [copied, setCopied] = useState(false)
   const link = invite ? worshipApplyLink(invite.id) : ''
 
+  useEffect(() => {
+    let alive = true
+    getMergedPeopleDirectory()
+      .then(({ people }) => {
+        if (!alive) return
+        const seen = new Set()
+        const list = []
+        for (const p of people || []) {
+          const nm = String(directoryEntryName(p) || '').trim()
+          const key = p._key || nm.toLowerCase()
+          if (!nm || seen.has(key)) continue
+          seen.add(key)
+          const cell = p.cells?.find((c) => c.status !== 'inactive')?.cellName || ''
+          list.push({
+            key, name: nm, phone: String(p.phone || '').trim(),
+            personId: p.personId || '', visitorId: (p._visitorIds || [])[0] || '',
+            detail: cell || p.deptTeams?.[0]?.department || '',
+          })
+        }
+        setDirectory(list.sort((a, b) => a.name.localeCompare(b.name)))
+      })
+      .catch((err) => {
+        console.error('People Directory load failed (worship invite):', err)
+        if (alive) { setDirectory([]); setDirectoryError(true) }
+      })
+    return () => { alive = false }
+  }, [])
+
+  const needle = query.trim().toLowerCase()
+  const digits = needle.replace(/\D/g, '')
+  const matches = directory && needle
+    ? directory.filter((p) => p.name.toLowerCase().includes(needle)
+        || (digits.length >= 3 && p.phone.replace(/\D/g, '').includes(digits))).slice(0, 30)
+    : []
+
   async function create() {
+    if (!candidate) { setError('Select the candidate from the People Directory.'); return }
     setError('')
     setCreating(true)
     try {
@@ -1654,7 +1699,10 @@ export function WorshipInviteModal({ userProfile, onClose, onCreated, onFillHere
         .map(g => g.cellName || g.name || g.groupName || '')
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b))
-      const inv = await createWorshipApplicationInvite(DEPARTMENT, { candidateName: name, phone, cellGroupNames }, userProfile?.email || userProfile?.name || '')
+      const inv = await createWorshipApplicationInvite(DEPARTMENT, {
+        candidateName: name, phone, cellGroupNames,
+        personId: candidate.personId, visitorId: candidate.visitorId,
+      }, userProfile?.email || userProfile?.name || '')
       setInvite(inv)
       onCreated?.()
     } catch (err) {
@@ -1686,14 +1734,50 @@ export function WorshipInviteModal({ userProfile, onClose, onCreated, onFillHere
 
         {!invite ? (
           <div className="p-5 space-y-3">
-            <Field label="Candidate name" hint="Optional: pre-fills their form">
-              <TextInput value={name} onChange={e => setName(e.target.value)} placeholder="Full name" />
-            </Field>
-            <Field label="Phone number" hint="Optional: for sending on WhatsApp">
-              <TextInput value={phone} onChange={e => setPhone(e.target.value)} inputMode="tel" placeholder="10-digit mobile" />
+            <Field label="Candidate *" hint="Select from the People Directory. Name and phone come from their profile.">
+              {candidate ? (
+                <div className="flex items-center gap-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{candidate.name}</p>
+                    <p className="text-xs text-slate-500 truncate">
+                      {candidate.phone || 'No phone on profile'}{candidate.detail ? ` · ${candidate.detail}` : ''}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => { setCandidate(null); setQuery('') }}
+                    className="text-xs font-semibold text-indigo-700 hover:text-indigo-900 shrink-0">Change</button>
+                </div>
+              ) : (
+                <div>
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <input type="search" value={query} onChange={e => setQuery(e.target.value)} autoComplete="off"
+                      disabled={!directory || directory.length === 0}
+                      placeholder={directory ? 'Search by name or phone…' : 'Loading People Directory…'}
+                      className="w-full min-w-0 pl-9 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300 disabled:bg-slate-50" />
+                  </div>
+                  {directoryError && <p className="text-xs text-red-600 mt-1.5">Could not load the People Directory. Close and try again.</p>}
+                  {needle && directory && (
+                    <ul className="mt-1.5 max-h-56 overflow-y-auto rounded-lg border border-slate-200 divide-y divide-slate-100">
+                      {matches.length === 0 ? (
+                        <li className="px-3 py-2.5 text-xs text-slate-500">No one in the People Directory matches. New people are registered through D-Light first.</li>
+                      ) : matches.map(p => (
+                        <li key={p.key}>
+                          <button type="button" onClick={() => { setCandidate(p); setError('') }}
+                            className="w-full text-left px-3 py-2 hover:bg-emerald-50">
+                            <span className="block text-sm font-medium text-slate-800 truncate">{p.name}</span>
+                            {(p.phone || p.detail) && (
+                              <span className="block text-xs text-slate-400 truncate">{[p.phone, p.detail].filter(Boolean).join(' · ')}</span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </Field>
             {error && <p className="text-sm text-red-600">{error}</p>}
-            <button type="button" onClick={create} disabled={creating}
+            <button type="button" onClick={create} disabled={creating || !candidate}
               className="w-full py-3 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
               <Link2 size={16} /> {creating ? 'Creating link…' : 'Create application link'}
             </button>
