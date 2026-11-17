@@ -3421,6 +3421,22 @@ export default function DepartmentWorship() {
       {activeTab === 'theTeam' && (
         <div className="space-y-6 pb-24">
 
+          {/* Page header — the ＋ (top right) sends a new team member the application
+              form as a link (WorshipInviteModal). */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-lg font-bold text-slate-800">The Team</h1>
+              <p className="text-xs text-slate-400">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
+            </div>
+            {canManageWorship && (
+              <button type="button" onClick={() => setInviteModalOpen(true)}
+                title="Add a new team member: send the application form" aria-label="Add a new team member"
+                className="w-12 h-12 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-lg hover:bg-indigo-700 active:scale-95 shrink-0">
+                <Plus size={26} strokeWidth={2.5} />
+              </button>
+            )}
+          </div>
+
           {/* Pending applicant reviews — the whole application pipeline (screening,
               review, Approve & Add to Team) lives here, above the roster it feeds,
               instead of on its own Applications tab. */}
@@ -3480,18 +3496,8 @@ export default function DepartmentWorship() {
           {/* Active members */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="font-semibold text-slate-800">The Team</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">{activeMembers.length} active member{activeMembers.length !== 1 ? 's' : ''}</p>
-                </div>
-                {canManageWorship && (
-                  <button type="button" onClick={() => setInviteModalOpen(true)}
-                    title="New team member application" aria-label="New team member application"
-                    className="sm:hidden w-9 h-9 rounded-full bg-indigo-600 text-white flex items-center justify-center shadow-sm hover:bg-indigo-700 active:scale-95 shrink-0">
-                    <Plus size={18} />
-                  </button>
-                )}
+              <div>
+                <h2 className="font-semibold text-slate-800">Active members</h2>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {canManageWorship && (() => {
@@ -3528,13 +3534,6 @@ export default function DepartmentWorship() {
                     <span>Review Applications</span>
                   )}
                 </button>
-                {canManageWorship && (
-                  <button type="button" onClick={() => setInviteModalOpen(true)}
-                    title="New team member application" aria-label="New team member application"
-                    className="hidden sm:flex w-9 h-9 rounded-full bg-indigo-600 text-white items-center justify-center shadow-sm hover:bg-indigo-700 active:scale-95 shrink-0">
-                    <Plus size={18} />
-                  </button>
-                )}
               </div>
             </div>
             {loadingTeam ? (

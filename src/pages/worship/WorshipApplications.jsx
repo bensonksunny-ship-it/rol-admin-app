@@ -1927,7 +1927,8 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
             )}
           </div>
         </div>
-        {canManageWorship && (
+        {/* Embedded on The Team page, new applications start from the page's ＋ instead. */}
+        {canManageWorship && !embedded && (
           <button type="button" onClick={() => setMode('new')}
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 active:scale-95 transition-all">
             <span className="text-base leading-none">+</span> New Application
@@ -1940,7 +1941,7 @@ export default function WorshipApplications({ canManageWorship, userProfile, bac
       ) : listed.length === 0 ? (
         <div className="text-center py-10 text-slate-400 text-sm">
           {received.length === 0
-            ? 'No applications yet. Tap "+ New Application" and hand the device to the applicant.'
+            ? (embedded ? 'No applications yet. Tap ＋ at the top of the Team page to send a new member the application link.' : 'No applications yet. Tap "+ New Application" and hand the device to the applicant.')
             : 'Every application has been decided. Nothing waiting for review.'}
         </div>
       ) : (
