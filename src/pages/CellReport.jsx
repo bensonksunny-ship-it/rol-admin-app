@@ -41,6 +41,7 @@ import { calcTenureLabel } from '../utils/cellMemberCategory'
 import { computeDurationMinutes, formatMeetingTimeRange, isoToDMY } from '../utils/date'
 import BackButton from '../components/BackButton'
 import DateInput from '../components/DateInput'
+import { separateRosterNames } from '../utils/rosterNames'
 
 const CELL_DEPARTMENT = 'Cell'
 const MAX_VISIBLE_TILES = 18
@@ -297,11 +298,12 @@ export default function CellReport() {
   const cell = useMemo(() => cellGroups.find((g) => g.id === effectiveCellId) || null, [cellGroups, effectiveCellId])
 
   const enrichedCellMembers = useMemo(() =>
-    cellMembers.map(m => {
+    // One name → one member, or ticking one person ticks another (utils/rosterNames.js).
+    separateRosterNames(cellMembers.map(m => {
       if (!m.visitorId) return m
       const canonical = cellVisitorMap.get(m.visitorId)
       return canonical && canonical !== m.name ? { ...m, name: canonical, originalName: m.name } : m
-    }),
+    })),
     [cellMembers, cellVisitorMap]
   )
   const activeCellGroups = useMemo(() => cellGroups.filter((c) => c.status !== 'inactive'), [cellGroups])

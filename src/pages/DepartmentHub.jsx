@@ -164,6 +164,7 @@ import SecCoreFinance from './seccore/SecCoreFinance'
 import DailySchedule from './spoffice/DailySchedule'
 import ApplicationsDesk from './spoffice/ApplicationsDesk'
 import ControlCenter from './spoffice/ControlCenter'
+import MissionTrips from './spoffice/MissionTrips'
 import ExpensePage from './accounts/ExpensePage'
 import IncomePage from './accounts/IncomePage'
 import TallyPage from './accounts/TallyPage'
@@ -822,26 +823,8 @@ export default function DepartmentHub() {
     setPcsEditingId(null)
   }, [])
 
-  // Desktop inline profile: a click anywhere outside it collapses it. "Inside" is
-  // judged on the React tree (pcsProfileClickInsideRef, set by the wrapper's capture
-  // handler) so clicks in the profile's own portalled modals still count as inside.
-  // Also ignored: member cards (their own click opens/switches/toggles), any open
-  // dialog/overlay (e.g. the Discard confirmation), and an edit with unsaved changes.
-  const pcsProfileClickInsideRef = useRef(false)
-  useEffect(() => {
-    if (!pcsExpandedId || pcsIsMobile) return
-    const onPointerDown = (e) => {
-      const inside = pcsProfileClickInsideRef.current
-      pcsProfileClickInsideRef.current = false
-      if (inside) return
-      const t = e.target
-      if (t instanceof Element && t.closest('[id^="pcs-entry-"], [role="dialog"], [aria-modal="true"], .fixed')) return
-      if (pcsEditingId && pcsFormDirty) return
-      closePcsProfile()
-    }
-    document.addEventListener('pointerdown', onPointerDown)
-    return () => document.removeEventListener('pointerdown', onPointerDown)
-  }, [pcsExpandedId, pcsIsMobile, pcsEditingId, pcsFormDirty, closePcsProfile])
+  // Desktop: the profile is a modal (PcsTab → PcsProfileModal) that closes itself on
+  // ×, backdrop click or Escape — no document-level outside-click handler needed.
 
   // Mobile: the open profile panel owns one history entry, so the phone's
   // hardware/gesture Back closes the panel instead of leaving the page.
@@ -3639,6 +3622,10 @@ export default function DepartmentHub() {
 
           {activeTab === 'dailySchedule' && slug === 'sp-office' && (
             <DailySchedule canEdit={canEdit} userProfile={userProfile} />
+          )}
+
+          {activeTab === 'missionTrips' && (slug === 'sp-office' || slug === 'administration') && (
+            <MissionTrips userProfile={userProfile} />
           )}
 
           {activeTab === 'members' && slug === 'caring' && (
@@ -6496,7 +6483,6 @@ export default function DepartmentHub() {
               pcsMembershipApp={pcsMembershipApp}
               pcsPhotoFile={pcsPhotoFile}
               pcsPhotoPreview={pcsPhotoPreview}
-              pcsProfileClickInsideRef={pcsProfileClickInsideRef}
               pcsSavedRef={pcsSavedRef}
               pcsSearchQuery={pcsSearchQuery}
               pcsShowFormer={pcsShowFormer}
@@ -9193,7 +9179,11 @@ export default function DepartmentHub() {
                                     }
                                     setAssigningVisitorId(v.id)
                                     try {
-                                      await addCellGroupMember(expandedCellId, { name: v.name, phone: v.phone || '', visitorId: v.id, status: 'active' })
+                                      const { created, existingName } = await addCellGroupMember(expandedCellId, { name: v.name, phone: v.phone || '', visitorId: v.id, status: 'active' })
+                                      if (!created) {
+                                        alert(`${v.name} was not added: this cell already has a matching roster entry${existingName ? ` (“${existingName}”)` : ''} — same person record, phone or name. Check that row on the roster.`)
+                                        return
+                                      }
                                       const list = await getCellGroupMembers(expandedCellId)
                                       setCellMembers(list)
                                       setCellGroups((prev) => prev.map((c) => (c.id === expandedCellId ? { ...c, memberCount: list.length } : c)))

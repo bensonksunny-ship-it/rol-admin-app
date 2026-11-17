@@ -2928,11 +2928,14 @@ export async function addCellGroupMember(cellId, data) {
     const dupe = existingMembers.find((m) => {
       if (m.status === 'inactive') return false
       if (visitorId && m.visitorId === visitorId) return true
-      if (phoneKey && memberPhoneKey(m.phone) === phoneKey) return true
+      // A shared phone (spouses, family) isn't the same person when both rows are
+      // linked to different people — only a fallback for unlinked rows.
+      const linkedToSomeoneElse = !!visitorId && !!m.visitorId && m.visitorId !== visitorId
+      if (phoneKey && !linkedToSomeoneElse && memberPhoneKey(m.phone) === phoneKey) return true
       if (nameKey && String(m.name || '').trim().toLowerCase() === nameKey) return true
       return false
     })
-    if (dupe) return { id: dupe.id, created: false }
+    if (dupe) return { id: dupe.id, created: false, existingName: dupe.name || '' }
   }
 
   // ...and across cells it's a hard stop: never a second roster entry anywhere.
@@ -10887,4 +10890,99 @@ export async function resetWorshipLiveChecks(token, checks, phase) {
   const upd = { opsAt: serverTimestamp() }
   for (const k of Object.keys(checks || {})) if (k.startsWith(`${phase}__`)) upd[`checks.${k}`] = deleteField()
   await updateDoc(doc(db, WORSHIP_LIVE, token), upd)
+}
+
+// ─── Mission trips (SP Office → Mission Trips) ─────────────────────────────────
+// A visiting mission team's plan: day-by-day programs (confirmed / tentative / "your
+// suggestion wanted"), stay, local travel and questions (e.g. food preference). The
+// doc id is a 128-bit random token that is also the public link
+// /mission-trip?token=… — each team member opens it, adds themselves under guests/
+// and answers. Managed by SP Office, Administration and the Founder.
+const MISSION_TRIPS = 'mission_trips'
+// Fields a team member may write through the public link (mirrored in firestore.rules).
+export const MISSION_GUEST_PUBLIC_FIELDS = [
+  'name', 'email', 'phone', 'arrivalFlight', 'arrivalAt', 'arrivalAirport',
+  'departureFlight', 'departureAt', 'dietary', 'notes', 'answers',
+]
+
+const mapMissionDoc = (d) => ({ id: d.id, ...d.data() })
+const pickMissionGuest = (g) => {
+  const out = {}
+  for (const k of MISSION_GUEST_PUBLIC_FIELDS) {
+    if (k === 'answers') out.answers = g?.answers && typeof g.answers === 'object' ? g.answers : {}
+    else out[k] = String(g?.[k] ?? '').trim().slice(0, k === 'notes' || k === 'dietary' ? 2000 : 200)
+  }
+  return out
+}
+
+export function subscribeToMissionTrips(onData, onError) {
+  if (!db) { onData([]); return () => {} }
+  return onSnapshot(
+    collection(db, MISSION_TRIPS),
+    (snap) => onData(snap.docs.map(mapMissionDoc).sort((a, b) => String(b.startDate || '').localeCompare(String(a.startDate || '')))),
+    (err) => { console.error('subscribeToMissionTrips:', err); onError?.(err) },
+  )
+}
+
+export async function createMissionTrip(data, createdBy = '') {
+  if (!db) throw new Error('No database')
+  const token = randomToken()
+  const payload = { ...data, linkActive: true, createdBy, createdAt: serverTimestamp(), updatedAt: serverTimestamp() }
+  await setDoc(doc(db, MISSION_TRIPS, token), payload)
+  return token
+}
+
+export async function updateMissionTrip(tripId, patch) {
+  await updateDoc(doc(db, MISSION_TRIPS, tripId), { ...patch, updatedAt: serverTimestamp() })
+}
+
+export async function deleteMissionTrip(tripId) {
+  const guests = await getDocs(collection(db, MISSION_TRIPS, tripId, 'guests'))
+  const batch = writeBatch(db)
+  guests.docs.forEach((g) => batch.delete(g.ref))
+  batch.delete(doc(db, MISSION_TRIPS, tripId))
+  await batch.commit()
+}
+
+export function subscribeToMissionTripGuests(tripId, onData, onError) {
+  if (!db || !tripId) { onData([]); return () => {} }
+  return onSnapshot(
+    collection(db, MISSION_TRIPS, tripId, 'guests'),
+    (snap) => onData(snap.docs.map(mapMissionDoc).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))),
+    (err) => { console.error('subscribeToMissionTripGuests:', err); onError?.(err) },
+  )
+}
+
+/** Manager-side edit of a team member (room, pickup note, or any answer). */
+export async function updateMissionTripGuest(tripId, guestId, patch) {
+  await updateDoc(doc(db, MISSION_TRIPS, tripId, 'guests', guestId), { ...patch, updatedAt: serverTimestamp() })
+}
+
+export async function deleteMissionTripGuest(tripId, guestId) {
+  await deleteDoc(doc(db, MISSION_TRIPS, tripId, 'guests', guestId))
+}
+
+/** Public (signed-out) read of the plan by its link token; null when closed / missing. */
+export async function getMissionTripByToken(token) {
+  if (!db || !token) return null
+  const snap = await getDoc(doc(db, MISSION_TRIPS, token))
+  return snap.exists() ? mapMissionDoc(snap) : null
+}
+
+export async function getMissionTripGuestPublic(token, guestId) {
+  if (!db || !token || !guestId) return null
+  const snap = await getDoc(doc(db, MISSION_TRIPS, token, 'guests', guestId))
+  return snap.exists() ? mapMissionDoc(snap) : null
+}
+
+/** A team member adds themselves through the link. Returns the new guest id. */
+export async function addMissionTripGuestPublic(token, guest) {
+  const ref = await addDoc(collection(db, MISSION_TRIPS, token, 'guests'), {
+    ...pickMissionGuest(guest), createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+  })
+  return ref.id
+}
+
+export async function updateMissionTripGuestPublic(token, guestId, guest) {
+  await updateDoc(doc(db, MISSION_TRIPS, token, 'guests', guestId), { ...pickMissionGuest(guest), updatedAt: serverTimestamp() })
 }

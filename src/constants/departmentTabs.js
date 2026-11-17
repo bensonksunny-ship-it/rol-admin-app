@@ -29,11 +29,11 @@ export function getDepartmentHubTabs(slug) {
     case 'accounts':
       return ['summary', 'tally', 'income', 'expense', 'budget', 'operations']
     case 'administration':
-      return ['summary', 'upcomingSunday', 'finance', 'operations']
+      return ['summary', 'upcomingSunday', 'missionTrips', 'finance', 'operations']
     case 'sec-core':
       return ['summary', 'directorBoard', 'sundayLeader', 'planning', 'finance']
     case 'sp-office':
-      return ['summary', 'applications', 'dailySchedule', 'finance', 'operations']
+      return ['summary', 'applications', 'dailySchedule', 'missionTrips', 'finance', 'operations']
     default:
       return ['summary', 'finance', 'operations']
   }

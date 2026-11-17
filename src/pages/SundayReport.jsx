@@ -42,6 +42,7 @@ import useSeniorPastor from '../hooks/useSeniorPastor'
 import BackButton from '../components/BackButton'
 import DateInput from '../components/DateInput'
 import { looseNameKey } from '../utils/cellDuplicates'
+import { separateRosterNames } from '../utils/rosterNames'
 
 const MANUAL_ONLY_KEYS = [
   { key: 'nonCell', title: 'Non Cell' },
@@ -1601,12 +1602,15 @@ export default function SundayReport({ embedded = false }) {
     const peopleMap  = new Map(peopleDirectory.map(p => [p.id, p]))
     const group = cellGroups.find(g => g.id === expandedCellId)
     const leaderName = (group?.leader || '').trim().toLowerCase()
-    const enriched = membersForCell.map(m => {
+    const resolved = membersForCell.map(m => {
       const linked = m.visitorId ? (peopleMap.get(m.visitorId) || visitorMap.get(m.visitorId)) : null
       const canonical = linked?.name || m.name
       const joinDate = linked?.firstVisitDate || linked?.attendedDate || ''
       return { ...m, name: canonical, originalName: m.name, joinDate }
     })
+    // One name → one chip, or ticking one person ticks another (utils/rosterNames.js).
+    // Unmatched rows keep originalName === name, as before.
+    const enriched = separateRosterNames(resolved).map(m => (m.originalName == null ? { ...m, originalName: m.name } : m))
     // Until a missing leader is restored to the roster (Cell Groups tab), they can still be marked present.
     if (leaderName && !leaderOnRoster(group, enriched, peopleDirectory)) {
       const name = group.leader.trim()

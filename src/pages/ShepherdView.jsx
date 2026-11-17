@@ -46,6 +46,7 @@ import { ROLES } from '../constants/roles'
 import { useViewAs } from '../context/ViewAsContext'
 import { format } from 'date-fns'
 import DateInput from '../components/DateInput'
+import { separateRosterNames } from '../utils/rosterNames'
 
 function fmt(d) {
   if (!d) return null
@@ -909,11 +910,12 @@ function ShepherdCareTab({ userProfile, isDirector, isLeader, canSeeAllCells = t
   }
 
   const enrichedMembers = useMemo(() =>
-    members.map(m => {
+    // One name → one member, or ticking one person ticks another (utils/rosterNames.js).
+    separateRosterNames(members.map(m => {
       if (!m.visitorId) return m
       const canonical = visitorMap.get(m.visitorId)
       return canonical && canonical !== m.name ? { ...m, name: canonical, originalName: m.name } : m
-    }),
+    })),
     [members, visitorMap]
   )
 
@@ -2187,11 +2189,12 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
   const fellowshipVisitorMap = useMemo(() => new Map(directoryList.map(v => [v.id, v.name])), [directoryList])
 
   const enrichedMembers = useMemo(() =>
-    members.map(m => {
+    // One name → one member, or ticking one person ticks another (utils/rosterNames.js).
+    separateRosterNames(members.map(m => {
       if (!m.visitorId) return m
       const canonical = fellowshipVisitorMap.get(m.visitorId)
       return canonical && canonical !== m.name ? { ...m, name: canonical, originalName: m.name } : m
-    }),
+    })),
     [members, fellowshipVisitorMap]
   )
 
@@ -2222,7 +2225,11 @@ function MyFellowshipTab({ userProfile, isDirector, isLeader, autoFillInviteId, 
     }
     setAdding(true)
     try {
-      await addCellGroupMember(selectedCellId, { ...addForm, status: 'active' })
+      const { created, existingName } = await addCellGroupMember(selectedCellId, { ...addForm, status: 'active' })
+      if (!created) {
+        showToastMsg(`${addForm.name} was not added: this cell already has a matching roster entry${existingName ? ` (“${existingName}”)` : ''}.`, 'error')
+        return
+      }
       showToastMsg(`${addForm.name} added successfully.`)
       setAddForm(EMPTY_MEMBER_FORM)
       setAddSearch('')

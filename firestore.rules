@@ -1290,6 +1290,41 @@ service cloud.firestore {
              'worshipDefinition', 'feedbackResponse', 'covenantAgree', 'signatureDataUrl']);
     }
 
+    // Mission trips (SP Office → Mission Trips): a visiting team's plan. Managed by SP
+    // Office, Administration and the Founder. The doc id is a 128-bit random token that
+    // is also the public link /mission-trip?token=…: while linkActive, anyone holding it
+    // may GET the plan (never LIST), add themselves under guests/ and later edit their
+    // own entry by its unguessable id. Manager-only guest fields (room, pickupNote) are
+    // never writable through the link.
+    function canManageMissionTrips() {
+      return canAccessDept('SP Office') || canAccessDept('Administration');
+    }
+    function missionTripOpen(tripId) {
+      return get(/databases/$(database)/documents/mission_trips/$(tripId)).data.get('linkActive', false) == true;
+    }
+    function missionGuestValid() {
+      return request.resource.data.name is string
+        && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
+        && request.resource.data.get('answers', {}) is map;
+    }
+    match /mission_trips/{tripId} {
+      allow read, write: if canManageMissionTrips();
+      allow get: if resource.data.get('linkActive', false) == true;
+
+      match /guests/{guestId} {
+        allow read, write: if canManageMissionTrips();
+        allow get: if missionTripOpen(tripId);
+        allow create: if missionTripOpen(tripId) && missionGuestValid()
+          && request.resource.data.keys().hasOnly([
+               'name', 'email', 'phone', 'arrivalFlight', 'arrivalAt', 'arrivalAirport',
+               'departureFlight', 'departureAt', 'dietary', 'notes', 'answers', 'createdAt', 'updatedAt']);
+        allow update: if missionTripOpen(tripId) && missionGuestValid()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+               'name', 'email', 'phone', 'arrivalFlight', 'arrivalAt', 'arrivalAirport',
+               'departureFlight', 'departureAt', 'dietary', 'notes', 'answers', 'updatedAt']);
+      }
+    }
+
     match /sunday_ministry_team_members/{docId} {
       allow read, write: if isSignedIn();
     }

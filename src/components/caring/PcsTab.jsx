@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect } from 'react'
+import { Fragment, useState, useEffect, useRef } from 'react'
 import { canMakeCaringDecisions } from '../../utils/access'
 import { AnimatePresence, motion } from 'framer-motion'
 import { dedupeProfiles } from '../../utils/pcsDedupe'
@@ -139,7 +139,6 @@ export default function PcsTab({
   pcsMembershipApp,
   pcsPhotoFile,
   pcsPhotoPreview,
-  pcsProfileClickInsideRef,
   pcsSavedRef,
   pcsSearchQuery,
   pcsShowFormer,
@@ -858,7 +857,7 @@ export default function PcsTab({
   }
 
   // Inline expanded profile panel
-  const PCSInlineProfile = ({ entry }) => {
+  const PCSInlineProfile = ({ entry, onClose }) => {
     // A profile awaiting a Discard decision is read-only until the Founder decides.
     const isPendingDiscard = entry.status === 'pending_discard'
     const isEditing = pcsEditingId === entry.id && !isPendingDiscard
@@ -1389,7 +1388,7 @@ export default function PcsTab({
                 top offset = whatever bar is pinned above it: none in the phone
                 panel (its own scroller), the 3rem fixed top bar on tablets, the
                 89px desktop department nav (two rows) on lg+. ── */}
-            <div className="sticky top-0 md:top-[calc(3rem_+_env(safe-area-inset-top,24px))] lg:top-[89px] z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 @xl:px-6 py-3 shadow-sm rounded-t-xl flex items-center justify-between gap-3">
+            <div className={`sticky top-0 ${onClose ? '' : 'md:top-[calc(3rem_+_env(safe-area-inset-top,24px))] lg:top-[89px]'} z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 px-4 @xl:px-6 py-3 shadow-sm rounded-t-xl flex items-center justify-between gap-3`}>
               <div className="flex items-center gap-3 min-w-0">
                 <div className={`w-12 h-12 rounded-full flex-shrink-0 flex items-center justify-center text-xl font-black text-white shadow ${f.membershipNumber ? 'bg-gradient-to-br from-amber-400 to-orange-500' : 'bg-[#1e3a5f]'}`}>
                   {pcsPhotoPreview
@@ -1444,6 +1443,12 @@ export default function PcsTab({
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-xs font-bold hover:bg-slate-50 transition-colors">
                   <Download className="w-4 h-4" /> <span className="hidden sm:inline">Export PDF</span>
                 </button>
+                {onClose && (
+                  <button type="button" onClick={onClose} title="Close" aria-label="Close profile"
+                    className="w-8 h-8 -mr-1 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 text-2xl leading-none transition-colors">
+                    ×
+                  </button>
+                )}
               </div>
             </div>
 
@@ -4046,11 +4051,6 @@ export default function PcsTab({
                     {entries.map(entry => (
                       <Fragment key={entry.id}>
                         <Chip entry={entry} />
-                        {pcsExpandedId === entry.id && !pcsIsMobile && (
-                          <div className="col-span-full -mx-4" onPointerDownCapture={() => { pcsProfileClickInsideRef.current = true }}>
-                            {PCSInlineProfile({ entry })}
-                          </div>
-                        )}
                       </Fragment>
                     ))}
                   </div>
@@ -4067,6 +4067,24 @@ export default function PcsTab({
           </div>
         )}
       </div>}
+
+      {/* Desktop/tablet (>=768px): the profile opens as a centred modal over the grid.
+          Closes on ×, a backdrop click or Escape (with an unsaved-edit guard); body
+          scroll is locked while open so the grid keeps its scroll position underneath. */}
+      {!pcsIsMobile && !pcsShowFormer && (() => {
+        const modalEntry = pcsEntries.find(e => e.id === pcsExpandedId)
+        if (!modalEntry) return null
+        const requestClose = () => {
+          if (pcsEditingId === modalEntry.id && pcsFormDirty && !window.confirm('Discard unsaved changes to this profile?')) return
+          closePcsProfile()
+        }
+        return createPortal(
+          <PcsProfileModal onClose={requestClose}>
+            {PCSInlineProfile({ entry: modalEntry, onClose: requestClose })}
+          </PcsProfileModal>,
+          document.body
+        )
+      })()}
 
       {/* Mobile (<768px): full profile slides in over the list; ← Back slides it away. */}
       {createPortal(
@@ -4121,6 +4139,45 @@ export default function PcsTab({
         </AnimatePresence>,
         document.body
       )}
+    </div>
+  )
+}
+
+// ─── PCS Profile Modal (desktop) ──────────────────────────────────────────────
+// Backdrop + scroll container for the member profile. Escape is ignored while a
+// nested dialog (Baptism / Marriage / Membership application …) is open on top.
+function PcsProfileModal({ onClose, children }) {
+  const backdropRef = useRef(null)
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return
+      const backdrop = backdropRef.current
+      const panel = backdrop?.firstElementChild
+      const nestedOpen = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"], .fixed.inset-0')]
+        .some(el => el !== backdrop && el !== panel)
+      if (nestedOpen) return
+      onCloseRef.current()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prevOverflow
+    }
+  }, [])
+  return (
+    <div
+      ref={backdropRef}
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div role="dialog" aria-modal="true" aria-label="Member profile"
+        className="w-full max-w-[794px] max-h-[calc(100vh-2rem)] overflow-y-auto overscroll-contain rounded-xl shadow-2xl bg-white">
+        {children}
+      </div>
     </div>
   )
 }

@@ -3,7 +3,7 @@ import {
   Palette, UserCircle, Database, Sun, Tv, ListMusic, FolderTree, UserCheck,
   Music, Music2, Mic2, Archive, History, PenSquare, LineChart, UserPlus, ClipboardList,
   CheckSquare, HeartHandshake, PartyPopper, CalendarClock, Sparkles,
-  CreditCard, Banknote, Building2, Landmark, Calculator,
+  CreditCard, Banknote, Building2, Landmark, Calculator, Plane,
 } from 'lucide-react'
 import { getDepartmentHubTabs } from '../constants/departmentTabs'
 import { DEPARTMENT_LIST, getDepartmentPath } from '../constants/departments'
@@ -123,6 +123,7 @@ function getTabLabel(tab) {
     case 'directorBoard':     return 'Director Board'
     case 'sundayLeader':      return 'Sunday Leader'
     case 'dailySchedule':     return 'Daily Schedule'
+    case 'missionTrips':      return 'Mission Trips'
     default:                  return tab
   }
 }
@@ -174,6 +175,7 @@ function getTabIcon(tab) {
     case 'directorBoard':      return Users
     case 'sundayLeader':       return Sun
     case 'dailySchedule':      return CalendarClock
+    case 'missionTrips':       return Plane
     default:                   return Sparkles
   }
 }
