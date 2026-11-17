@@ -79,8 +79,11 @@ function Field({ label, hint, children }) {
   )
 }
 
-function TextInput(props) {
-  return <DateInput {...props} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" />
+// Plain text by default. DateInput defaults to type="date", so without this every
+// untyped field (Candidate name, Phone, …) opened a calendar; type="date" fields
+// (Date of birth) still get DateInput's DD/MM/YYYY picker.
+function TextInput({ type = 'text', ...props }) {
+  return <DateInput type={type} {...props} className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300" />
 }
 
 function TextArea(props) {
