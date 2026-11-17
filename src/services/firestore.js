@@ -10906,6 +10906,25 @@ export const MISSION_GUEST_PUBLIC_FIELDS = [
 ]
 
 const mapMissionDoc = (d) => ({ id: d.id, ...d.data() })
+// Guest entries are written by anyone holding the public link, so coerce every field
+// to the shape the screens expect — odd data must never crash Responses.
+const missionStr = (v) => (typeof v === 'string' ? v : v == null ? '' : typeof v === 'object' ? '' : String(v))
+function mapMissionGuest(d) {
+  const raw = d.data() || {}
+  const answers = {}
+  if (raw.answers && typeof raw.answers === 'object' && !Array.isArray(raw.answers)) {
+    for (const [k, a] of Object.entries(raw.answers)) {
+      if (!a || typeof a !== 'object') continue
+      answers[k] = {
+        choices: Array.isArray(a.choices) ? a.choices.filter((c) => typeof c === 'string') : [],
+        other: missionStr(a.other),
+      }
+    }
+  }
+  const out = { ...raw, id: d.id, answers }
+  for (const k of [...MISSION_GUEST_PUBLIC_FIELDS.filter((f) => f !== 'answers'), 'room', 'pickupNote']) out[k] = missionStr(raw[k])
+  return out
+}
 const pickMissionGuest = (g) => {
   const out = {}
   for (const k of MISSION_GUEST_PUBLIC_FIELDS) {
@@ -10948,7 +10967,7 @@ export function subscribeToMissionTripGuests(tripId, onData, onError) {
   if (!db || !tripId) { onData([]); return () => {} }
   return onSnapshot(
     collection(db, MISSION_TRIPS, tripId, 'guests'),
-    (snap) => onData(snap.docs.map(mapMissionDoc).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))),
+    (snap) => onData(snap.docs.map(mapMissionGuest).sort((a, b) => a.name.localeCompare(b.name))),
     (err) => { console.error('subscribeToMissionTripGuests:', err); onError?.(err) },
   )
 }
@@ -10972,7 +10991,7 @@ export async function getMissionTripByToken(token) {
 export async function getMissionTripGuestPublic(token, guestId) {
   if (!db || !token || !guestId) return null
   const snap = await getDoc(doc(db, MISSION_TRIPS, token, 'guests', guestId))
-  return snap.exists() ? mapMissionDoc(snap) : null
+  return snap.exists() ? mapMissionGuest(snap) : null
 }
 
 /** A team member adds themselves through the link. Returns the new guest id. */

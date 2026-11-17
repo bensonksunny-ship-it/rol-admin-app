@@ -1,6 +1,13 @@
 // Shared by SP Office → Mission Trips (spoffice/MissionTrips.jsx) and the public
 // team page (pages/MissionTripPlan.jsx).
-import { addDays, format, parseISO, differenceInCalendarDays } from 'date-fns'
+import { addDays, format, parseISO, differenceInCalendarDays, isValid } from 'date-fns'
+
+// Never throw on a bad date string — '' instead (a RangeError here would blank the page).
+const safeFormat = (iso, pattern) => {
+  if (!iso || typeof iso !== 'string') return ''
+  const d = parseISO(iso)
+  return isValid(d) ? format(d, pattern) : ''
+}
 
 export const ITEM_KINDS = [
   { key: 'meeting', label: 'Meeting / Program', emoji: '🙏' },
@@ -43,21 +50,23 @@ export function defaultQuestions() {
 
 /** Every yyyy-MM-dd from start to end (inclusive); capped so a typo can't explode. */
 export function tripDays(start, end) {
-  if (!start) return []
+  if (!start || typeof start !== 'string') return []
   const s = parseISO(start)
-  const e = end ? parseISO(end) : s
+  if (!isValid(s)) return []
+  const e0 = end && typeof end === 'string' ? parseISO(end) : s
+  const e = isValid(e0) ? e0 : s
   const n = Math.min(Math.max(differenceInCalendarDays(e, s), 0), 60)
   return Array.from({ length: n + 1 }, (_, i) => format(addDays(s, i), 'yyyy-MM-dd'))
 }
 
-export const dayLabel = (iso) => (iso ? format(parseISO(iso), 'EEE, d MMM') : 'Date not set')
-export const fullDate = (iso) => (iso ? format(parseISO(iso), 'd MMM yyyy') : '')
+export const dayLabel = (iso) => safeFormat(iso, 'EEE, d MMM') || 'Date not set'
+export const fullDate = (iso) => safeFormat(iso, 'd MMM yyyy')
 
 // "14:30" → "2:30 PM"
 export function formatTime(t) {
   if (!t) return ''
   const [h, m] = String(t).split(':').map(Number)
-  if (Number.isNaN(h)) return t
+  if (Number.isNaN(h)) return String(t)
   return `${((h + 11) % 12) + 1}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`
 }
 
@@ -65,7 +74,8 @@ export function formatTime(t) {
 export function formatDateTime(v) {
   if (!v) return ''
   const [d, t] = String(v).split('T')
-  return `${d ? format(parseISO(d), 'd MMM') : ''}${t ? `, ${formatTime(t)}` : ''}`
+  const day = safeFormat(d, 'd MMM')
+  return `${day}${t ? `${day ? ', ' : ''}${formatTime(t)}` : ''}`
 }
 
 export const sortItems = (items) =>
