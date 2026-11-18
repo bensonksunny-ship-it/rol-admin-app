@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   getMissionTripByToken, getMissionTripGuestPublic, addMissionTripGuestPublic, updateMissionTripGuestPublic,
+  rateMissionTripItemPublic,
 } from '../services/firestore'
 import {
-  kindOf, statusOf, sortItems, tripDays, dayLabel, fullDate, formatTime, answerablePrompts,
+  sortItems, tripDays, dayLabel, fullDate, answerablePrompts, todayIso, isFoodItem,
 } from '../utils/missionTrip'
+import { DayAccordion, ScheduleBlock, FoodRating } from '../components/mission/TripSchedule'
 
 /**
  * Public mission-team page — /mission-trip?token=…
@@ -40,32 +42,6 @@ function Section({ title, children }) {
       <h2 className="text-base font-bold text-slate-800">{title}</h2>
       {children}
     </section>
-  )
-}
-
-function ItemRow({ item }) {
-  const k = kindOf(item.kind)
-  const s = statusOf(item.status)
-  return (
-    <li className="flex gap-3 py-2.5 border-b border-slate-100 last:border-0">
-      <div className="w-16 shrink-0 text-xs font-semibold text-slate-500 pt-0.5">
-        {item.time ? formatTime(item.time) : '—'}
-        {item.endTime && <span className="block font-normal text-slate-400">to {formatTime(item.endTime)}</span>}
-      </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-slate-800">
-          <span className="mr-1">{k.emoji}</span>{item.title || k.label}
-        </p>
-        <span className={`inline-block mt-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${s.cls}`}>{s.label}</span>
-        {item.location && <p className="text-xs text-slate-500 mt-1">📍 {item.location}</p>}
-        {item.kind === 'travel' && (item.vehicle || item.driver) && (
-          <p className="text-xs text-slate-500 mt-1">
-            🚐 {[item.vehicle, item.driver && `Driver: ${item.driver}`, item.driverPhone].filter(Boolean).join(' · ')}
-          </p>
-        )}
-        {item.notes && <p className="text-xs text-slate-600 mt-1 whitespace-pre-line">{item.notes}</p>}
-      </div>
-    </li>
   )
 }
 
@@ -142,6 +118,9 @@ export default function MissionTripPlan() {
   const days = useMemo(() => tripDays(trip?.startDate, trip?.endDate), [trip])
   const items = useMemo(() => sortItems(trip?.items), [trip])
   const undated = items.filter((i) => !i.date || !days.includes(i.date))
+  // Day accordions: collapsed by default; today's day starts open while the team is here.
+  const [openDays, setOpenDays] = useState(() => new Set([todayIso()]))
+  const toggleDay = (d) => setOpenDays((prev) => { const n = new Set(prev); if (n.has(d)) n.delete(d); else n.add(d); return n })
 
   const set = (k) => (e) => { setSaved(false); setForm((f) => ({ ...f, [k]: e.target.value })) }
   const setAnswer = (id, v) => { setSaved(false); setForm((f) => ({ ...f, answers: { ...f.answers, [id]: v } })) }
@@ -168,6 +147,20 @@ export default function MissionTripPlan() {
       setSaving(false)
     }
   }
+
+  async function rateItem(itemId, r) {
+    await rateMissionTripItemPublic(token, guestId, itemId, r)
+    setForm((f) => ({ ...f, ratings: { ...(f.ratings || {}), [itemId]: { stars: r.stars, comment: r.comment.trim() } } }))
+  }
+  const goToDetails = () => document.getElementById('your-details')?.scrollIntoView({ behavior: 'smooth' })
+  // Meals get a rating box inside the card; keyed by guest so switching person resets it.
+  const renderBlock = (i) => (
+    <ScheduleBlock key={i.id} item={i} showDetails
+      extra={isFoodItem(i) && (
+        <FoodRating key={`${guestId}_${i.id}`} value={form.ratings?.[i.id]} canRate={!!guestId}
+          onSave={(r) => rateItem(i.id, r)} onNeedDetails={goToDetails} />
+      )} />
+  )
 
   function addAnother() {
     writeStored(token, '')
@@ -229,17 +222,17 @@ export default function MissionTripPlan() {
                 const list = items.filter((i) => i.date === d)
                 if (!list.length) return null
                 return (
-                  <div key={d}>
-                    <p className="text-xs font-bold uppercase tracking-wide text-indigo-600 mt-2">{dayLabel(d)}</p>
-                    <ul>{list.map((i) => <ItemRow key={i.id} item={i} />)}</ul>
-                  </div>
+                  <DayAccordion key={d} label={dayLabel(d)} count={list.length} open={openDays.has(d)}
+                    onToggle={() => toggleDay(d)} isToday={d === todayIso()}>
+                    {list.map(renderBlock)}
+                  </DayAccordion>
                 )
               })}
               {undated.length > 0 && (
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-400 mt-2">Date to be fixed</p>
-                  <ul>{undated.map((i) => <ItemRow key={i.id} item={i} />)}</ul>
-                </div>
+                <DayAccordion label="Date to be fixed" count={undated.length} muted open={openDays.has('__undated')}
+                  onToggle={() => toggleDay('__undated')}>
+                  {undated.map(renderBlock)}
+                </DayAccordion>
               )}
             </Section>
 
@@ -265,22 +258,6 @@ export default function MissionTripPlan() {
                 <Field label="Your full name *">
                   <input value={form.name} onChange={set('name')} className={inputCls} placeholder="Full name" />
                 </Field>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <Field label="Phone / WhatsApp"><input value={form.phone} onChange={set('phone')} inputMode="tel" className={inputCls} placeholder="+1 …" /></Field>
-                  <Field label="Email"><input type="email" value={form.email} onChange={set('email')} className={inputCls} /></Field>
-                </div>
-              </Section>
-
-              <Section title="Your flights">
-                <p className="text-xs text-slate-500">So we can pick you up from the airport and drop you back. Times are local India time.</p>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <Field label="Arrival flight number"><input value={form.arrivalFlight} onChange={set('arrivalFlight')} className={inputCls} placeholder="e.g. EK 568" /></Field>
-                  <Field label="Arrival date & time"><input type="datetime-local" value={form.arrivalAt} onChange={set('arrivalAt')} className={inputCls} /></Field>
-                  <Field label="Arriving at (airport)" hint="Usually Bengaluru (BLR)"><input value={form.arrivalAirport} onChange={set('arrivalAirport')} className={inputCls} placeholder="BLR" /></Field>
-                  <div className="hidden sm:block" />
-                  <Field label="Departure flight number"><input value={form.departureFlight} onChange={set('departureFlight')} className={inputCls} /></Field>
-                  <Field label="Departure date & time"><input type="datetime-local" value={form.departureAt} onChange={set('departureAt')} className={inputCls} /></Field>
-                </div>
               </Section>
 
               <Section title="Food & your suggestions">

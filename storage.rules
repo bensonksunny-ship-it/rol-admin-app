@@ -19,5 +19,14 @@ service firebase.storage {
         && request.resource.size < 50 * 1024 * 1024
         && request.resource.contentType.matches('audio/.*');
     }
+    // SP Office → Mission Trips: up to 2 photos per schedule item (compressed JPEGs).
+    // Pages show them through the download URL's token; the Travel Diary PDF fetches
+    // them the same way. Deleted with the photo / item / trip.
+    match /mission_trips/{tripId}/{fileName} {
+      allow read, delete: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.size < 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
   }
 }

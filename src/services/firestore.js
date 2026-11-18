@@ -10959,7 +10959,15 @@ function mapMissionGuest(d) {
       }
     }
   }
-  const out = { ...raw, id: d.id, answers }
+  // Food ratings: { [itemId]: { stars 1–5, comment } }
+  const ratings = {}
+  if (raw.ratings && typeof raw.ratings === 'object' && !Array.isArray(raw.ratings)) {
+    for (const [k, r] of Object.entries(raw.ratings)) {
+      const stars = Math.round(Number(r?.stars))
+      if (stars >= 1 && stars <= 5) ratings[k] = { stars, comment: missionStr(r?.comment).slice(0, 300) }
+    }
+  }
+  const out = { ...raw, id: d.id, answers, ratings }
   for (const k of [...MISSION_GUEST_PUBLIC_FIELDS.filter((f) => f !== 'answers'), 'room', 'pickupNote']) out[k] = missionStr(raw[k])
   return out
 }
@@ -10994,11 +11002,87 @@ export async function updateMissionTrip(tripId, patch) {
 }
 
 export async function deleteMissionTrip(tripId) {
+  // Free Storage first: every schedule photo of this trip goes with it.
+  const tripSnap = await getDoc(doc(db, MISSION_TRIPS, tripId))
+  const paths = (tripSnap.data()?.items || []).flatMap((it) => (it.photos || []).map((ph) => ph.path))
+  await Promise.all(paths.map(deleteMissionPhotoFile))
   const guests = await getDocs(collection(db, MISSION_TRIPS, tripId, 'guests'))
   const batch = writeBatch(db)
   guests.docs.forEach((g) => batch.delete(g.ref))
   batch.delete(doc(db, MISSION_TRIPS, tripId))
   await batch.commit()
+}
+
+// ── Schedule photos (max MISSION_PHOTO_LIMIT per item) ──
+// Files live at mission_trips/{tripId}/… in Storage (storage.rules); the item keeps
+// photos: [{ id, url, path }]. Removing a photo / item / trip deletes the file too,
+// so nothing lingers in Storage after the office downloads the Travel Diary.
+export const MISSION_PHOTO_LIMIT = 2
+
+async function deleteMissionPhotoFile(path) {
+  if (!storage || !path) return
+  try { await deleteObject(ref(storage, path)) } catch (e) { if (e?.code !== 'storage/object-not-found') console.error('deleteMissionPhotoFile:', e) }
+}
+
+/** Patch one item inside trip.items atomically (avoids clobbering a concurrent edit). */
+async function patchMissionItem(tripId, itemId, fn) {
+  const tripRef = doc(db, MISSION_TRIPS, tripId)
+  let result
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(tripRef)
+    const items = snap.data()?.items || []
+    const idx = items.findIndex((i) => i.id === itemId)
+    if (idx < 0) throw new Error('This schedule item no longer exists.')
+    const next = [...items]
+    result = fn(next[idx])
+    next[idx] = result.item
+    tx.update(tripRef, { items: next, updatedAt: serverTimestamp() })
+  })
+  return result
+}
+
+/** Upload one (already compressed) image blob to a schedule item. */
+export async function addMissionItemPhoto(tripId, itemId, blob) {
+  if (!storage) throw new Error('Storage unavailable')
+  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+  const path = `mission_trips/${tripId}/${itemId}_${id}.jpg`
+  const snap = await uploadBytes(ref(storage, path), blob, { contentType: 'image/jpeg' })
+  const url = await getDownloadURL(snap.ref)
+  try {
+    await patchMissionItem(tripId, itemId, (item) => {
+      const photos = item.photos || []
+      if (photos.length >= MISSION_PHOTO_LIMIT) throw new Error(`Only ${MISSION_PHOTO_LIMIT} photos per item.`)
+      return { item: { ...item, photos: [...photos, { id, url, path }] } }
+    })
+  } catch (e) {
+    await deleteMissionPhotoFile(path) // don't leave an orphan file behind
+    throw e
+  }
+}
+
+export async function removeMissionItemPhoto(tripId, itemId, photo) {
+  await patchMissionItem(tripId, itemId, (item) => ({ item: { ...item, photos: (item.photos || []).filter((ph) => ph.id !== photo.id) } }))
+  await deleteMissionPhotoFile(photo.path)
+}
+
+/** Delete the Storage files of the given photos (used when an item is removed). */
+export async function deleteMissionPhotoFiles(photos) {
+  await Promise.all((photos || []).map((ph) => deleteMissionPhotoFile(ph.path)))
+}
+
+/** "Free up space": delete every photo of the trip from Storage and from the plan. */
+export async function clearMissionTripPhotos(tripId) {
+  const tripRef = doc(db, MISSION_TRIPS, tripId)
+  const snap = await getDoc(tripRef)
+  const items = snap.data()?.items || []
+  const paths = items.flatMap((it) => (it.photos || []).map((ph) => ph.path))
+  await Promise.all(paths.map(deleteMissionPhotoFile))
+  await runTransaction(db, async (tx) => {
+    const cur = await tx.get(tripRef)
+    const next = (cur.data()?.items || []).map((it) => { const { photos: _p, ...rest } = it; return rest })
+    tx.update(tripRef, { items: next, updatedAt: serverTimestamp() })
+  })
+  return paths.length
 }
 
 export function subscribeToMissionTripGuests(tripId, onData, onError) {
@@ -11038,6 +11122,16 @@ export async function addMissionTripGuestPublic(token, guest) {
     ...pickMissionGuest(guest), createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
   })
   return ref.id
+}
+
+/** A team member rates a meal (stored on their own entry: ratings.{itemId}). */
+export async function rateMissionTripItemPublic(token, guestId, itemId, { stars, comment }) {
+  const s = Math.round(Number(stars))
+  if (!(s >= 1 && s <= 5)) throw new Error('Pick 1 to 5 stars.')
+  await updateDoc(doc(db, MISSION_TRIPS, token, 'guests', guestId), {
+    [`ratings.${itemId}`]: { stars: s, comment: String(comment || '').trim().slice(0, 300), at: Date.now() },
+    updatedAt: serverTimestamp(),
+  })
 }
 
 export async function updateMissionTripGuestPublic(token, guestId, guest) {

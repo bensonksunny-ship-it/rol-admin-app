@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Search, X, Phone, Mail, Users, User } from 'lucide-react'
+import { Search, X, Phone, Mail, Users, User, Plane } from 'lucide-react'
+import MissionTrips from './spoffice/MissionTrips'
 import { useAuth } from '../context/AuthContext'
 import {
   getPCSEntries,
@@ -511,7 +512,8 @@ function PCSViewOnly() {
 }
 
 export default function FirstLadyHub() {
-  const { canAccessDepartment, isFounder } = useAuth()
+  const { canAccessDepartment, isFounder, userProfile } = useAuth()
+  const [tab, setTab] = useState('people') // 'people' | 'missionTrips'
   const canAccess = canAccessDepartment('first-lady') || isFounder
 
   if (!canAccess) {
@@ -529,7 +531,20 @@ export default function FirstLadyHub() {
         <p className="text-slate-500 mt-1">Welcome to your hub.</p>
       </div>
 
-      <PCSViewOnly />
+      <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
+        {[
+          { key: 'people', label: 'PCS — People', Icon: Users },
+          { key: 'missionTrips', label: 'Mission Trips', Icon: Plane },
+        ].map((t) => (
+          <button key={t.key} type="button" onClick={() => setTab(t.key)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap ${tab === t.key ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500'}`}>
+            <t.Icon size={15} /> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Mission Trips: full control (same screen as SP Office; firestore.rules canManageMissionTrips). */}
+      {tab === 'people' ? <PCSViewOnly /> : <MissionTrips userProfile={userProfile} />}
     </div>
   )
 }

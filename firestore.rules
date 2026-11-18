@@ -1297,7 +1297,7 @@ service cloud.firestore {
     // own entry by its unguessable id. Manager-only guest fields (room, pickupNote) are
     // never writable through the link.
     function canManageMissionTrips() {
-      return canAccessDept('SP Office') || canAccessDept('Administration');
+      return canAccessDept('SP Office') || canAccessDept('Administration') || canAccessDept('First Lady');
     }
     function missionTripOpen(tripId) {
       return get(/databases/$(database)/documents/mission_trips/$(tripId)).data.get('linkActive', false) == true;
@@ -1305,7 +1305,8 @@ service cloud.firestore {
     function missionGuestValid() {
       return request.resource.data.name is string
         && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
-        && request.resource.data.get('answers', {}) is map;
+        && request.resource.data.get('answers', {}) is map
+        && request.resource.data.get('ratings', {}) is map;
     }
     match /mission_trips/{tripId} {
       allow read, write: if canManageMissionTrips();
@@ -1321,7 +1322,7 @@ service cloud.firestore {
         allow update: if missionTripOpen(tripId) && missionGuestValid()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                'name', 'email', 'phone', 'arrivalFlight', 'arrivalAt', 'arrivalAirport',
-               'departureFlight', 'departureAt', 'dietary', 'notes', 'answers', 'updatedAt']);
+               'departureFlight', 'departureAt', 'dietary', 'notes', 'answers', 'ratings', 'updatedAt']);
       }
     }
 

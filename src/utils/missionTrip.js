@@ -61,6 +61,49 @@ export function tripDays(start, end) {
 
 export const dayLabel = (iso) => safeFormat(iso, 'EEE, d MMM') || 'Date not set'
 export const fullDate = (iso) => safeFormat(iso, 'd MMM yyyy')
+// ── Food rating ──
+const FOOD_WORDS = /\b(breakfast|brunch|lunch|dinner|supper|snacks?|tea|coffee|meals?|food|feast|buffet)\b/i
+/** Meal items (kind "meal") or anything whose title reads like food. */
+export const isFoodItem = (item) => item?.kind === 'meal' || FOOD_WORDS.test(String(item?.title || ''))
+
+/** Average of the team's ratings for one item: { avg, count, entries: [{ name, stars, comment }] }. */
+export function ratingSummary(guests, itemId) {
+  const entries = (guests || [])
+    .map((g) => (g.ratings?.[itemId] ? { name: g.name || 'Guest', ...g.ratings[itemId] } : null))
+    .filter(Boolean)
+  const count = entries.length
+  const avg = count ? entries.reduce((a, e) => a + e.stars, 0) / count : 0
+  return { avg, count, entries }
+}
+
+/**
+ * Shrink a phone photo before upload (longest side ≤ maxSide, JPEG) so a trip's
+ * pictures stay small in Storage and quick in the Travel Diary PDF. Returns a Blob.
+ */
+export async function compressImage(file, maxSide = 1600, quality = 0.8) {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image()
+      i.onload = () => resolve(i)
+      i.onerror = () => reject(new Error('This file is not a photo the browser can open.'))
+      i.src = url
+    })
+    const r = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight))
+    const c = document.createElement('canvas')
+    c.width = Math.round(img.naturalWidth * r); c.height = Math.round(img.naturalHeight * r)
+    const ctx = c.getContext('2d')
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height)
+    ctx.drawImage(img, 0, 0, c.width, c.height)
+    const blob = await new Promise((resolve) => c.toBlob(resolve, 'image/jpeg', quality))
+    if (!blob) throw new Error('Could not prepare the photo.')
+    return blob
+  } finally { URL.revokeObjectURL(url) }
+}
+
+// Local today as 'yyyy-MM-dd' (matches tripDays keys).
+const pad2 = (n) => String(n).padStart(2, '0')
+export const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}` }
 
 // "14:30" → "2:30 PM"
 export function formatTime(t) {
@@ -99,7 +142,7 @@ export const missionTripLink = (token) => `${window.location.origin}/mission-tri
 export const whatsappShareHref = (text) => `https://wa.me/?text=${encodeURIComponent(text)}`
 
 export const missionInviteMessage = (trip, link) =>
-  `Hello${trip?.teamName ? ` ${trip.teamName}` : ''}! Here is your trip plan from River Of Life Church, Bangalore. Please open the link, add your name, your flight details and tell us your preferences: ${link}`
+  `Hello${trip?.teamName ? ` ${trip.teamName}` : ''}! Here is your trip plan from River Of Life Church, Bangalore. Please open the link, add your name and tell us your food preferences and suggestions: ${link}`
 
 /** Turn a comma / new-line separated string into a clean option list. */
 export const parseOptions = (s) => String(s || '').split(/[\n,]/).map((x) => x.trim()).filter(Boolean)

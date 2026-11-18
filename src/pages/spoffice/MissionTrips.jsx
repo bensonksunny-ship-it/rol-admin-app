@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  ArrowLeft, Plus, X, Pencil, Trash2, Copy, Check, Send, ExternalLink, Plane, Link2, Users, CalendarDays, HelpCircle, Hotel,
+  ArrowLeft, Plus, X, Pencil, Trash2, Copy, Check, Send, ExternalLink, Plane, Link2, Users, CalendarDays, HelpCircle, Hotel, FileDown, ImageOff, Loader2,
 } from 'lucide-react'
 import {
   subscribeToMissionTrips, createMissionTrip, updateMissionTrip, deleteMissionTrip,
   subscribeToMissionTripGuests, updateMissionTripGuest, deleteMissionTripGuest,
+  addMissionItemPhoto, removeMissionItemPhoto, deleteMissionPhotoFiles, clearMissionTripPhotos, MISSION_PHOTO_LIMIT,
 } from '../../services/firestore'
 import {
-  ITEM_KINDS, ITEM_STATUSES, kindOf, statusOf, newId, defaultQuestions, tripDays, dayLabel, fullDate,
-  formatTime, formatDateTime, sortItems, answerablePrompts, missionTripLink, whatsappShareHref,
-  missionInviteMessage, parseOptions,
+  ITEM_KINDS, ITEM_STATUSES, kindOf, newId, defaultQuestions, tripDays, dayLabel, fullDate,
+  formatDateTime, sortItems, answerablePrompts, missionTripLink, whatsappShareHref,
+  missionInviteMessage, parseOptions, todayIso, compressImage, isFoodItem, ratingSummary,
 } from '../../utils/missionTrip'
 import DateInput from '../../components/DateInput'
+import { DayAccordion, ScheduleBlock, RatingBadge } from '../../components/mission/TripSchedule'
+import { downloadTravelDiary } from '../../utils/missionTravelDiary'
 
 /**
  * SP Office → Mission Trips: plan a visiting mission team's stay (e.g. a team from the
@@ -387,18 +390,28 @@ function TripDetail({ trip, onBack }) {
   const items = useMemo(() => sortItems(trip.items), [trip.items])
   const undated = items.filter((i) => !i.date || !days.includes(i.date))
   const link = missionTripLink(trip.id)
+  // Day accordions: collapsed by default; today's day starts open during the trip.
+  const [openDays, setOpenDays] = useState(() => new Set([todayIso()]))
+  const toggleDay = (d) => setOpenDays((prev) => { const n = new Set(prev); if (n.has(d)) n.delete(d); else n.add(d); return n })
+  const allKeys = [...days, '__undated']
+  const allOpen = allKeys.every((d) => openDays.has(d))
+  const addTo = (d) => { setOpenDays((prev) => new Set(prev).add(d || '__undated')); setItemModal({ date: d }) }
 
   const saveItems = (next) => updateMissionTrip(trip.id, { items: next })
   const saveQuestions = (next) => updateMissionTrip(trip.id, { questions: next })
 
   async function upsertItem(it) {
     const list = trip.items || []
-    await saveItems(list.some((x) => x.id === it.id) ? list.map((x) => (x.id === it.id ? it : x)) : [...list, it])
+    await saveItems(list.some((x) => x.id === it.id) ? list.map((x) => (x.id === it.id ? { ...x, ...it } : x)) : [...list, it])
     setItemModal(null)
   }
   async function removeItem(it) {
     if (!window.confirm(`Delete “${it.title || kindOf(it.kind).label}” from the plan?`)) return
-    await saveItems((trip.items || []).filter((x) => x.id !== it.id)).catch(() => alert('Could not delete.'))
+    const photos = (trip.items || []).find((x) => x.id === it.id)?.photos || []
+    try {
+      await saveItems((trip.items || []).filter((x) => x.id !== it.id))
+      await deleteMissionPhotoFiles(photos) // free Storage too
+    } catch { alert('Could not delete.') }
     setItemModal(null)
   }
   async function upsertQuestion(q) {
@@ -420,23 +433,52 @@ function TripDetail({ trip, onBack }) {
     try { await deleteMissionTrip(trip.id); onBack() } catch (e) { console.error(e); alert('Could not delete the trip.') }
   }
 
+  // ── Photos + Travel Diary ──
+  const [photoBusy, setPhotoBusy] = useState({}) // { [itemId]: true }
+  const [diaryState, setDiaryState] = useState('') // progress text while building the PDF
+  const [clearing, setClearing] = useState(false)
+  const photoCount = (trip.items || []).reduce((n, i) => n + (i.photos?.length || 0), 0)
+  const setBusy = (id, v) => setPhotoBusy((b) => ({ ...b, [id]: v }))
+  async function addPhoto(it, file) {
+    setBusy(it.id, true)
+    try { await addMissionItemPhoto(trip.id, it.id, await compressImage(file)) }
+    catch (e) { console.error(e); alert(e?.message || 'Could not add the photo.') }
+    finally { setBusy(it.id, false) }
+  }
+  async function removePhoto(it, ph) {
+    if (!window.confirm('Remove this photo? It is deleted permanently.')) return
+    setBusy(it.id, true)
+    try { await removeMissionItemPhoto(trip.id, it.id, ph) }
+    catch (e) { console.error(e); alert('Could not remove the photo.') }
+    finally { setBusy(it.id, false) }
+  }
+  async function downloadDiary() {
+    setDiaryState('Preparing…')
+    try {
+      const r = await downloadTravelDiary(trip, { onProgress: setDiaryState, guests })
+      if (r.missing) alert(`The PDF is downloaded, but ${r.missing} of ${r.photos} photos could not be added. Keep the photos until you have a complete copy.`)
+    } catch (e) { console.error(e); alert('Could not create the Travel Diary PDF.') }
+    finally { setDiaryState('') }
+  }
+  async function clearPhotos() {
+    if (!window.confirm(`Delete all ${photoCount} photos of this trip from the app?
+
+Download the Travel Diary PDF first — this cannot be undone.`)) return
+    setClearing(true)
+    try { await clearMissionTripPhotos(trip.id) } catch (e) { console.error(e); alert('Could not delete all photos.') }
+    finally { setClearing(false) }
+  }
+
   const renderItem = (it) => {
-    const k = kindOf(it.kind); const s = statusOf(it.status)
     const answers = it.status === 'suggest' ? guests.filter((g) => { const a = g.answers?.[it.id]; return a && (a.choices?.length || String(a.other || '').trim()) }).length : 0
     return (
-      <button key={it.id} type="button" onClick={() => setItemModal({ item: it })} className="w-full text-left flex gap-3 px-3 py-2.5 rounded-lg hover:bg-slate-50">
-        <span className="w-16 shrink-0 text-xs font-semibold text-slate-500 pt-0.5">{it.time ? formatTime(it.time) : '—'}</span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-slate-800">{k.emoji} {it.title || k.label}</span>
-          <span className="flex flex-wrap items-center gap-1.5 mt-0.5">
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${s.cls}`}>{s.label}</span>
-            {it.location && <span className="text-xs text-slate-500">📍 {it.location}</span>}
-            {it.kind === 'travel' && it.driver && <span className="text-xs text-slate-500">🚐 {it.driver}</span>}
-            {it.status === 'suggest' && <span className="text-xs text-indigo-600">{answers} answered</span>}
-          </span>
-        </span>
-        <Pencil size={14} className="text-slate-300 mt-1 shrink-0" />
-      </button>
+      <ScheduleBlock key={it.id} item={it} onClick={() => setItemModal({ item: it })}
+        photoLimit={MISSION_PHOTO_LIMIT} photoBusy={!!photoBusy[it.id]}
+        onAddPhoto={(f) => addPhoto(it, f)} onRemovePhoto={(ph) => removePhoto(it, ph)}
+        extra={<>
+          {it.status === 'suggest' && <p className="text-xs font-semibold text-indigo-600 mt-1.5">{answers} answered</p>}
+          {isFoodItem(it) && <RatingBadge summary={ratingSummary(guests, it.id)} />}
+        </>} />
     )
   }
 
@@ -452,6 +494,19 @@ function TripDetail({ trip, onBack }) {
         </div>
         <button type="button" onClick={() => setEditTrip(true)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="Edit trip"><Pencil size={16} /></button>
         <button type="button" onClick={removeTrip} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" aria-label="Delete trip"><Trash2 size={16} /></button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={downloadDiary} disabled={!!diaryState} className={`${btnPrimary} flex items-center gap-1.5`}>
+          {diaryState ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />}
+          {diaryState || 'Download Travel Diary PDF'}
+        </button>
+        {photoCount > 0 && (
+          <button type="button" onClick={clearPhotos} disabled={clearing || !!diaryState} className={`${btnGhost} flex items-center gap-1.5 disabled:opacity-50`}>
+            {clearing ? <Loader2 size={15} className="animate-spin" /> : <ImageOff size={15} />}
+            {clearing ? 'Deleting…' : `Delete all ${photoCount} photos`}
+          </button>
+        )}
       </div>
 
       <div className={`rounded-xl border p-3 space-y-2 ${trip.linkActive ? 'bg-indigo-50 border-indigo-100' : 'bg-slate-100 border-slate-200'}`}>
@@ -489,25 +544,26 @@ function TripDetail({ trip, onBack }) {
       {sub === 'plan' && (
         <div className="space-y-3">
           {days.length === 0 && <p className="text-sm text-slate-500">Set the arrival and leaving dates (pencil above) to plan day by day.</p>}
+          {days.length > 0 && (
+            <div className="flex justify-end">
+              <button type="button" onClick={() => setOpenDays(allOpen ? new Set() : new Set(allKeys))} className="text-xs font-semibold text-slate-500 hover:text-indigo-600">
+                {allOpen ? 'Collapse all' : 'Expand all'}
+              </button>
+            </div>
+          )}
           {days.map((d) => {
             const list = items.filter((i) => i.date === d)
             return (
-              <div key={d} className="bg-white rounded-xl border border-slate-200">
-                <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100">
-                  <p className="text-sm font-bold text-slate-700">{dayLabel(d)}</p>
-                  <button type="button" onClick={() => setItemModal({ date: d })} className="flex items-center gap-1 text-xs font-semibold text-indigo-600 px-2 py-1 rounded-full hover:bg-indigo-50"><Plus size={14} /> Add</button>
-                </div>
-                {list.length === 0 ? <p className="px-3 py-3 text-xs text-slate-400">Nothing planned yet.</p> : <div className="p-1">{list.map(renderItem)}</div>}
-              </div>
+              <DayAccordion key={d} label={dayLabel(d)} count={list.length} open={openDays.has(d)} onToggle={() => toggleDay(d)}
+                isToday={d === todayIso()} action={<button type="button" onClick={() => addTo(d)} className="shrink-0 flex items-center gap-1 text-xs font-semibold text-indigo-600 px-2 py-1 rounded-full hover:bg-indigo-50"><Plus size={14} /> Add</button>}>
+                {list.length === 0 ? <p className="text-xs text-slate-400">Nothing planned yet.</p> : list.map(renderItem)}
+              </DayAccordion>
             )
           })}
-          <div className="bg-white rounded-xl border border-dashed border-slate-300">
-            <div className="flex items-center justify-between px-3 py-2">
-              <p className="text-sm font-bold text-slate-500">Date not fixed yet</p>
-              <button type="button" onClick={() => setItemModal({ date: '' })} className="flex items-center gap-1 text-xs font-semibold text-indigo-600 px-2 py-1 rounded-full hover:bg-indigo-50"><Plus size={14} /> Add</button>
-            </div>
-            {undated.length > 0 && <div className="p-1 border-t border-slate-100">{undated.map(renderItem)}</div>}
-          </div>
+          <DayAccordion label="Date not fixed yet" count={undated.length} muted open={openDays.has('__undated')} onToggle={() => toggleDay('__undated')}
+            action={<button type="button" onClick={() => addTo('')} className="shrink-0 flex items-center gap-1 text-xs font-semibold text-indigo-600 px-2 py-1 rounded-full hover:bg-indigo-50"><Plus size={14} /> Add</button>}>
+            {undated.length === 0 ? <p className="text-xs text-slate-400">Nothing here.</p> : undated.map(renderItem)}
+          </DayAccordion>
           <p className="text-xs text-slate-400">Mark an item “Your suggestion wanted” to ask the team what they would like for it (e.g. a dinner or a free afternoon).</p>
         </div>
       )}

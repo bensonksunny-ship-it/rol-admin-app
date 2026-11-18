@@ -33,6 +33,13 @@ self.addEventListener('activate', (event) => {
 }
 
 export default defineConfig({
+  server: {
+    // Same-origin route to Firebase Storage (mirrors the vercel.json rewrite) so the
+    // Mission Trip Travel Diary PDF can read photo bytes without bucket CORS config.
+    proxy: {
+      '/fbstorage': { target: 'https://firebasestorage.googleapis.com', changeOrigin: true, rewrite: (p) => p.replace(/^\/fbstorage/, '') },
+    },
+  },
   plugins: [
     devServiceWorkerKillSwitch,
     react(),
@@ -76,7 +83,7 @@ export default defineConfig({
         // offline use; code-splitting the big pages (DepartmentHub) is the real fix.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallbackDenylist: [/^\/api\//, /^\/fbstorage\//],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
