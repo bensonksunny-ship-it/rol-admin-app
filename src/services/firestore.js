@@ -10967,7 +10967,17 @@ function mapMissionGuest(d) {
       if (stars >= 1 && stars <= 5) ratings[k] = { stars, comment: missionStr(r?.comment).slice(0, 300) }
     }
   }
-  const out = { ...raw, id: d.id, answers, ratings }
+  // Photos: { [itemId]: [{ id, url, path }] } — only Firebase Storage URLs.
+  const photos = {}
+  if (raw.photos && typeof raw.photos === 'object' && !Array.isArray(raw.photos)) {
+    for (const [k, arr] of Object.entries(raw.photos)) {
+      if (!Array.isArray(arr)) continue
+      const ok = arr.filter((ph) => ph && typeof ph.id === 'string' && typeof ph.path === 'string'
+        && typeof ph.url === 'string' && ph.url.startsWith('https://firebasestorage.googleapis.com/'))
+      if (ok.length) photos[k] = ok.map((ph) => ({ id: ph.id, url: ph.url, path: ph.path }))
+    }
+  }
+  const out = { ...raw, id: d.id, answers, ratings, photos }
   for (const k of [...MISSION_GUEST_PUBLIC_FIELDS.filter((f) => f !== 'answers'), 'room', 'pickupNote']) out[k] = missionStr(raw[k])
   return out
 }
@@ -11004,9 +11014,12 @@ export async function updateMissionTrip(tripId, patch) {
 export async function deleteMissionTrip(tripId) {
   // Free Storage first: every schedule photo of this trip goes with it.
   const tripSnap = await getDoc(doc(db, MISSION_TRIPS, tripId))
-  const paths = (tripSnap.data()?.items || []).flatMap((it) => (it.photos || []).map((ph) => ph.path))
-  await Promise.all(paths.map(deleteMissionPhotoFile))
   const guests = await getDocs(collection(db, MISSION_TRIPS, tripId, 'guests'))
+  const paths = [
+    ...(tripSnap.data()?.items || []).flatMap((it) => (it.photos || []).map((ph) => ph.path)),
+    ...guests.docs.flatMap((g) => guestPhotoPaths(g.data())),
+  ]
+  await Promise.all(paths.map(deleteMissionPhotoFile))
   const batch = writeBatch(db)
   guests.docs.forEach((g) => batch.delete(g.ref))
   batch.delete(doc(db, MISSION_TRIPS, tripId))
@@ -11039,6 +11052,28 @@ async function patchMissionItem(tripId, itemId, fn) {
     tx.update(tripRef, { items: next, updatedAt: serverTimestamp() })
   })
   return result
+}
+
+/**
+ * Post-schedule check: { outcome: 'as_planned' | 'changed', note, by } marks the item
+ * Completed (view-only); null reopens it.
+ */
+export async function setMissionItemCompletion(tripId, itemId, completion) {
+  await patchMissionItem(tripId, itemId, (item) => {
+    const { completion: _old, ...rest } = item
+    if (!completion) return { item: rest }
+    return {
+      item: {
+        ...rest,
+        completion: {
+          outcome: completion.outcome === 'changed' ? 'changed' : 'as_planned',
+          note: String(completion.note || '').trim().slice(0, 500),
+          by: String(completion.by || '').slice(0, 120),
+          at: Date.now(),
+        },
+      },
+    }
+  })
 }
 
 /** Upload one (already compressed) image blob to a schedule item. */
@@ -11075,14 +11110,61 @@ export async function clearMissionTripPhotos(tripId) {
   const tripRef = doc(db, MISSION_TRIPS, tripId)
   const snap = await getDoc(tripRef)
   const items = snap.data()?.items || []
-  const paths = items.flatMap((it) => (it.photos || []).map((ph) => ph.path))
+  const guests = await getDocs(collection(db, MISSION_TRIPS, tripId, 'guests'))
+  const paths = [
+    ...items.flatMap((it) => (it.photos || []).map((ph) => ph.path)),
+    ...guests.docs.flatMap((g) => guestPhotoPaths(g.data())),
+  ]
   await Promise.all(paths.map(deleteMissionPhotoFile))
   await runTransaction(db, async (tx) => {
     const cur = await tx.get(tripRef)
     const next = (cur.data()?.items || []).map((it) => { const { photos: _p, ...rest } = it; return rest })
     tx.update(tripRef, { items: next, updatedAt: serverTimestamp() })
   })
+  const withPhotos = guests.docs.filter((g) => guestPhotoPaths(g.data()).length)
+  if (withPhotos.length) {
+    const batch = writeBatch(db)
+    withPhotos.forEach((g) => batch.update(g.ref, { photos: deleteField() }))
+    await batch.commit()
+  }
   return paths.length
+}
+
+// ── Guest photos (team members, through the public link) ──
+// Stored on the guest's own entry: photos: { [itemId]: [{ id, url, path }] }, files at
+// mission_trips/{tripId}/guests/{guestId}/… (storage.rules allows this only while the
+// link is open). MISSION_PHOTO_LIMIT applies per guest per item.
+function guestPhotoPaths(data) {
+  const p = data?.photos
+  if (!p || typeof p !== 'object') return []
+  return Object.values(p).flatMap((arr) => (Array.isArray(arr) ? arr.map((ph) => ph?.path).filter((x) => typeof x === 'string') : []))
+}
+
+export async function addMissionGuestPhoto(tripId, guestId, itemId, blob) {
+  if (!storage) throw new Error('Storage unavailable')
+  const gRef = doc(db, MISSION_TRIPS, tripId, 'guests', guestId)
+  const cur = (await getDoc(gRef)).data()?.photos?.[itemId] || []
+  if (cur.length >= MISSION_PHOTO_LIMIT) throw new Error(`Only ${MISSION_PHOTO_LIMIT} photos per item.`)
+  const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+  const path = `mission_trips/${tripId}/guests/${guestId}/${itemId}_${id}.jpg`
+  const snap = await uploadBytes(ref(storage, path), blob, { contentType: 'image/jpeg' })
+  const url = await getDownloadURL(snap.ref)
+  const photo = { id, url, path }
+  try {
+    await updateDoc(gRef, { [`photos.${itemId}`]: [...cur, photo], updatedAt: serverTimestamp() })
+  } catch (e) {
+    await deleteMissionPhotoFile(path)
+    throw e
+  }
+  return photo
+}
+
+/** Guest removes their own photo, or the office removes any guest's photo. */
+export async function removeMissionGuestPhoto(tripId, guestId, itemId, photo) {
+  const gRef = doc(db, MISSION_TRIPS, tripId, 'guests', guestId)
+  const cur = (await getDoc(gRef)).data()?.photos?.[itemId] || []
+  await updateDoc(gRef, { [`photos.${itemId}`]: cur.filter((ph) => ph?.id !== photo.id), updatedAt: serverTimestamp() })
+  await deleteMissionPhotoFile(photo.path)
 }
 
 export function subscribeToMissionTripGuests(tripId, onData, onError) {
@@ -11100,7 +11182,10 @@ export async function updateMissionTripGuest(tripId, guestId, patch) {
 }
 
 export async function deleteMissionTripGuest(tripId, guestId) {
-  await deleteDoc(doc(db, MISSION_TRIPS, tripId, 'guests', guestId))
+  const gRef = doc(db, MISSION_TRIPS, tripId, 'guests', guestId)
+  const paths = guestPhotoPaths((await getDoc(gRef)).data())
+  await deleteDoc(gRef)
+  await Promise.all(paths.map(deleteMissionPhotoFile))
 }
 
 /** Public (signed-out) read of the plan by its link token; null when closed / missing. */

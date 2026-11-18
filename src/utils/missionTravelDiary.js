@@ -76,7 +76,12 @@ export async function downloadTravelDiary(trip, { onProgress, guests = [] } = {}
   if (undated.length) groups.push({ key: 'undated', label: 'Date to be fixed', list: undated })
 
   // Load every photo up front.
-  const allPhotos = items.flatMap((i) => i.photos || [])
+  // Office photos (on the item) + each team member's photos (on their entry), captioned.
+  const photosOf = (it) => [
+    ...(it.photos || []),
+    ...(guests || []).flatMap((g) => (g.photos?.[it.id] || []).map((ph) => ({ ...ph, by: g.name || 'Guest' }))),
+  ]
+  const allPhotos = items.flatMap(photosOf)
   const loaded = new Map()
   let done = 0
   await Promise.all(allPhotos.map(async (ph) => {
@@ -149,7 +154,7 @@ export async function downloadTravelDiary(trip, { onProgress, guests = [] } = {}
 
       const titleL = wrap(it.title || k.label, TW, 11.5, 'bold')
       const transport = it.kind === 'travel' ? [it.vehicle, it.driver && `Driver: ${it.driver}`, it.driverPhone].filter(Boolean).join(' · ') : ''
-      const meta = [it.location && `Location: ${it.location}`, transport && `Transport: ${transport}`].filter(Boolean)
+      const meta = [it.incharge && `In charge: ${it.incharge}`, it.location && `Location: ${it.location}`, transport && `Transport: ${transport}`].filter(Boolean)
       const metaL = meta.flatMap((m) => wrap(m, TW, 9.5))
       const notesL = it.notes ? wrap(it.notes, TW, 9.5, 'italic') : []
       // Food rating (meals): average line + the team's dish notes.
@@ -157,18 +162,29 @@ export async function downloadTravelDiary(trip, { onProgress, guests = [] } = {}
       const rateHead = rs?.count ? `Food rating: ${rs.avg.toFixed(1)} / 5  (${rs.count} ${rs.count === 1 ? 'rating' : 'ratings'})` : ''
       const rateL = rs?.count ? rs.entries.filter((e) => e.comment).flatMap((e) => wrap(`“${e.comment}” — ${e.name}, ${e.stars}/5`, TW - 4, 8.5, 'italic')) : []
       const rateH = rs?.count ? 7.5 + rateL.length * 3.9 + 1.5 : 0
+      // Post-schedule check: "Completed" replaces the plan status; a change note follows.
+      const comp = it.completion?.outcome ? it.completion : null
+      const statusText = comp ? (comp.outcome === 'changed' ? 'Completed (changed)' : 'Completed as planned') : s.label
+      const statusRgb = comp ? (comp.outcome === 'changed' ? [180, 83, 9] : [4, 120, 87]) : (STATUS_RGB[it.status] || STATUS_RGB.confirmed)
+      const changeL = comp?.outcome === 'changed' && comp.note ? wrap(`What changed: ${comp.note}`, TW, 9, 'bold') : []
 
-      const photos = (it.photos || []).map((ph) => loaded.get(ph.id)).filter(Boolean)
-      const missing = (it.photos || []).length - photos.length
+      const itemPhotos = photosOf(it)
+      const photos = itemPhotos.map((ph) => (loaded.get(ph.id) ? { ...loaded.get(ph.id), by: ph.by } : null)).filter(Boolean)
+      const missing = itemPhotos.length - photos.length
       const gap = 4
       const boxW = photos.length === 1 ? CW * 0.62 : (CW - gap) / 2
       const boxH = 62
       const fitted = photos.map((p) => { const r = Math.min(boxW / p.w, boxH / p.h); return { ...p, dw: p.w * r, dh: p.h * r } })
-      const photoH = fitted.length ? Math.max(...fitted.map((p) => p.dh)) + 4 : 0
+      // Two photos per row; each row may move to a new page on its own.
+      const rows = []
+      for (let i = 0; i < fitted.length; i += 2) rows.push(fitted.slice(i, i + 2))
+      const capH = (row) => (row.some((p) => p.by) ? 4 : 0)
+      const rowH = (row) => Math.max(...row.map((p) => p.dh)) + capH(row)
+      const firstRowH = rows.length ? rowH(rows[0]) + 4 : 0
 
-      const textH = 6 + titleL.length * 5 + 5 + metaL.length * 4.3 + (notesL.length ? notesL.length * 4.3 + 1 : 0) + rateH + (missing > 0 ? 4.5 : 0)
-      const blockH = Math.max(textH, 16) + photoH + 4
-      ensure(Math.min(blockH, BOTTOM - M))
+      const textH = 6 + titleL.length * 5 + 5 + metaL.length * 4.3 + (notesL.length ? notesL.length * 4.3 + 1 : 0) + (changeL.length ? changeL.length * 4.1 + 1 : 0) + rateH + (missing > 0 ? 4.5 : 0)
+      const blockH = Math.max(textH, 16) + 4
+      ensure(Math.min(blockH + firstRowH, BOTTOM - M)) // keep the card with its first photo row
 
       const top = y
       // Card
@@ -188,10 +204,11 @@ export async function downloadTravelDiary(trip, { onProgress, guests = [] } = {}
       text(`${clean(k.label)}  ·  `, TX, ty, { size: 8.5, color: [100, 116, 139] })
       pdf.setFont('helvetica', 'normal'); pdf.setFontSize(8.5)
       const kw = pdf.getTextWidth(`${clean(k.label)}  ·  `)
-      text(s.label, TX + kw, ty, { size: 8.5, style: 'bold', color: STATUS_RGB[it.status] || STATUS_RGB.confirmed })
+      text(statusText, TX + kw, ty, { size: 8.5, style: 'bold', color: statusRgb })
       ty += 5
       if (metaL.length) { text(metaL, TX, ty, { size: 9.5, color: [51, 65, 85] }); ty += metaL.length * 4.3 }
       if (notesL.length) { text(notesL, TX, ty, { size: 9.5, style: 'italic', color: [71, 85, 105] }); ty += notesL.length * 4.3 + 1 }
+      if (changeL.length) { text(changeL, TX, ty, { size: 9, style: 'bold', color: [180, 83, 9] }); ty += changeL.length * 4.1 + 1 }
       if (rs?.count) {
         pdf.setFillColor(254, 243, 199)
         pdf.roundedRect(TX, ty - 3.6, TW, rateH - 1.5, 1.5, 1.5, 'F')
@@ -209,18 +226,22 @@ export async function downloadTravelDiary(trip, { onProgress, guests = [] } = {}
       }
       if (missing > 0) text(`(${missing} photo${missing > 1 ? 's' : ''} could not be loaded)`, TX, ty, { size: 8, style: 'italic', color: [220, 38, 38] })
 
-      // Photos side by side under the activity.
-      if (fitted.length) {
-        const py = top + Math.max(textH, 16)
-        const totalW = fitted.reduce((a, p) => a + p.dw, 0) + gap * (fitted.length - 1)
+      y = top + blockH + 3
+      // Photos side by side under the activity, two per row (team photos captioned).
+      for (const row of rows) {
+        const h = rowH(row)
+        ensure(h + 2)
+        const totalW = row.reduce((a, p) => a + p.dw, 0) + gap * (row.length - 1)
         let px = M + (CW - totalW) / 2
-        for (const p of fitted) {
-          try { pdf.addImage(p.dataUrl, p.fmt, px, py, p.dw, p.dh, undefined, 'FAST') } catch { /* skip a bad image */ }
-          pdf.setDrawColor(226, 232, 240); pdf.rect(px, py, p.dw, p.dh)
+        for (const p of row) {
+          try { pdf.addImage(p.dataUrl, p.fmt, px, y, p.dw, p.dh, undefined, 'FAST') } catch { /* skip a bad image */ }
+          pdf.setDrawColor(226, 232, 240); pdf.rect(px, y, p.dw, p.dh)
+          if (p.by) text(`Photo: ${clean(p.by)}`, px, y + p.dh + 3.2, { size: 7.5, style: 'italic', color: [100, 116, 139] })
           px += p.dw + gap
         }
+        y += h + gap
       }
-      y = top + blockH + 4
+      y += 1
     }
     y += 3
   }

@@ -7,14 +7,15 @@ import {
   subscribeToMissionTrips, createMissionTrip, updateMissionTrip, deleteMissionTrip,
   subscribeToMissionTripGuests, updateMissionTripGuest, deleteMissionTripGuest,
   addMissionItemPhoto, removeMissionItemPhoto, deleteMissionPhotoFiles, clearMissionTripPhotos, MISSION_PHOTO_LIMIT,
+  setMissionItemCompletion, removeMissionGuestPhoto,
 } from '../../services/firestore'
 import {
   ITEM_KINDS, ITEM_STATUSES, kindOf, newId, defaultQuestions, tripDays, dayLabel, fullDate,
   formatDateTime, sortItems, answerablePrompts, missionTripLink, whatsappShareHref,
-  missionInviteMessage, parseOptions, todayIso, compressImage, isFoodItem, ratingSummary,
+  missionInviteMessage, parseOptions, todayIso, compressImage, isFoodItem, ratingSummary, isItemDue, tourProgress,
 } from '../../utils/missionTrip'
 import DateInput from '../../components/DateInput'
-import { DayAccordion, ScheduleBlock, RatingBadge } from '../../components/mission/TripSchedule'
+import { DayAccordion, ScheduleBlock, RatingBadge, CompletionPrompt, GuestPhotos, TourProgress } from '../../components/mission/TripSchedule'
 import { downloadTravelDiary } from '../../utils/missionTravelDiary'
 
 /**
@@ -108,6 +109,7 @@ function ItemModal({ item, days, defaultDate, onClose, onSave, onDelete }) {
     kind: item?.kind || 'meeting',
     title: item?.title || '',
     location: item?.location || '',
+    incharge: item?.incharge || '',
     status: item?.status || 'confirmed',
     notes: item?.notes || '',
     vehicle: item?.vehicle || '',
@@ -122,7 +124,7 @@ function ItemModal({ item, days, defaultDate, onClose, onSave, onDelete }) {
   async function submit() {
     setSaving(true)
     const { optionsText, ...rest } = f
-    const out = { id: item?.id || newId(), ...rest, title: rest.title.trim(), options: parseOptions(optionsText) }
+    const out = { id: item?.id || newId(), ...rest, title: rest.title.trim(), incharge: rest.incharge.trim(), options: parseOptions(optionsText) }
     if (out.kind !== 'travel') { out.vehicle = ''; out.driver = ''; out.driverPhone = '' }
     if (out.status !== 'suggest') { out.question = ''; out.options = []; out.multi = false }
     try { await onSave(out) } catch (e) { console.error(e); alert('Could not save.'); setSaving(false) }
@@ -153,7 +155,10 @@ function ItemModal({ item, days, defaultDate, onClose, onSave, onDelete }) {
         <Field label="From"><input type="time" value={f.time} onChange={set('time')} className={inputCls} /></Field>
         <Field label="To"><input type="time" value={f.endTime} onChange={set('endTime')} className={inputCls} /></Field>
       </div>
-      <Field label="Place"><input value={f.location} onChange={set('location')} className={inputCls} /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Place"><input value={f.location} onChange={set('location')} className={inputCls} /></Field>
+        <Field label="In charge"><input value={f.incharge} onChange={set('incharge')} className={inputCls} placeholder="Who leads / initiates this" /></Field>
+      </div>
       <Field label="Status">
         <div className="flex flex-wrap gap-1.5">
           {ITEM_STATUSES.map((s) => (
@@ -376,8 +381,11 @@ const SUBTABS = [
   { key: 'responses', label: 'Responses', Icon: Users },
 ]
 
-function TripDetail({ trip, onBack }) {
+function TripDetail({ trip, onBack, userProfile }) {
   const [sub, setSub] = useState('plan')
+  // Ticks every minute so cards ask "Was this done as planned?" as soon as their time passes.
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 60 * 1000); return () => clearInterval(t) }, [])
   const [guests, setGuests] = useState([])
   const [editTrip, setEditTrip] = useState(false)
   const [itemModal, setItemModal] = useState(null) // { item?, date? }
@@ -438,6 +446,7 @@ function TripDetail({ trip, onBack }) {
   const [diaryState, setDiaryState] = useState('') // progress text while building the PDF
   const [clearing, setClearing] = useState(false)
   const photoCount = (trip.items || []).reduce((n, i) => n + (i.photos?.length || 0), 0)
+    + guests.reduce((n, g) => n + Object.values(g.photos || {}).reduce((a, arr) => a + arr.length, 0), 0)
   const setBusy = (id, v) => setPhotoBusy((b) => ({ ...b, [id]: v }))
   async function addPhoto(it, file) {
     setBusy(it.id, true)
@@ -469,15 +478,23 @@ Download the Travel Diary PDF first — this cannot be undone.`)) return
     finally { setClearing(false) }
   }
 
+  async function removeGuestPhoto(ph) {
+    if (!window.confirm(`Remove ${ph.by}'s photo? It is deleted permanently.`)) return
+    try { await removeMissionGuestPhoto(trip.id, ph.guestId, ph.itemId, ph) } catch (e) { console.error(e); alert('Could not remove the photo.') }
+  }
+
   const renderItem = (it) => {
     const answers = it.status === 'suggest' ? guests.filter((g) => { const a = g.answers?.[it.id]; return a && (a.choices?.length || String(a.other || '').trim()) }).length : 0
+    const teamPhotos = guests.flatMap((g) => (g.photos?.[it.id] || []).map((ph) => ({ ...ph, by: g.name || 'Guest', guestId: g.id, itemId: it.id })))
     return (
       <ScheduleBlock key={it.id} item={it} onClick={() => setItemModal({ item: it })}
         photoLimit={MISSION_PHOTO_LIMIT} photoBusy={!!photoBusy[it.id]}
         onAddPhoto={(f) => addPhoto(it, f)} onRemovePhoto={(ph) => removePhoto(it, ph)}
+        footer={isItemDue(it, now) && <CompletionPrompt onSubmit={(r) => setMissionItemCompletion(trip.id, it.id, { ...r, by: userProfile?.name || userProfile?.email || '' })} />}
         extra={<>
           {it.status === 'suggest' && <p className="text-xs font-semibold text-indigo-600 mt-1.5">{answers} answered</p>}
           {isFoodItem(it) && <RatingBadge summary={ratingSummary(guests, it.id)} />}
+          <GuestPhotos photos={teamPhotos} onRemove={removeGuestPhoto} />
         </>} />
     )
   }
@@ -495,6 +512,8 @@ Download the Travel Diary PDF first — this cannot be undone.`)) return
         <button type="button" onClick={() => setEditTrip(true)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500" aria-label="Edit trip"><Pencil size={16} /></button>
         <button type="button" onClick={removeTrip} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600" aria-label="Delete trip"><Trash2 size={16} /></button>
       </div>
+
+      <TourProgress progress={tourProgress(trip, now)} />
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={downloadDiary} disabled={!!diaryState} className={`${btnPrimary} flex items-center gap-1.5`}>
@@ -611,7 +630,7 @@ export default function MissionTrips({ userProfile }) {
   useEffect(() => subscribeToMissionTrips(setTrips, (e) => { setTrips([]); setError(e?.code === 'permission-denied' ? 'You do not have access to mission trips.' : 'Could not load mission trips.') }), [])
 
   const selected = trips?.find((t) => t.id === selectedId)
-  if (selected) return <TripDetail trip={selected} onBack={() => setSelectedId('')} />
+  if (selected) return <TripDetail trip={selected} userProfile={userProfile} onBack={() => setSelectedId('')} />
 
   async function create(f) {
     const id = await createMissionTrip({ ...f, items: [], questions: defaultQuestions() }, userProfile?.email || userProfile?.name || '')

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { ChevronDown, MapPin, Car, Pencil, ImagePlus, X, Loader2, Star, Check } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChevronDown, MapPin, Car, Pencil, ImagePlus, X, Loader2, Star, Check, UserRound } from 'lucide-react'
 import { kindOf, statusOf, formatTime } from '../../utils/missionTrip'
 
 /**
@@ -19,6 +19,7 @@ const KIND_TINT = {
   other:   { card: 'bg-slate-50 border-slate-200',       time: 'bg-slate-600 text-white' },
 }
 const tintOf = (kind) => KIND_TINT[kind] || KIND_TINT.other
+const COMPLETED_TINT = { card: 'bg-white border-emerald-200', time: 'bg-emerald-600 text-white' }
 
 function Tag({ icon, children }) {
   return (
@@ -33,7 +34,7 @@ function Tag({ icon, children }) {
  * Photo strip inside a block: thumbnails (tap = open full size), × to remove and an
  * "Add photo" picker while under `limit`. Read-only when no handlers are given.
  */
-function PhotoStrip({ photos, limit, onAdd, onRemove, busy }) {
+function PhotoStrip({ photos, limit, onAdd, onRemove, busy, addLabel = 'Add photo' }) {
   const canAdd = onAdd && photos.length < limit
   if (!photos.length && !canAdd) return null
   return (
@@ -51,6 +52,7 @@ function PhotoStrip({ photos, limit, onAdd, onRemove, busy }) {
               <X size={13} />
             </button>
           )}
+          {ph.by && <p className="mt-0.5 max-w-24 sm:max-w-32 truncate text-[10px] text-slate-500">{ph.by}</p>}
         </div>
       ))}
     </div>
@@ -59,7 +61,7 @@ function PhotoStrip({ photos, limit, onAdd, onRemove, busy }) {
     {canAdd && (
       <label className={`mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 ${busy ? 'opacity-60 cursor-wait' : 'cursor-pointer hover:text-indigo-600'}`}>
         {busy ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
-        {busy ? 'Uploading…' : `Add photo (${photos.length}/${limit})`}
+        {busy ? 'Uploading…' : `${addLabel} (${photos.length}/${limit})`}
         <input type="file" accept="image/*" className="hidden" disabled={busy}
           onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onAdd(f) }} />
       </label>
@@ -69,14 +71,32 @@ function PhotoStrip({ photos, limit, onAdd, onRemove, busy }) {
 }
 
 /**
+ * Team members' photos on a card. Guest page: their own photos + "Add your photo";
+ * planner: everyone's photos with the name under each (office can remove any).
+ * `photos` items may carry `by` (name). Hidden when empty and nothing can be added.
+ */
+export function GuestPhotos({ photos, limit = 2, onAdd, onRemove, busy = false, title = 'Team photos' }) {
+  if (!photos.length && !onAdd) return null
+  return (
+    <div className="mt-2">
+      {photos.length > 0 && <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{title}</p>}
+      <PhotoStrip photos={photos} limit={limit} onAdd={onAdd} onRemove={onRemove} busy={busy} addLabel="Add your photo" />
+    </div>
+  )
+}
+
+/**
  * One event block. `onClick` makes the top part a button (planner edit); `extra` renders
  * under the tags (e.g. "3 answered"); `showDetails` shows driver phone + notes (public page).
  * Photos: `onAddPhoto(file)` / `onRemovePhoto(photo)` enable editing; `photoBusy` = uploading.
  */
-export function ScheduleBlock({ item, onClick, extra, showDetails = false, photoLimit = 2, onAddPhoto, onRemovePhoto, photoBusy = false }) {
+export function ScheduleBlock({ item, onClick, extra, footer, showDetails = false, photoLimit = 2, onAddPhoto, onRemovePhoto, photoBusy = false }) {
   const k = kindOf(item.kind)
   const s = statusOf(item.status)
-  const t = tintOf(item.kind)
+  // Completed items lock into a view-only summary: no edit, no photo add/remove.
+  const c = item.completion?.outcome ? item.completion : null
+  if (c) { onClick = undefined; onAddPhoto = undefined; onRemovePhoto = undefined }
+  const t = c ? COMPLETED_TINT : tintOf(item.kind)
   const isTravel = item.kind === 'travel'
   const transport = isTravel ? [item.vehicle, item.driver && `Driver: ${item.driver}`, showDetails && item.driverPhone].filter(Boolean).join(' · ') : ''
 
@@ -95,14 +115,17 @@ export function ScheduleBlock({ item, onClick, extra, showDetails = false, photo
             {onClick && <Pencil size={13} className="text-slate-300 mt-0.5 shrink-0" />}
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${s.cls}`}>{s.label}</span>
+            {c
+              ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-bold text-white"><Check size={11} strokeWidth={3} /> Completed</span>
+              : <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${s.cls}`}>{s.label}</span>}
+            {item.incharge && <Tag icon={<UserRound size={11} />}>In charge: {item.incharge}</Tag>}
             {item.location && <Tag icon={<MapPin size={11} />}>{item.location}</Tag>}
             {transport && <Tag icon={<Car size={11} />}>{transport}</Tag>}
           </div>
           {extra}
         </div>
       </div>
-      {showDetails && item.notes && <p className="text-xs text-slate-600 mt-2 whitespace-pre-line">{item.notes}</p>}
+      {(showDetails || c) && item.notes && <p className="text-xs text-slate-600 mt-2 whitespace-pre-line">{item.notes}</p>}
     </>
   )
 
@@ -112,6 +135,55 @@ export function ScheduleBlock({ item, onClick, extra, showDetails = false, photo
         ? <button type="button" onClick={onClick} className="block w-full text-left">{body}</button>
         : body}
       <PhotoStrip photos={item.photos || []} limit={photoLimit} onAdd={onAddPhoto} onRemove={onRemovePhoto} busy={photoBusy} />
+      {!c && footer}
+    </div>
+  )
+}
+
+/**
+ * Shown on a card once its time has passed: "Done as planned" in one tap, or
+ * "Something changed" with a short note. `onSubmit({ outcome, note })`.
+ */
+export function CompletionPrompt({ onSubmit }) {
+  const [mode, setMode] = useState('') // '' | changed
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  async function submit(outcome) {
+    if (outcome === 'changed' && !note.trim()) { setErr('Please write what changed.'); return }
+    setBusy(true); setErr('')
+    try { await onSubmit({ outcome, note: outcome === 'changed' ? note.trim() : '' }) }
+    catch { setErr('Could not save — try again.'); setBusy(false) }
+  }
+  return (
+    <div className="mt-2.5 rounded-lg border border-indigo-200 bg-white/90 px-3 py-2.5 space-y-2">
+      <p className="text-xs font-bold text-indigo-900">⏰ Was this done as planned, or did anything change?</p>
+      {mode !== 'changed' ? (
+        <div className="flex flex-wrap gap-2">
+          <button type="button" disabled={busy} onClick={() => submit('as_planned')}
+            className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50">
+            {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Done as planned
+          </button>
+          <button type="button" disabled={busy} onClick={() => setMode('changed')}
+            className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50">
+            Something changed
+          </button>
+        </div>
+      ) : (
+        <>
+          <textarea rows={2} value={note} maxLength={500} autoFocus onChange={(e) => { setNote(e.target.value); setErr('') }}
+            placeholder="What changed? e.g. lunch moved to 2 PM, different venue…"
+            className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-amber-300" />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={busy} onClick={() => submit('changed')}
+              className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-50">
+              {busy && <Loader2 size={13} className="animate-spin" />} Save &amp; complete
+            </button>
+            <button type="button" disabled={busy} onClick={() => { setMode(''); setErr('') }} className="text-xs font-semibold text-slate-500 underline">Back</button>
+          </div>
+        </>
+      )}
+      {err && <p className="text-xs text-red-600">{err}</p>}
     </div>
   )
 }
@@ -228,6 +300,37 @@ export function FoodRating({ value, onSave, canRate, onNeedDetails }) {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * Tour completion bar. `progress` comes from tourProgress(). `onDark` renders it
+ * inside the indigo trip banner (guest page); otherwise as a white card.
+ */
+export function TourProgress({ progress, onDark = false }) {
+  const { pct, done, total, dayIndex, dayCount, phase } = progress
+  // Start empty and grow to pct so the fill animates in on open.
+  const [shown, setShown] = useState(0)
+  useEffect(() => { const t = setTimeout(() => setShown(pct), 60); return () => clearTimeout(t) }, [pct])
+  const dayText = phase === 'running' ? `Day ${dayIndex} of ${dayCount}`
+    : phase === 'upcoming' ? 'Not started yet'
+    : phase === 'finished' ? 'Tour ended' : ''
+  const sub = [total ? `${done} of ${total} events done` : '', dayText].filter(Boolean).join(' · ')
+  const wrap = onDark ? 'mt-4 rounded-xl bg-white/15 p-3' : 'rounded-xl border border-slate-200 bg-white p-3 shadow-sm'
+  const track = onDark ? 'bg-white/25' : 'bg-slate-100'
+  const fill = pct >= 100 ? 'bg-emerald-400' : onDark ? 'bg-white' : 'bg-gradient-to-r from-indigo-500 to-emerald-500'
+  return (
+    <div className={wrap}>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className={`text-sm font-bold ${onDark ? 'text-white' : 'text-slate-800'}`}>
+          {pct}% <span className={`font-medium ${onDark ? 'text-indigo-100' : 'text-slate-500'}`}>of tour completed</span>
+        </p>
+        {sub && <p className={`text-[11px] text-right ${onDark ? 'text-indigo-100' : 'text-slate-500'}`}>{sub}</p>}
+      </div>
+      <div className={`mt-2 h-2.5 w-full overflow-hidden rounded-full ${track}`} role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        <div className={`h-full rounded-full transition-[width] duration-700 ease-out ${fill}`} style={{ width: `${shown}%` }} />
+      </div>
     </div>
   )
 }

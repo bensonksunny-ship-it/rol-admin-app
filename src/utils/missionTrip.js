@@ -61,6 +61,23 @@ export function tripDays(start, end) {
 
 export const dayLabel = (iso) => safeFormat(iso, 'EEE, d MMM') || 'Date not set'
 export const fullDate = (iso) => safeFormat(iso, 'd MMM yyyy')
+// ── Completion check ──
+/**
+ * When an item counts as "over": its end time, else its start time, else the end of its
+ * day (local time). Undated items never come due. Returns a Date or null.
+ */
+export function itemDueAt(item) {
+  if (!item?.date || !/^\d{4}-\d{2}-\d{2}$/.test(item.date)) return null
+  const hm = /^\d{1,2}:\d{2}$/.test(item.endTime || '') ? item.endTime : /^\d{1,2}:\d{2}$/.test(item.time || '') ? item.time : '23:59'
+  const [y, m, d] = item.date.split('-').map(Number)
+  const [h, min] = hm.split(':').map(Number)
+  return new Date(y, m - 1, d, h, min)
+}
+export const isItemDue = (item, now = new Date()) => {
+  const due = itemDueAt(item)
+  return !!due && now >= due && !item?.completion?.outcome
+}
+
 // ── Food rating ──
 const FOOD_WORDS = /\b(breakfast|brunch|lunch|dinner|supper|snacks?|tea|coffee|meals?|food|feast|buffet)\b/i
 /** Meal items (kind "meal") or anything whose title reads like food. */
@@ -146,3 +163,28 @@ export const missionInviteMessage = (trip, link) =>
 
 /** Turn a comma / new-line separated string into a clean option list. */
 export const parseOptions = (s) => String(s || '').split(/[\n,]/).map((x) => x.trim()).filter(Boolean)
+
+/**
+ * Tour completion for the progress bar. Percent = completed events / scheduled
+ * events; with no events yet it falls back to time elapsed between the trip's
+ * start (00:00) and end (23:59). Also returns the "Day n of N" position.
+ */
+export function tourProgress(trip, now = new Date()) {
+  const days = tripDays(trip?.startDate, trip?.endDate)
+  const events = (Array.isArray(trip?.items) ? trip.items : []).filter(Boolean)
+  const total = events.length
+  const done = events.filter((it) => it.completion?.outcome).length
+  let timePct = 0
+  if (days.length) {
+    const [y1, m1, d1] = days[0].split('-').map(Number)
+    const [y2, m2, d2] = days[days.length - 1].split('-').map(Number)
+    const s = new Date(y1, m1 - 1, d1).getTime()
+    const e = new Date(y2, m2 - 1, d2, 23, 59, 59).getTime()
+    timePct = Math.min(100, Math.max(0, ((now.getTime() - s) / (e - s)) * 100))
+  }
+  const pct = Math.round(total ? (done / total) * 100 : timePct)
+  const today = format(now, 'yyyy-MM-dd')
+  const dayIndex = days.indexOf(today) + 1
+  const phase = !days.length ? 'undated' : today < days[0] ? 'upcoming' : today > days[days.length - 1] ? 'finished' : 'running'
+  return { pct, done, total, dayIndex, dayCount: days.length, phase }
+}

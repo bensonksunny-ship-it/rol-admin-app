@@ -1306,7 +1306,8 @@ service cloud.firestore {
       return request.resource.data.name is string
         && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 200
         && request.resource.data.get('answers', {}) is map
-        && request.resource.data.get('ratings', {}) is map;
+        && request.resource.data.get('ratings', {}) is map
+        && request.resource.data.get('photos', {}) is map;
     }
     match /mission_trips/{tripId} {
       allow read, write: if canManageMissionTrips();
@@ -1322,7 +1323,7 @@ service cloud.firestore {
         allow update: if missionTripOpen(tripId) && missionGuestValid()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
                'name', 'email', 'phone', 'arrivalFlight', 'arrivalAt', 'arrivalAirport',
-               'departureFlight', 'departureAt', 'dietary', 'notes', 'answers', 'ratings', 'updatedAt']);
+               'departureFlight', 'departureAt', 'dietary', 'notes', 'answers', 'ratings', 'photos', 'updatedAt']);
       }
     }
 

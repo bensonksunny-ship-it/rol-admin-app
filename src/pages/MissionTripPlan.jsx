@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   getMissionTripByToken, getMissionTripGuestPublic, addMissionTripGuestPublic, updateMissionTripGuestPublic,
-  rateMissionTripItemPublic,
+  rateMissionTripItemPublic, addMissionGuestPhoto, removeMissionGuestPhoto, MISSION_PHOTO_LIMIT,
 } from '../services/firestore'
 import {
-  sortItems, tripDays, dayLabel, fullDate, answerablePrompts, todayIso, isFoodItem,
+  sortItems, tripDays, dayLabel, fullDate, answerablePrompts, todayIso, isFoodItem, compressImage, tourProgress,
 } from '../utils/missionTrip'
-import { DayAccordion, ScheduleBlock, FoodRating } from '../components/mission/TripSchedule'
+import { DayAccordion, ScheduleBlock, FoodRating, GuestPhotos, TourProgress } from '../components/mission/TripSchedule'
 
 /**
  * Public mission-team page — /mission-trip?token=…
@@ -154,12 +154,38 @@ export default function MissionTripPlan() {
   }
   const goToDetails = () => document.getElementById('your-details')?.scrollIntoView({ behavior: 'smooth' })
   // Meals get a rating box inside the card; keyed by guest so switching person resets it.
+  // Guest photos: up to MISSION_PHOTO_LIMIT per item on their own entry (needs their name saved first).
+  const [photoBusy, setPhotoBusy] = useState({})
+  const setMine = (itemId, fn) => setForm((f) => ({ ...f, photos: { ...(f.photos || {}), [itemId]: fn(f.photos?.[itemId] || []) } }))
+  async function addPhoto(itemId, file) {
+    setPhotoBusy((b) => ({ ...b, [itemId]: true }))
+    try {
+      const ph = await addMissionGuestPhoto(token, guestId, itemId, await compressImage(file))
+      setMine(itemId, (arr) => [...arr, ph])
+    } catch (e) { console.error(e); alert(e?.message?.startsWith('Only') ? e.message : 'Could not add the photo. Please check your internet and try again.') }
+    finally { setPhotoBusy((b) => ({ ...b, [itemId]: false })) }
+  }
+  async function removePhoto(itemId, ph) {
+    if (!window.confirm('Remove this photo?')) return
+    setPhotoBusy((b) => ({ ...b, [itemId]: true }))
+    try { await removeMissionGuestPhoto(token, guestId, itemId, ph); setMine(itemId, (arr) => arr.filter((x) => x.id !== ph.id)) }
+    catch (e) { console.error(e); alert('Could not remove the photo.') }
+    finally { setPhotoBusy((b) => ({ ...b, [itemId]: false })) }
+  }
+
+  // Meals get a rating box inside the card; keyed by guest so switching person resets it.
   const renderBlock = (i) => (
     <ScheduleBlock key={i.id} item={i} showDetails
-      extra={isFoodItem(i) && (
-        <FoodRating key={`${guestId}_${i.id}`} value={form.ratings?.[i.id]} canRate={!!guestId}
-          onSave={(r) => rateItem(i.id, r)} onNeedDetails={goToDetails} />
-      )} />
+      extra={<>
+        {isFoodItem(i) && (
+          <FoodRating key={`${guestId}_${i.id}`} value={form.ratings?.[i.id]} canRate={!!guestId}
+            onSave={(r) => rateItem(i.id, r)} onNeedDetails={goToDetails} />
+        )}
+        {guestId && (
+          <GuestPhotos title="Your photos" photos={form.photos?.[i.id] || []} limit={MISSION_PHOTO_LIMIT}
+            busy={!!photoBusy[i.id]} onAdd={(f) => addPhoto(i.id, f)} onRemove={(ph) => removePhoto(i.id, ph)} />
+        )}
+      </>} />
   )
 
   function addAnother() {
@@ -204,6 +230,7 @@ export default function MissionTripPlan() {
                   {trip.hostPhone && <> · <a className="underline" href={`tel:${trip.hostPhone}`}>{trip.hostPhone}</a></>}
                 </p>
               )}
+              <TourProgress progress={tourProgress(trip)} onDark />
             </header>
 
             {saved && (

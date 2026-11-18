@@ -28,5 +28,18 @@ service firebase.storage {
         && request.resource.size < 8 * 1024 * 1024
         && request.resource.contentType.matches('image/.*');
     }
+    // Team members (signed out, via the public link) add up to 2 photos per item to
+    // their own folder — only while the trip's link is open and their entry exists.
+    // read is needed for getDownloadURL; paths carry random ids so they can't be guessed.
+    match /mission_trips/{tripId}/guests/{guestId}/{fileName} {
+      allow read, delete: if request.auth != null || missionLinkOpen(tripId);
+      allow create: if (request.auth != null || (missionLinkOpen(tripId)
+          && firestore.exists(/databases/(default)/documents/mission_trips/$(tripId)/guests/$(guestId))))
+        && request.resource.size < 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+    function missionLinkOpen(tripId) {
+      return firestore.get(/databases/(default)/documents/mission_trips/$(tripId)).data.get('linkActive', false) == true;
+    }
   }
 }
