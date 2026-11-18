@@ -87,9 +87,28 @@ export default function MemberPicker({
   useEffect(() => {
     if (!open) return
 
+    // Fit the panel to the visible viewport: a picker near the bottom of the
+    // screen (e.g. Sound Engineer, the last Assign row) used to open a fixed
+    // 320px panel straight down, pushing the lower options off-screen where
+    // they could never be scrolled to. Open upward when there's more room
+    // above, and always cap the height to the space actually available.
     const place = () => {
       const r = btnRef.current?.getBoundingClientRect()
-      if (r) setCoords({ left: r.left, top: r.bottom + 6, width: r.width })
+      if (!r) return
+      const GAP = 6
+      const MARGIN = 12
+      const PREFERRED = 320
+      const vh = window.visualViewport?.height || window.innerHeight
+      const vw = window.innerWidth
+      const spaceBelow = vh - r.bottom - GAP - MARGIN
+      const spaceAbove = r.top - GAP - MARGIN
+      const openUp = spaceBelow < Math.min(PREFERRED, 240) && spaceAbove > spaceBelow
+      const maxHeight = Math.max(160, Math.min(PREFERRED, openUp ? spaceAbove : spaceBelow))
+      const width = Math.min(Math.max(r.width, 250), vw - 2 * MARGIN)
+      const left = Math.min(Math.max(MARGIN, r.left), vw - width - MARGIN)
+      setCoords(openUp
+        ? { left, width, maxHeight, bottom: vh - r.top + GAP }
+        : { left, width, maxHeight, top: r.bottom + GAP })
     }
     place()
 
@@ -158,8 +177,8 @@ export default function MemberPicker({
           <div
             ref={panelRef}
             role="listbox"
-            className="fixed z-[61] max-h-80 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl"
-            style={{ left: coords.left, top: coords.top, width: Math.max(coords.width, 250) }}
+            className="fixed z-[61] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl [-webkit-overflow-scrolling:touch]"
+            style={{ left: coords.left, top: coords.top, bottom: coords.bottom, width: coords.width, maxHeight: coords.maxHeight }}
             onWheel={(e) => e.stopPropagation()}
             onScroll={(e) => e.stopPropagation()}
           >
