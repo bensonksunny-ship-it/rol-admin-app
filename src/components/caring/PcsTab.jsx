@@ -75,8 +75,9 @@ import { downloadPastoralClosureLetter } from '../../utils/pastoralClosureLetter
 import DeaconOfficeCard from './DeaconOfficeCard'
 import { baptismCertificateEligibility, parentsLine, baptismRegNo, downloadBaptismCertificates, printBaptismCertificates } from '../../utils/baptismCertificate'
 import BaptismEntryProgress from './BaptismEntryProgress'
-import { hasMembershipPipeline, resolveMembershipStages } from '../../utils/membershipPipeline'
+import { hasMembershipPipeline, resolveMembershipStages, isMembershipWithheld, membershipHoldRights } from '../../utils/membershipPipeline'
 import MembershipPipelineTracker from './MembershipPipelineTracker'
+import WithheldMembershipCard from './WithheldMembershipCard'
 import { MEMBERSHIP_DECISIONS } from '../../constants/membershipForm'
 import { openMembershipCertificate } from '../../utils/openMembershipCertificate'
 import { membershipCertificateData } from '../../utils/membershipCertificate'
@@ -1705,7 +1706,8 @@ export default function PcsTab({
                     {!baptismRecorded && !pcsExpandedLoading && (
                       <div className="col-span-2 pt-2 space-y-2">
                         {/* Application → Cell Leader sign-off → MCQ exam, once an application exists */}
-                        <BaptismEntryProgress pcsEntryId={entry.id} />
+                        <BaptismEntryProgress pcsEntryId={entry.id}
+                          canResume={membershipHoldRights(userProfile, { isFounder, isSeniorPastor, canCaring: !!canEdit }).canHold} />
                         <button type="button" {...appTriggerGuard} onClick={() => openApplication(setPcsBaptismOpenFor)}
                           className={`w-full flex items-center justify-center gap-2 min-h-[40px] rounded-xl text-sm font-bold transition-colors ${f.baptised === 'no'
                                       ? 'bg-violet-600 text-white hover:bg-violet-700 shadow-sm'
@@ -1738,7 +1740,22 @@ export default function PcsTab({
                   <Section title="Membership" color="#92400e">
                     {f.membershipStatus && row('Status', f.membershipStatus === 'member' ? 'Member' : 'Membership – In Progress')}
                     {/* Membership Onboarding Pipeline — 8 stages (utils/membershipPipeline.js) */}
-                    {hasMembershipPipeline(entry) ? (
+                    {isMembershipWithheld(entry) ? (
+                      <div className="col-span-2 pt-2 pb-1">
+                        <WithheldMembershipCard
+                          entry={entry}
+                          stages={resolveMembershipStages(entry, { hasCell: !!_cg, baptised: baptismRecorded, application: pcsMembershipApp })}
+                          application={pcsMembershipApp}
+                          cellName={_cg?.cellName || ''}
+                          canResume={membershipHoldRights(userProfile, { isFounder, isSeniorPastor, canCaring: !!canEdit }).canHold}
+                          by={userProfile?.displayName || userProfile?.email || ''}
+                          onResumed={() => onPipelineChanged(entry.id, (p) => {
+                            const { hold, ...rest } = p || {}
+                            return { ...rest, status: 'in_progress', lastHold: { ...(hold || {}), resumedAt: new Date().toISOString() } }
+                          })}
+                        />
+                      </div>
+                    ) : hasMembershipPipeline(entry) ? (
                       <div className="col-span-2 pt-2 pb-1">
                         <MembershipPipelineTracker
                           entry={entry}

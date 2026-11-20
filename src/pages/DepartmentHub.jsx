@@ -124,7 +124,6 @@ import {
 } from '../services/firestore'
 import { getMemberDisplayName } from '../utils/displayName'
 import { findDuplicateCellMembers, normalizeMemberName, cellConflictMessage, looseNameKey } from '../utils/cellDuplicates'
-import ApplicationsQueueCard from '../components/caring/ApplicationsQueueCard'
 import { APPLICATION_TYPE_KEYS } from '../utils/pastoralApplications'
 import CaringEventsTab from '../components/caring/CaringEventsTab'
 import { canRevealSurpriseNames } from '../constants/dedicationForm'
@@ -2937,15 +2936,7 @@ export default function DepartmentHub() {
               {/* ── Caring Hub ── */}
               {slug === 'caring' && (
                 <div className="space-y-4">
-                  {/* Submitted Baptism / Dedication / Membership applications awaiting review */}
-                  <ApplicationsQueueCard
-                    pcsEntries={pcsEntries}
-                    allCellMembers={allCellMembers}
-                    cellGroups={cellGroups}
-                    canEdit={!!canEdit}
-                    savedBy={userProfile?.displayName || userProfile?.email || ''}
-                    onOpenEvents={() => { setActiveTab('events'); setSearchParams({ tab: 'events' }, { replace: true }) }}
-                  />
+                  {/* "Applications & Form Requests" moved to My Workspace (ApplicationsReviewWorkspace). */}
                   {loadingPCS ? (
                     <div className="py-10 text-center text-slate-400 text-sm">Loading insights…</div>
                   ) : (() => {

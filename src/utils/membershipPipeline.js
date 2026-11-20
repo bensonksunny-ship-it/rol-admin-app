@@ -32,6 +32,25 @@ export const MANUAL_STAGE_KEYS = MEMBERSHIP_STAGES.filter((s) => !s.auto).map((s
 
 export const hasMembershipPipeline = (entry) => !!entry?.membershipPipeline?.startedAt
 
+/** Withheld = paused by staff (Withhold Application); every stage is kept and
+ *  "Continue Application" on the PCS profile puts it back in the pipeline. */
+export const isMembershipWithheld = (entry) => entry?.membershipPipeline?.status === 'withheld'
+
+/**
+ * Who may Withhold / Cancel / Continue a membership application: the Founder, the
+ * Senior Pastor, Caring staff, the First Lady and SP Office. Cancelling deletes the
+ * application, so — like withdrawing one — it is held back from the Caring Assistant.
+ * `ctx` = { isFounder, isSeniorPastor, canCaring, isCaringAssistantOnly }.
+ */
+export function membershipHoldRights(userProfile, ctx = {}) {
+  const depts = new Set([
+    ...(userProfile?.positions || []).map((p) => p?.department),
+    ...(userProfile?.departments || []),
+  ].filter(Boolean))
+  const canHold = !!(ctx.isFounder || ctx.isSeniorPastor || ctx.canCaring || depts.has('First Lady') || depts.has('SP Office'))
+  return { canHold, canCancel: canHold && !ctx.isCaringAssistantOnly }
+}
+
 /**
  * Every stage's state for one person. `facts` = { hasCell, baptised, application }
  * where application is their latest membership application (any status).

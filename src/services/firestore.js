@@ -4048,6 +4048,83 @@ export async function completeMembershipPipeline(entry, { membershipNumber, by =
   }
 }
 
+// ─── Withhold / Continue / Cancel a membership application ───────────────────
+// Withhold pauses the pipeline (membershipPipeline.status 'withheld', every stage
+// kept) — it drops out of the pipeline feed (query above), Applications Progress
+// (application.withheld) and the workspace ribbons (their notifications go to
+// status 'withheld'). Continue puts all of it back. Cancel deletes it for good.
+const PIPELINE_NOTIF_TYPES = ['cell_leader_approval', 'membership_interview', 'baptism_self_declaration']
+
+async function pipelineNotifications(entryId) {
+  const snap = await getDocs(query(collection(db, 'workspace_notifications'), where('candidatePcsId', '==', entryId)))
+  return snap.docs.filter((d) => PIPELINE_NOTIF_TYPES.includes(d.data().type))
+}
+
+async function membershipApplicationsOf(entryId) {
+  const snap = await getDocs(query(collection(db, MEMBERSHIP_APPLICATIONS), where('pcsEntryId', '==', entryId)))
+  return snap.docs
+}
+
+/** Withhold Application: pause the pipeline where it is. */
+export async function withholdMembershipPipeline(entry, { by = '', reason = '', stageLabel = '' } = {}) {
+  if (!db || !entry?.id) return null
+  const at = nowIso()
+  const hold = { at, by: by || 'unknown', reason: String(reason || '').trim(), stageLabel: stageLabel || '' }
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, entry.id), {
+    'membershipPipeline.status': 'withheld',
+    'membershipPipeline.hold': hold,
+  })
+  const notifs = await pipelineNotifications(entry.id)
+  await Promise.all(notifs.filter((d) => ['pending', 'accepted'].includes(d.data().status)).map((d) =>
+    updateDoc(d.ref, { status: 'withheld', withheldFrom: d.data().status, withheldAt: at })
+      .catch((e) => console.error('withhold notification:', e))))
+  const apps = await membershipApplicationsOf(entry.id)
+  await Promise.all(apps.map((d) => updateDoc(d.ref, { withheld: true, withheldAt: at, withheldBy: hold.by })
+    .catch((e) => console.error('withhold application:', e))))
+  return hold
+}
+
+/** Continue Application: back to in progress, notifications re-opened. */
+export async function resumeMembershipPipeline(entry, { by = '' } = {}) {
+  if (!db || !entry?.id) return
+  const at = nowIso()
+  const hold = entry.membershipPipeline?.hold || {}
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, entry.id), {
+    'membershipPipeline.status': 'in_progress',
+    'membershipPipeline.hold': deleteField(),
+    'membershipPipeline.lastHold': { ...hold, resumedAt: at, resumedBy: by || 'unknown' },
+  })
+  const notifs = await pipelineNotifications(entry.id)
+  await Promise.all(notifs.filter((d) => d.data().status === 'withheld').map((d) =>
+    updateDoc(d.ref, { status: d.data().withheldFrom || 'pending', withheldFrom: deleteField(), withheldAt: deleteField() })
+      .catch((e) => console.error('resume notification:', e))))
+  const apps = await membershipApplicationsOf(entry.id)
+  await Promise.all(apps.filter((d) => d.data().withheld).map((d) =>
+    updateDoc(d.ref, { withheld: false, withheldAt: '', withheldBy: '' })
+      .catch((e) => console.error('resume application:', e))))
+}
+
+/** Cancel Application: delete the application(s), close the notifications and take
+ *  the pipeline off the PCS profile (status back from "Membership – In Progress"). */
+export async function cancelMembershipPipeline(entry, { by = '' } = {}) {
+  if (!db || !entry?.id) return
+  const at = nowIso()
+  const notifs = await pipelineNotifications(entry.id)
+  await Promise.all(notifs.filter((d) => ['pending', 'accepted', 'withheld'].includes(d.data().status)).map((d) =>
+    updateDoc(d.ref, { status: 'cancelled', respondedAt: at })
+      .catch((e) => console.error('cancel notification:', e))))
+  const apps = await membershipApplicationsOf(entry.id)
+  await Promise.all(apps.map((d) => deleteDoc(d.ref)))
+  await updateDoc(doc(db, CARING_PCS_COLLECTION, entry.id), { membershipPipeline: deleteField() })
+  if (entry.visitorId) {
+    const profile = await getMemberProfile(entry.visitorId).catch(() => null)
+    if (profile?.membershipStatus === 'applying') {
+      await upsertMemberProfile(entry.visitorId, { membershipStatus: '' }, by || 'membership cancelled')
+        .catch((e) => console.error('membershipStatus reset:', e))
+    }
+  }
+}
+
 export async function setPCSAwayStatus(id, patch, updatedBy = '') {
   if (!db || !id) return
   await updateDoc(doc(db, CARING_PCS_COLLECTION, id), {
@@ -8724,6 +8801,49 @@ export async function deleteBaptismApplication(token) {
   await deleteDoc(doc(db, BAPTISM_APPLICATIONS, token))
 }
 
+// ── Withhold / Continue / Delete (Baptism Applications ribbon) ───────────────
+// Withhold flags the application (withheld: true — status and every stage kept),
+// so subscribeApplicationsByStatus leaves it out of every list, ribbon and bell,
+// and moves its open cell leader sign-off ribbon to 'withheld'. Continue (on the
+// PCS profile) undoes both. Delete removes it for good and closes its notifications.
+async function baptismNotifications(appId) {
+  const snap = await getDocs(query(collection(db, 'workspace_notifications'), where('applicationId', '==', appId)))
+  return snap.docs.filter((d) => d.data().type === 'baptism_cell_signoff')
+}
+
+export async function withholdBaptismApplication(app, { by = '', reason = '', stageLabel = '' } = {}) {
+  if (!db || !app?.id) return
+  const at = nowIso()
+  await updateDoc(doc(db, BAPTISM_APPLICATIONS, app.id), {
+    withheld: true, withheldAt: at, withheldBy: by || 'unknown',
+    withheldReason: String(reason || '').trim(), withheldStage: stageLabel || '',
+  })
+  const notifs = await baptismNotifications(app.id)
+  await Promise.all(notifs.filter((d) => d.data().status === 'pending').map((d) =>
+    updateDoc(d.ref, { status: 'withheld', withheldFrom: 'pending', withheldAt: at })
+      .catch((e) => console.error('withhold baptism notification:', e))))
+}
+
+export async function resumeBaptismApplication(app) {
+  if (!db || !app?.id) return
+  await updateDoc(doc(db, BAPTISM_APPLICATIONS, app.id), {
+    withheld: false, withheldAt: '', withheldBy: '', withheldReason: '', withheldStage: '',
+  })
+  const notifs = await baptismNotifications(app.id)
+  await Promise.all(notifs.filter((d) => d.data().status === 'withheld').map((d) =>
+    updateDoc(d.ref, { status: d.data().withheldFrom || 'pending', withheldFrom: deleteField(), withheldAt: deleteField() })
+      .catch((e) => console.error('resume baptism notification:', e))))
+}
+
+export async function deleteBaptismApplicationFully(app) {
+  if (!db || !app?.id) return
+  const notifs = await baptismNotifications(app.id)
+  await Promise.all(notifs.filter((d) => ['pending', 'withheld'].includes(d.data().status)).map((d) =>
+    updateDoc(d.ref, { status: 'cancelled', respondedAt: nowIso() })
+      .catch((e) => console.error('cancel baptism notification:', e))))
+  await deleteDoc(doc(db, BAPTISM_APPLICATIONS, app.id))
+}
+
 // ── Baptism Stage 2: Cell Leader sign-off ────────────────────────────────────
 // Caring presses "Notify Cell Leader" on a submitted application: the cell's leader
 // gets a ribbon on My Workspace (workspace_notifications type 'baptism_cell_signoff'),
@@ -9532,12 +9652,16 @@ const APPLICATION_COLLECTIONS = {
   dedication: [DEDICATION_APPLICATIONS, mapDedicationApplication],
 }
 
+// Every office list, ribbon and bell reads applications through this feed, so a
+// withheld application (withheld: true — Withhold on a ribbon row) drops out of all
+// of them in one place. The PCS profile reads its own via the *ForEntry feeds.
 export function subscribeApplicationsByStatus(type, statuses, onChange, onError) {
   const cfg = APPLICATION_COLLECTIONS[type]
   if (!db || !cfg) { onChange([]); return () => {} }
   const [name, map] = cfg
   return onSnapshot(query(collection(db, name), where('status', 'in', statuses)),
-    (snap) => onChange(snap.docs.map(map).sort((a, b) => (b.submittedAt?.getTime?.() || 0) - (a.submittedAt?.getTime?.() || 0))),
+    (snap) => onChange(snap.docs.map(map).filter((a) => !a.withheld)
+      .sort((a, b) => (b.submittedAt?.getTime?.() || 0) - (a.submittedAt?.getTime?.() || 0))),
     (err) => { console.error(`subscribeApplicationsByStatus(${type}):`, err); onError?.(err) })
 }
 

@@ -25,7 +25,8 @@ const CATEGORIES = [
 ]
 
 /**
- * Caring Hub → "Applications & Form Requests": every submitted Baptism, Baby
+ * My Workspace → "Applications & Form Requests" (via workspace/ApplicationsReviewWorkspace;
+ * formerly on the Caring Hub summary): every submitted Baptism, Baby
  * Dedication and Membership application, grouped by type, with Review /
  * Approve & Link to Event / Reject-or-Request-Info. Linking adds the person to the
  * chosen upcoming Caring > Events batch (saveCaringEvent also writes it into PCS).

@@ -638,7 +638,15 @@ service cloud.firestore {
                 || !isCaringAssistantOnly()))
         || (keys.hasOnly(['deaconOffice']) && isDeaconManager())
         || (keys.hasOnly(['membershipPipeline'])
-            && (getUserRole() == 'Senior Pastor' || deptAccessNoFull('First Lady')));
+            && (getUserRole() == 'Senior Pastor' || deptAccessNoFull('First Lady')))
+        // SP Office: Withhold / Continue / Cancel a membership application only — the
+        // pipeline goes to or from 'withheld', or is removed. The status tests come
+        // first so cell leader / deacon pipeline writes never reach deptAccessNoFull.
+        || (keys.hasOnly(['membershipPipeline'])
+            && (request.resource.data.get('membershipPipeline', null) == null
+                || request.resource.data.membershipPipeline.get('status', '') == 'withheld'
+                || resource.data.get('membershipPipeline', {}).get('status', '') == 'withheld')
+            && deptAccessNoFull('SP Office'));
     }
     match /caring_pcs/{docId} {
       // Read opened to any signed-in user (was Caring-only) — getMergedPeopleDirectory()
@@ -801,6 +809,13 @@ service cloud.firestore {
       // First Lady: read-only, for My Workspace → Applications Progress (every
       // application's level-wise progress — utils/applicationProgress.js).
       allow list: if isSignedIn() && canAccessDept('First Lady');
+      // Baptism Applications ribbon → Withhold / Continue (only the withheld fields)
+      // and Delete: Senior Pastor, First Lady, SP Office (Caring + Founder above).
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['withheld', 'withheldAt', 'withheldBy', 'withheldReason', 'withheldStage'])
+        && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady') || isSpOffice());
+      allow delete: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady') || isSpOffice());
     }
 
     // Marriage (Holy Matrimony) applications — same token model as
@@ -841,13 +856,18 @@ service cloud.firestore {
         || resource.data.status != 'pending';
       allow list, create: if isSignedIn() && (isFullAccess() || canAccessDept('Caring'));
       allow delete: if isSignedIn() && caringAppDelete();
+      // Cancel Application (Membership Onboarding Pipeline): Senior Pastor, First Lady, SP Office.
+      allow delete: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady') || isSpOffice());
+      // Withhold / Continue: SP Office flags the application withheld (nothing else).
+      allow update: if isSpOffice()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['withheld', 'withheldAt', 'withheldBy']);
       // Senior Pastor / First Lady read applications for the Membership Onboarding
       // Pipeline on My Workspace (stage 3 + Pastoral Approval).
       allow list: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady'));
       // Senior Pastor / First Lady (Pastoral Approval, stage 7): mirror progress + approve only.
       allow update: if isSignedIn() && (getUserRole() == 'Senior Pastor' || canAccessDept('First Lady'))
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['pipelineProgress', 'status', 'decidedBy', 'decidedAt', 'familySyncedAt', 'familySyncError', 'closedAt', 'closedBy', 'closedReason']);
+             .hasOnly(['pipelineProgress', 'status', 'decidedBy', 'decidedAt', 'familySyncedAt', 'familySyncError', 'closedAt', 'closedBy', 'closedReason', 'withheld', 'withheldAt', 'withheldBy']);
       allow update: if (isSignedIn() && caringAppUpdate())
         || (resource.data.status == 'pending'
             && resource.data.get('closedAt', null) == null
@@ -964,6 +984,12 @@ service cloud.firestore {
     match /workspace_notifications/{notifId} {
       allow read: if isPipelineManager() || isNotificationRecipient(resource.data);
       allow create, delete: if isPipelineManager();
+      // SP Office: Withhold / Continue / Cancel a membership application — finds the
+      // candidate's notifications and moves them to / from 'withheld' or 'cancelled'.
+      allow list: if isSpOffice();
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'withheldFrom', 'withheldAt', 'respondedAt'])
+        && (request.resource.data.status in ['withheld', 'cancelled'] || resource.data.status == 'withheld')
+        && isSpOffice();
       allow update: if isPipelineManager()
         || (isNotificationRecipient(resource.data)
             // pending → accepted / declined / completed; accepted → completed (interview recorded)

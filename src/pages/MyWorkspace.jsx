@@ -9,7 +9,9 @@ import BoardMeetingWorkspaceWidget from '../components/workspace/BoardMeetingWor
 import ApprovalsCard from '../components/workspace/ApprovalsCard'
 import MembershipPipelineWidget from '../components/caring/MembershipPipelineWidget'
 import ApplicationsProgressWidget from '../components/workspace/ApplicationsProgressWidget'
-import { getDepartmentRole, isDepartmentDirectorInPositions, isSpOfficeOnly, isCaringAssistantOnly } from '../utils/access'
+import ApplicationsReviewWorkspace from '../components/workspace/ApplicationsReviewWorkspace'
+import { getDepartmentRole, isSpOfficeOnly, isCaringAssistantOnly, isDepartmentDirectorInPositions } from '../utils/access'
+import { membershipHoldRights } from '../utils/membershipPipeline'
 import DeaconInterviewRibbon from '../components/workspace/DeaconInterviewRibbon'
 import DeclarationRequestRibbon from '../components/workspace/DeclarationRequestRibbon'
 import CellLeaderApprovalRibbon from '../components/workspace/CellLeaderApprovalRibbon'
@@ -96,11 +98,23 @@ export default function MyWorkspace() {
     || (userProfile?.departments || []).includes('First Lady')
   const isSpOffice = !!getDepartmentRole(userProfile, 'SP Office')
   const showPipeline = canCaring || canPastor || isFirstLady || isSpOffice
-  // Rule: every application's level-wise progress is on the Founder's, the Caring
-  // Director's and the First Lady's workspace (utils/applicationProgress.js).
-  // The Caring Assistant sees it too, to push applications forward.
-  const showApplications = isFounder || isFirstLady || isDepartmentDirectorInPositions(userProfile, 'Caring') || isCaringAssistantOnly(userProfile)
-  const applications = showApplications && <ApplicationsProgressWidget />
+  // Withhold / Cancel on the Membership Onboarding Pipeline rows, Withhold / Delete on
+  // the Baptism Applications ribbon. Of the per-type application ribbons only Baptism
+  // stays (Membership is the pipeline); Dedication / Marriage are off My Workspace.
+  const holdRights = membershipHoldRights(userProfile, {
+    isFounder, isSeniorPastor, canCaring, isCaringAssistantOnly: isCaringAssistantOnly(userProfile),
+  })
+  const by = userProfile?.displayName || userProfile?.email || ''
+  // Founder, Caring staff, Caring Assistant, First Lady: the Baptism ribbon and the
+  // "Applications & Form Requests" review card (moved here from the Caring Hub).
+  const showApplications = isFounder || isFirstLady || canCaring
+    || isDepartmentDirectorInPositions(userProfile, 'Caring') || isCaringAssistantOnly(userProfile)
+  const applications = showApplications && (
+    <>
+      <ApplicationsProgressWidget only={['baptism']} rights={{ ...holdRights, by }} />
+      <ApplicationsReviewWorkspace canEdit={canCaring || isCaringAssistantOnly(userProfile)} savedBy={by} />
+    </>
+  )
   const {
     notifications, handleNotifAction, dismissNotification,
   } = useOutletContext()
@@ -113,8 +127,8 @@ export default function MyWorkspace() {
   }
   // Notification / action ribbons, one below the other in a single column
   // (each renders nothing when it has nothing). Blue ones sit near the top; the
-  // yellow ones go below the Membership Pipeline (blue) and Applications Progress
-  // (purple) widgets. The To-Do card is no longer shown.
+  // yellow ones go below the Membership Onboarding Pipeline (blue) widget.
+  // The To-Do card is no longer shown.
   const ribbons = (
     <div className="flex flex-col gap-2 empty:hidden [&>*]:my-0">
       <DepartmentAlertRibbons />
@@ -139,7 +153,9 @@ export default function MyWorkspace() {
       canCaring={canCaring}
       canPastor={canPastor}
       canFirstLady={isFirstLady}
-      by={userProfile?.displayName || userProfile?.email || ''}
+      canHold={holdRights.canHold}
+      canCancel={holdRights.canCancel}
+      by={by}
     />
   )
 

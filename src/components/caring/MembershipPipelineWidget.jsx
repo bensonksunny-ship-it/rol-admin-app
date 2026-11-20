@@ -10,6 +10,7 @@ import { findPcsCellMember } from '../../utils/pcsEngagement'
 import { getMemberDisplayName } from '../../utils/displayName'
 import MembershipPipelineTracker from './MembershipPipelineTracker'
 import ApplicationMasterDocumentModal from './ApplicationMasterDocumentModal'
+import MembershipHoldActions from './MembershipHoldActions'
 import { scheduleSummary, scheduleWhere } from '../../utils/meetingSchedule'
 import { RIBBON_BAR } from '../../constants/ribbon'
 
@@ -83,8 +84,9 @@ const isBaptised = (p) => String(p?.baptised || '').toLowerCase() === 'yes' || !
  * on someone else's workspace appears here at once. Stages 1–3 are read live:
  * cell roster, baptism on their profile, membership application submitted.
  */
-export default function MembershipPipelineWidget({ canCaring, canPastor, canFirstLady = false, by }) {
+export default function MembershipPipelineWidget({ canCaring, canPastor, canFirstLady = false, canHold = false, canCancel = false, by }) {
   const navigate = useNavigate()
+  const [holdMsg, setHoldMsg] = useState('')
   const [pcsEntries, setPcsEntries] = useState([])
   const [cellGroups, setCellGroups] = useState([])
   const [allCellMembers, setAllCellMembers] = useState([])
@@ -175,6 +177,12 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
           <input type="checkbox" checked={showDone} onChange={(ev) => setShowDone(ev.target.checked)} /> Show completed
         </label>
       )}
+      {sectionOpen && holdMsg && (
+        <p className="mx-3 mt-3 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-2">
+          <span className="flex-1 min-w-0">{holdMsg}</span>
+          <button type="button" onClick={() => setHoldMsg('')} aria-label="Dismiss" className="text-slate-400 hover:text-slate-700">×</button>
+        </p>
+      )}
       {!sectionOpen ? null : rows.length === 0 ? (
         <p className="px-4 py-6 text-sm text-slate-400 text-center">
           No one in the membership process. Start it from a PCS profile with “+ Initiate Membership Process”.
@@ -233,6 +241,13 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
                       entry={e} stages={stages} application={application} cellLeaderName={cg?.leader || ''}
                       canCaring={canCaring} canPastor={canPastor} canFirstLady={canFirstLady} by={by}
                     />
+                    <MembershipHoldActions
+                      entry={e} stageLabel={cur ? `Stage ${cur.n} of 8: ${cur.label}` : ''}
+                      canHold={canHold} canCancel={canCancel} by={by}
+                      onDone={(kind) => setHoldMsg(kind === 'withheld'
+                        ? `${getMemberDisplayName(e)}'s application is withheld. Continue it from their PCS profile.`
+                        : `${getMemberDisplayName(e)}'s application was cancelled.`)}
+                    />
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                       <button type="button" onClick={() => setMasterDocId(e.id)} className="text-xs font-semibold text-indigo-700 hover:underline">
                         📄 Full Application Record →
@@ -254,7 +269,24 @@ export default function MembershipPipelineWidget({ canCaring, canPastor, canFirs
       {(() => {
         // Live: rebuilt from the onSnapshot feed, so stage add-ons appear while it is open.
         const r = masterDocId && rows.find((x) => x.e.id === masterDocId)
-        return r ? <ApplicationMasterDocumentModal entry={r.e} application={r.application} cellName={r.cg?.cellName || ''} onClose={() => setMasterDocId(null)} /> : null
+        if (!r) return null
+        const close = () => setMasterDocId(null)
+        return (
+          <ApplicationMasterDocumentModal entry={r.e} application={r.application} cellName={r.cg?.cellName || ''} onClose={close}
+            actions={canHold ? (
+              <MembershipHoldActions
+                entry={r.e} stageLabel={r.cur ? `Stage ${r.cur.n} of 8: ${r.cur.label}` : ''}
+                canHold={canHold} canCancel={canCancel} by={by}
+                onDone={(kind) => {
+                  close()
+                  setHoldMsg(kind === 'withheld'
+                    ? `${getMemberDisplayName(r.e)}'s application is withheld. Continue it from their PCS profile.`
+                    : `${getMemberDisplayName(r.e)}'s application was cancelled.`)
+                }}
+              />
+            ) : null}
+          />
+        )
       })()}
     </div>
   )

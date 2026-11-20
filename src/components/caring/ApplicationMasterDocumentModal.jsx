@@ -91,7 +91,9 @@ function printNode(node, title) {
  * interview (6), pastoral approval + certificate (7–8). `entry` comes from a live
  * feed, so the document grows while it is open. Print / Export PDF on top.
  */
-export default function ApplicationMasterDocumentModal({ entry, application, cellName = '', onClose }) {
+// `actions`: optional controls shown above the record, outside what is printed /
+// exported (Withhold / Cancel from the pipeline, Continue Application on a withheld one).
+export default function ApplicationMasterDocumentModal({ entry, application, cellName = '', onClose, actions = null }) {
   const docRef = useRef(null)
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
@@ -143,6 +145,7 @@ export default function ApplicationMasterDocumentModal({ entry, application, cel
         </div>
 
         <div className="p-3 sm:p-5">
+          {actions && <div className="mb-3 bg-white rounded-xl p-3 shadow-sm">{actions}</div>}
           <div ref={docRef} className="bg-white text-slate-800 rounded-xl p-5 sm:p-7 shadow-sm">
             <header className="text-center border-b-2 border-slate-800 pb-3 mb-4">
               <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-slate-500">River of Life Christian Church, Bangalore</p>
