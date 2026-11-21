@@ -3783,6 +3783,7 @@ export function subscribeDelightVisitors(onChange) {
         onlyVisit: !!data.onlyVisit,
         isArchived: !!data.isArchived,
         flaggedForReview: !!data.flaggedForReview,
+        mergedInto: data.mergedInto || '',
         createdAt: toDate(data.createdAt),
         createdBy: data.createdBy || '',
       }
@@ -3790,11 +3791,50 @@ export function subscribeDelightVisitors(onChange) {
   }, () => {})
 }
 
+// Same person, for D-Light duplicate prevention: names equal ignoring case and
+// spacing, and then the same phone (last 10 digits) or email, or, when neither
+// record has any contact info, the same visitor year. Two "Divya V"s with different
+// phones are treated as different people.
+const visitorNameKey = (n) => String(n || '').trim().replace(/\s+/g, ' ').toLowerCase()
+const visitorPhoneKey = (p) => String(p || '').replace(/\D/g, '').slice(-10)
+export function isSameDelightVisitor(a, b) {
+  if (!a || !b || !visitorNameKey(a.name) || visitorNameKey(a.name) !== visitorNameKey(b.name)) return false
+  const pa = visitorPhoneKey(a.phone), pb = visitorPhoneKey(b.phone)
+  const ea = String(a.email || '').trim().toLowerCase(), eb = String(b.email || '').trim().toLowerCase()
+  if (pa && pb) return pa === pb
+  if (ea && eb) return ea === eb
+  if (!pa && !pb && !ea && !eb) {
+    const ya = Number(a.year) || new Date().getFullYear(), yb = Number(b.year) || new Date().getFullYear()
+    return ya === yb
+  }
+  return false
+}
+
+/** An existing (not merged-away) D-Light visitor that is the same person as `data`, or null. */
+export function findDuplicateDelightVisitor(list, data) {
+  return (list || []).find((v) => !v.mergedInto && isSameDelightVisitor(v, data)) || null
+}
+
+async function findDuplicateDelightVisitorInDb(data) {
+  const name = String(data.name || '').trim().replace(/\s+/g, ' ')
+  if (!name) return null
+  const snap = await getDocs(query(collection(db, DELIGHT_VISITORS_COLLECTION), where('name', '==', name)))
+  return findDuplicateDelightVisitor(snap.docs.map((d) => ({ id: d.id, ...d.data() })), data)
+}
+
+/**
+ * Adds a D-Light visitor and returns its id. If the same person is already
+ * registered (see isSameDelightVisitor), nothing is written and the existing id is
+ * returned, so a double tap, a re-accepted cell proposal or a re-imported row can't
+ * create a twin.
+ */
 export async function addDelightVisitor(data) {
   if (!db) return null
+  const existing = await findDuplicateDelightVisitorInDb(data).catch(() => null)
+  if (existing) return existing.id
   const ref = await addDoc(collection(db, DELIGHT_VISITORS_COLLECTION), {
     createdSource: data.createdSource || 'visitor_form',
-    name: data.name || '',
+    name: String(data.name || '').trim().replace(/\s+/g, ' '),
     dob: data.dob ? String(data.dob).slice(0, 10) : '',
     phone: data.phone || '',
     email: data.email || '',

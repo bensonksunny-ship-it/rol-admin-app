@@ -5,7 +5,7 @@ import { canMakeCaringDecisions } from '../../utils/access'
 import {
   subscribeCaringEvents, saveCaringEvent, deleteCaringEvent, getPCSEntries, getDepartmentChildren,
   setCaringEventStatus, subscribeSubmittedDedicationApplications, revealDedicationApplication, getDedicationSecretName,
-  getMemberProfile,
+  getMemberProfile, subscribeDelightVisitors,
 } from '../../services/firestore'
 import { downloadBaptismCertificates, printBaptismCertificates, baptismRegNo, parentsLine } from '../../utils/baptismCertificate'
 import { dedicationFieldValue } from '../../constants/dedicationForm'
@@ -28,8 +28,11 @@ const todayISO = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 const newKey = () => `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+// `isVisitor` rows are D-Light visitors with no PCS profile yet (see visitorPickEntries):
+// they carry only a visitorId, which is all a baptism / marriage needs to write
+// into member_profiles.
 const personFromEntry = (e) => ({
-  pcsEntryId: e.id, visitorId: e.visitorId || '', personId: e.personId || '',
+  pcsEntryId: e.isVisitor ? '' : e.id, visitorId: e.visitorId || '', personId: e.personId || '',
   name: e.name || '', legalName: e.legalName || '', membershipNumber: e.membershipNumber || '',
 })
 const pcsIdLabel = (p) => p?.membershipNumber ? `#${p.membershipNumber}` : p?.pcsEntryId ? `PCS-${p.pcsEntryId.slice(0, 6)}` : '—'
@@ -40,7 +43,7 @@ function PcsPersonPicker({ entries, exclude = [], onPick, placeholder = 'Search 
   const [open, setOpen] = useState(false)
   const term = q.trim().toLowerCase()
   const matches = term.length < 2 ? [] : entries
-    .filter((e) => !exclude.includes(e.id))
+    .filter((e) => !exclude.includes(e.id) && !(e.visitorId && exclude.includes(e.visitorId)))
     .filter((e) => String(e.name || '').toLowerCase().includes(term) || String(e.phone || '').replace(/\s+/g, '').includes(term.replace(/\s+/g, '')))
     .slice(0, 8)
   const pick = (p) => { onPick(p); setQ(''); setOpen(false) }
@@ -56,7 +59,10 @@ function PcsPersonPicker({ entries, exclude = [], onPick, placeholder = 'Search 
             <button key={e.id} type="button" onMouseDown={(ev) => ev.preventDefault()} onClick={() => pick(personFromEntry(e))}
               className="w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex justify-between gap-2">
               <span className="font-medium text-slate-800 truncate">{e.name}</span>
-              <span className="text-xs text-slate-400 flex-shrink-0">{e.membershipNumber ? `#${e.membershipNumber}` : e.phone || ''}</span>
+              <span className="text-xs text-slate-400 flex-shrink-0">
+                {e.isVisitor && <span className="mr-1.5 px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">D-Light visitor</span>}
+                {e.membershipNumber ? `#${e.membershipNumber}` : e.phone || (e.isVisitor && e.year ? e.year : '')}
+              </span>
             </button>
           ))}
           {allowTyped && term && (
@@ -71,7 +77,7 @@ function PcsPersonPicker({ entries, exclude = [], onPick, placeholder = 'Search 
   )
 }
 
-function EventFormModal({ initial, events, pcsEntries, riverKids, dedicationApps, defaultOfficiant, savedBy, onClose }) {
+function EventFormModal({ initial, events, pcsEntries, visitorEntries = [], riverKids, dedicationApps, defaultOfficiant, savedBy, onClose }) {
   const isEdit = !!initial?.id
   const [form, setForm] = useState(() => initial || {
     type: 'baptism', date: todayISO(), time: '', batchCode: '', venue: CARING_EVENT_DEFAULT_VENUE,
@@ -99,7 +105,10 @@ function EventFormModal({ initial, events, pcsEntries, riverKids, dedicationApps
     ;[next[idx], next[j]] = [next[j], next[idx]]
     return next
   })
-  const chosenIds = participants.flatMap((p) => [p.pcsEntryId, p.spouse?.pcsEntryId, ...(p.parents || []).map((x) => x.pcsEntryId)]).filter(Boolean)
+  const chosenIds = participants.flatMap((p) => [
+    p.pcsEntryId, p.spouse?.pcsEntryId, ...(p.parents || []).map((x) => x.pcsEntryId),
+    p.visitorId, p.spouse?.visitorId,
+  ]).filter(Boolean)
 
   const save = async () => {
     setError('')
@@ -166,8 +175,10 @@ function EventFormModal({ initial, events, pcsEntries, riverKids, dedicationApps
       )
     }
     return (
-      <PcsPersonPicker entries={pcsEntries} exclude={chosenIds}
-        placeholder={form.type === 'marriage' ? 'Add a couple: search the first partner in PCS…' : 'Add participant: search PCS by name or phone…'}
+      <PcsPersonPicker entries={form.type === 'baptism' ? [...pcsEntries, ...visitorEntries] : pcsEntries} exclude={chosenIds}
+        placeholder={form.type === 'marriage' ? 'Add a couple: search the first partner in PCS…'
+          : form.type === 'baptism' ? 'Add participant: search PCS or D-Light visitors by name or phone…'
+          : 'Add participant: search PCS by name or phone…'}
         onPick={(person) => setParticipants((l) => [...l, { key: newKey(), ...person, ...(form.type === 'marriage' ? { spouse: null } : {}) }])} />
     )
   })()
@@ -313,6 +324,7 @@ export default function CaringEventsTab({ canEdit, canReveal, savedBy, defaultOf
   const [events, setEvents] = useState(null)
   const [loadError, setLoadError] = useState('')
   const [pcsEntries, setPcsEntries] = useState([])
+  const [delightVisitors, setDelightVisitors] = useState([])
   const [riverKids, setRiverKids] = useState([])
   const [filter, setFilter] = useState('all')
   const [openId, setOpenId] = useState(null)
@@ -327,7 +339,8 @@ export default function CaringEventsTab({ canEdit, canReveal, savedBy, defaultOf
   // links on member_profiles). Unknown values leave the template's line blank.
   const baptismCerts = async (ev, list) => Promise.all(list.map(async (p) => {
     const pcs = pcsEntries.find((e) => e.id === p.pcsEntryId)
-    const profile = pcs?.visitorId ? await getMemberProfile(pcs.visitorId).catch(() => null) : null
+    const vid = pcs?.visitorId || p.visitorId
+    const profile = vid ? await getMemberProfile(vid).catch(() => null) : null
     return {
       inHouse: true, // a Caring Events baptism service is performed by ROLCC
       name: p.name || pcs?.name || '',
@@ -361,6 +374,18 @@ export default function CaringEventsTab({ canEdit, canReveal, savedBy, defaultOf
     getDepartmentChildren('River Kids').then((kids) => setRiverKids(kids.filter((k) => k.active !== false))).catch(() => setRiverKids([]))
   }, [])
   useEffect(() => subscribeSubmittedDedicationApplications(setDedicationApps, () => setDedicationApps([])), [])
+  // Live D-Light visitors, so someone just added at Visitor Entry can be put on a
+  // baptism event straight away, before they have a PCS profile.
+  useEffect(() => subscribeDelightVisitors(setDelightVisitors), [])
+  const visitorPickEntries = useMemo(() => {
+    const inPcs = new Set(pcsEntries.map((e) => e.visitorId).filter(Boolean))
+    const seen = new Set()
+    return delightVisitors.filter((v) => {
+      if (v.mergedInto || v.isArchived || inPcs.has(v.id) || seen.has(v.id)) return false
+      seen.add(v.id)
+      return true
+    }).map((v) => ({ id: `dl_${v.id}`, isVisitor: true, visitorId: v.id, name: v.name, phone: v.phone, year: v.year }))
+  }, [delightVisitors, pcsEntries])
 
   const shown = useMemo(() => (events || []).filter((e) => filter === 'all' || e.type === filter), [events, filter])
 
@@ -553,6 +578,7 @@ export default function CaringEventsTab({ canEdit, canReveal, savedBy, defaultOf
           initial={editing === 'new' ? null : editing}
           events={events || []}
           pcsEntries={pcsEntries}
+          visitorEntries={visitorPickEntries}
           riverKids={riverKids}
           dedicationApps={dedicationApps}
           defaultOfficiant={defaultOfficiant}

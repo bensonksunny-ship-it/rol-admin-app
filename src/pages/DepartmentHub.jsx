@@ -58,6 +58,7 @@ import {
   getMergedPeopleDirectory,
   subscribeDelightVisitors,
   addDelightVisitor,
+  findDuplicateDelightVisitor,
   updateDelightVisitor,
   deleteDelightVisitor,
   getDlightSubDepartments,
@@ -750,6 +751,7 @@ export default function DepartmentHub() {
   // else gets checked into Non Cell.
   const [visitorAttendanceCellMembers, setVisitorAttendanceCellMembers] = useState([])
   const [delightVisitorModalOpen, setDelightVisitorModalOpen] = useState(false)
+  const [savingDelightVisitor, setSavingDelightVisitor] = useState(false)
   const [editingDelightVisitorId, setEditingDelightVisitorId] = useState(null)
   const [_importingVisitors, setImportingVisitors] = useState(false)
   const [importVisitorResult, setImportVisitorResult] = useState(null)
@@ -2561,6 +2563,7 @@ export default function DepartmentHub() {
     )
   const visitorSearchResults = visitorSearch.trim().length > 0
     ? delightVisitors
+        .filter((v, i, all) => all.findIndex((x) => x.id === v.id) === i)
         .filter((v) => {
           const q = visitorSearch.trim().toLowerCase()
           const name = (v.name || '').toLowerCase()
@@ -4648,7 +4651,17 @@ export default function DepartmentHub() {
                 <form
                   onSubmit={async (e) => {
                     e.preventDefault()
-                    if (!canEditDelightVisitors) return
+                    if (!canEditDelightVisitors || savingDelightVisitor) return
+                    // Duplicate guard: same name (case/spacing-insensitive) + same phone /
+                    // email, or same year when neither has contact info.
+                    if (!editingDelightVisitorId) {
+                      const dup = findDuplicateDelightVisitor(delightVisitors, delightVisitorForm)
+                      if (dup) {
+                        alert(`${dup.name} is already registered in D-Light${dup.year ? ` (${dup.year})` : ''}. Search for them instead of adding again.`)
+                        return
+                      }
+                    }
+                    setSavingDelightVisitor(true)
                     try {
                       if (editingDelightVisitorId) {
                         const before = delightVisitors.find((x) => x.id === editingDelightVisitorId) || null
@@ -4678,7 +4691,9 @@ export default function DepartmentHub() {
                           ...delightVisitorForm,
                           createdBy: userProfile?.email || userProfile?.displayName || 'unknown',
                         })
-                        setDelightVisitors((prev) => [
+                        // The live subscription usually delivers the new doc before addDoc
+                        // resolves; prepending it again listed the visitor twice.
+                        setDelightVisitors((prev) => prev.some((x) => x.id === id) ? prev : [
                           {
                             id,
                             ...delightVisitorForm,
@@ -4701,6 +4716,8 @@ export default function DepartmentHub() {
                     } catch (err) {
                       console.error(err)
                       alert('Failed to save visitor')
+                    } finally {
+                      setSavingDelightVisitor(false)
                     }
                   }}
                   className="p-4 space-y-3 overflow-y-auto flex-1"
@@ -4856,8 +4873,8 @@ export default function DepartmentHub() {
 
                   {/* Actions */}
                   <div className="flex gap-3 pt-1 pb-2">
-                    <button type="submit" className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-sm">
-                      {editingDelightVisitorId ? 'Update Visitor' : 'Add Visitor'}
+                    <button type="submit" disabled={savingDelightVisitor} className="flex-1 py-3 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-60 transition-colors shadow-sm">
+                      {savingDelightVisitor ? 'Saving…' : editingDelightVisitorId ? 'Update Visitor' : 'Add Visitor'}
                     </button>
                     <button
                       type="button"
