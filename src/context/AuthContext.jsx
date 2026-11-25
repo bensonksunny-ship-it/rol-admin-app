@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -9,7 +9,8 @@ import { auth, db, functions, httpsCallable } from '../lib/firebase'
 import { ROLES, ROLE_PERMISSIONS, deriveRoleFromPositions, deriveDepartmentsFromPositions } from '../constants/roles'
 import { getDepartmentBySlug } from '../constants/departments'
 import { GLOBAL_ROLES, hasAccess, getDepartmentRole, isFounder as isFounderGlobal, deptHeadDepartments } from '../utils/access'
-import { upsertUserDirectoryEntry, syncAllUsersToDirectory } from '../services/firestore'
+import { upsertUserDirectoryEntry, syncAllUsersToDirectory, subscribeTempAccessGrant } from '../services/firestore'
+import { activeGrantsFromDoc, applyTempGrants } from '../utils/tempAccess'
 import { isCellLeaderInPositions } from '../utils/cellReportPermissions'
 
 const AuthContext = createContext(null)
@@ -218,6 +219,37 @@ export function AuthProvider({ children }) {
     return unsub
   }, [uid])
 
+  // Time-bounded page access the Founder lent this account (utils/tempAccess.js).
+  // Read live from temp_access_grants/{uid}; only grants still inside their window
+  // are layered onto the profile, and a timer re-evaluates at the next expiry so
+  // access disappears on time even if nothing else re-renders. firestore.rules
+  // enforces the same window server-side.
+  // Keyed by uid so a sign-out / account switch never carries the last user's grants.
+  const [tempGrantState, setTempGrantState] = useState({ uid: null, doc: null })
+  const [grantClock, setGrantClock] = useState(() => Date.now())
+  useEffect(() => {
+    if (!uid) return
+    return subscribeTempAccessGrant(uid, (d) => { setTempGrantState({ uid, doc: d }); setGrantClock(Date.now()) })
+  }, [uid])
+  const tempGrantDoc = uid && tempGrantState.uid === uid ? tempGrantState.doc : null
+  const activeTempGrants = useMemo(() => activeGrantsFromDoc(tempGrantDoc, grantClock), [tempGrantDoc, grantClock])
+  useEffect(() => {
+    if (!activeTempGrants.length) return
+    // setTimeout caps at ~24.8 days; grants are ≤ 1 week, but clamp anyway.
+    const wait = Math.min(Math.max(activeTempGrants[0].expiresAtMs - Date.now() + 250, 250), 2 ** 31 - 1)
+    const t = setTimeout(() => setGrantClock(Date.now()), wait)
+    // A sleeping laptop/phone can skip the timer — re-check when the tab is shown again.
+    const onVisible = () => { if (document.visibilityState === 'visible') setGrantClock(Date.now()) }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onVisible) }
+  }, [activeTempGrants])
+  // The founder never needs grants; everyone else gets them layered on. Never write
+  // this back to users/{uid} — it carries temporary positions.
+  const effectiveProfile = useMemo(
+    () => (userProfile?.globalRole === GLOBAL_ROLES.FOUNDER ? userProfile : applyTempGrants(userProfile, activeTempGrants)),
+    [userProfile, activeTempGrants]
+  )
+
   const signIn = (email, password) =>
     signInWithEmailAndPassword(auth, email, password)
 
@@ -225,22 +257,22 @@ export function AuthProvider({ children }) {
 
   const hasPermission = (permission) => {
     // SUPER ADMIN override: all menu permissions
-    if (userProfile?.globalRole === GLOBAL_ROLES.FOUNDER) return true
-    if (!userProfile?.role) return false
-    return ROLE_PERMISSIONS[userProfile.role]?.[permission] ?? false
+    if (effectiveProfile?.globalRole === GLOBAL_ROLES.FOUNDER) return true
+    if (!effectiveProfile?.role) return false
+    return ROLE_PERMISSIONS[effectiveProfile.role]?.[permission] ?? false
   }
 
-  const isFounder = isFounderGlobal(userProfile) || userProfile?.role === ROLES.FOUNDER
-  const isSeniorPastor = userProfile?.role === ROLES.SENIOR_PASTOR
-  const isAdmin = userProfile?.role === ROLES.ADMIN
-  const isCellDirector = getDepartmentRole(userProfile, 'Cell') === 'DIRECTOR'
+  const isFounder = isFounderGlobal(effectiveProfile) || effectiveProfile?.role === ROLES.FOUNDER
+  const isSeniorPastor = effectiveProfile?.role === ROLES.SENIOR_PASTOR
+  const isAdmin = effectiveProfile?.role === ROLES.ADMIN
+  const isCellDirector = getDepartmentRole(effectiveProfile, 'Cell') === 'DIRECTOR'
 
-  const isSundayMinistryDirector = isFounder || isSeniorPastor || getDepartmentRole(userProfile, 'Sunday Ministry') === 'DIRECTOR'
+  const isSundayMinistryDirector = isFounder || isSeniorPastor || getDepartmentRole(effectiveProfile, 'Sunday Ministry') === 'DIRECTOR'
 
   const isDepartmentHead = (departmentName) => {
-    if (!departmentName || !userProfile) return false
+    if (!departmentName || !effectiveProfile) return false
     if (isFounder || isSeniorPastor) return true
-    const deptRole = getDepartmentRole(userProfile, departmentName)
+    const deptRole = getDepartmentRole(effectiveProfile, departmentName)
     return deptRole === 'DIRECTOR' || deptRole === 'COORDINATOR'
   }
 
@@ -248,15 +280,15 @@ export function AuthProvider({ children }) {
     if (!departmentName) return false
     if (isFounder || isSeniorPastor) return true
     // Directors and Coordinators can manage their own department
-    const role = getDepartmentRole(userProfile, departmentName)
+    const role = getDepartmentRole(effectiveProfile, departmentName)
     return role === 'DIRECTOR' || role === 'COORDINATOR'
   }
 
   /** True if user may access the department page for this slug (role-based). */
   const canAccessDepartment = (departmentSlug) => {
-    if (!departmentSlug || !userProfile) return false
+    if (!departmentSlug || !effectiveProfile) return false
     const dept = getDepartmentBySlug(departmentSlug)
-    return !!(dept && hasAccess(userProfile, dept.name))
+    return !!(dept && hasAccess(effectiveProfile, dept.name))
   }
 
   /** True if sidebar should show all departments (Super admin only; legacy Founder supported). */
@@ -264,12 +296,13 @@ export function AuthProvider({ children }) {
 
   const canEditSundaySection = (sectionKey) => {
     if (hasPermission('editSundayPlanFull')) return true
-    return userProfile?.sundaySection === sectionKey
+    return effectiveProfile?.sundaySection === sectionKey
   }
 
   const value = {
     user,
-    userProfile,
+    userProfile: effectiveProfile,
+    tempAccessGrants: activeTempGrants,
     loading,
     profileError,
     signIn,

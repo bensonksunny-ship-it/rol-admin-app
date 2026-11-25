@@ -73,6 +73,28 @@ service cloud.firestore {
         {'department': 'Sunday Ministry', 'position': 'Pre-Service Leader'}
       ]);
     }
+    // Time-bounded page access the Founder lent this account (utils/tempAccess.js,
+    // temp_access_grants below). Only honoured while expiresAt is still in the
+    // future, so an expired grant stops working here even if the client lags.
+    // Last tier of canAccessDept, so it only runs when every real tier failed;
+    // one extra document (cached across calls in the same request).
+    function hasTempGrant(departmentId) {
+      let path = /databases/$(database)/documents/temp_access_grants/$(request.auth.uid);
+      return exists(path)
+        && get(path).data.get('grants', {}).get(departmentId, {}).get('expiresAt', null) is timestamp
+        && get(path).data.grants[departmentId].expiresAt > request.time;
+    }
+    // hasTempGrant over a literal list (no loops in rules; callers pass ≤ 5). The
+    // exists() guard keeps it to one cheap check for everyone without a grant doc.
+    function hasTempGrantInAny(departmentIds) {
+      return exists(/databases/$(database)/documents/temp_access_grants/$(request.auth.uid)) && (
+        hasTempGrant(departmentIds[0])
+        || (departmentIds.size() > 1 && hasTempGrant(departmentIds[1]))
+        || (departmentIds.size() > 2 && hasTempGrant(departmentIds[2]))
+        || (departmentIds.size() > 3 && hasTempGrant(departmentIds[3]))
+        || (departmentIds.size() > 4 && hasTempGrant(departmentIds[4]))
+      );
+    }
     function canAccessDept(departmentId) {
       // `departments[]` is written back to the user doc by the client's own
       // AuthContext sync-on-login effect, so a role just assigned in
@@ -84,8 +106,25 @@ service cloud.firestore {
         isFullAccess() ||
         userDepartment() == departmentId ||
         (departmentId in userDepartments()) ||
-        hasAnyPositionInDept(departmentId)
+        hasAnyPositionInDept(departmentId) ||
+        hasTempGrant(departmentId)
       );
+    }
+    // A user editing their own users/{uid} doc may not change what they are allowed
+    // to do: no role / globalRole / positions / status / sundaySection, departments[]
+    // may only shrink (the login sync dropping a stale department), and department
+    // must stay one of them. Positions are granted by the Founder (adminCreateUser /
+    // User Management run with full access) — otherwise anyone could write
+    // themselves into any department and the time limits below would mean nothing.
+    function selfProfileUpdateIsSafe() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let after = request.resource.data.get('departments', []);
+      return !changed.hasAny(['role', 'globalRole', 'positions', 'status', 'sundaySection', 'email', 'uid'])
+        && (!changed.hasAny(['departments'])
+            || after.toSet().difference(resource.data.get('departments', []).toSet()).size() == 0)
+        && (!changed.hasAny(['department'])
+            || request.resource.data.get('department', '') == ''
+            || request.resource.data.get('department', '') in after);
     }
     // Caring Assistant (utils/access.js isCaringAssistantOnly): Caring's day-to-day
     // operations, but not the Director's decisions — approving / rejecting
@@ -136,7 +175,8 @@ service cloud.firestore {
       return isSignedIn() && (
         isFullAccess() ||
         (userDepartment() in departmentIds) ||
-        userDepartments().hasAny(departmentIds)
+        userDepartments().hasAny(departmentIds) ||
+        hasTempGrantInAny(departmentIds)
         // No positions[] tier here (unlike canAccessDept): the rules language has no
         // "any element matches" function — the `positions().exists(p, …)` that used
         // to sit here doesn't exist in rules, so it errored and denied the request.
@@ -146,7 +186,34 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read, write: if isSignedIn() && (isFullAccess() || request.auth.uid == userId);
+      allow read: if isSignedIn() && (isFullAccess() || request.auth.uid == userId);
+      // Accounts are created by the Founder (adminCreateUser Cloud Function / User
+      // Management); a user may edit only the harmless parts of their own profile.
+      allow create, delete: if isFullAccess();
+      allow update: if isFullAccess()
+        || (isSignedIn() && request.auth.uid == userId && selfProfileUpdateIsSafe());
+    }
+
+    // Time-bounded page access for the SP Office secretary (utils/tempAccess.js).
+    // One doc per grantee: { uid, name, grants: { [department]: { level, expiresAt,
+    // grantedAt, grantedBy, grantedByName } } }. Only the Founder writes it, and only
+    // for an account that holds an SP Office position; the grantee reads his own.
+    match /temp_access_grants/{granteeUid} {
+      allow read: if isSignedIn() && (isFullAccess() || request.auth.uid == granteeUid);
+      allow create, update: if isFullAccess()
+        && request.resource.data.get('uid', '') == granteeUid
+        && request.resource.data.get('grants', {}) is map
+        && 'SP Office' in get(/databases/$(database)/documents/users/$(granteeUid)).data.get('departments', [])
+        && !request.resource.data.get('grants', {}).keys().hasAny(['SP Office', 'Administration']);
+      allow delete: if isFullAccess();
+    }
+    // Audit trail of every grant / revoke — append-only.
+    match /temp_access_log/{entryId} {
+      allow read: if isSignedIn() && (isFullAccess() || resource.data.get('uid', '') == request.auth.uid);
+      allow create: if isFullAccess()
+        && request.resource.data.get('action', '') in ['grant', 'revoke']
+        && request.resource.data.get('by', '') == request.auth.uid;
+      allow update, delete: if false;
     }
 
     // Denormalized public directory (name/email/role/department — no phone or

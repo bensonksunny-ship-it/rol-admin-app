@@ -103,7 +103,9 @@ export async function compressImage(file, maxSide = 1600, quality = 0.8) {
     const img = await new Promise((resolve, reject) => {
       const i = new Image()
       i.onload = () => resolve(i)
-      i.onerror = () => reject(new Error('This file is not a photo the browser can open.'))
+      i.onerror = () => reject(new Error(/hei[cf]/i.test(file.type || file.name || '')
+        ? 'This phone saved the photo as HEIC, which this browser cannot open. Please pick a JPEG/PNG photo, or set the camera to “Most Compatible”.'
+        : 'This file is not a photo the browser can open. Please pick a JPEG or PNG photo.'))
       i.src = url
     })
     const r = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight))
@@ -187,4 +189,24 @@ export function tourProgress(trip, now = new Date()) {
   const dayIndex = days.indexOf(today) + 1
   const phase = !days.length ? 'undated' : today < days[0] ? 'upcoming' : today > days[days.length - 1] ? 'finished' : 'running'
   return { pct, done, total, dayIndex, dayCount: days.length, phase }
+}
+
+/**
+ * Turns a photo-upload failure into a plain message, and logs the details
+ * (code, server response, file) so the real cause shows in the console.
+ */
+export function photoUploadMessage(err, file) {
+  const code = err?.code || ''
+  const server = String(err?.customData?.serverResponse || err?.serverResponse || '')
+  console.error('[photo upload]', { code, message: err?.message, serverResponse: server, file: file && { name: file.name, type: file.type, size: file.size } })
+  if (!code.startsWith('storage/')) return err?.message || 'Could not add the photo. Please try again.'
+  if (code === 'storage/bucket-not-found' || code === 'storage/project-not-found' || (code === 'storage/unknown' && /404|not found/i.test(server + (err?.status || ''))))
+    return 'Photo storage is not switched on for this app yet. Please tell the church office — photos can be added once it is set up.'
+  if (code === 'storage/unknown' && !server)
+    return 'Photo storage is not ready yet (or the connection dropped). Please try again later, or tell the church office.'
+  if (code === 'storage/unauthorized' || code === 'storage/unauthenticated')
+    return 'Photo upload is not allowed right now — the trip link may be closed. Please check with the church office.'
+  if (code === 'storage/quota-exceeded') return 'Photo storage is full. Please tell the church office.'
+  if (code === 'storage/retry-limit-exceeded' || code === 'storage/canceled') return 'The upload timed out. Please check your internet and try again.'
+  return 'Could not add the photo. Please check your internet and try again.'
 }

@@ -12,7 +12,7 @@ import {
 import {
   ITEM_KINDS, ITEM_STATUSES, kindOf, newId, defaultQuestions, tripDays, dayLabel, fullDate,
   formatDateTime, sortItems, answerablePrompts, missionTripLink, whatsappShareHref,
-  missionInviteMessage, parseOptions, todayIso, compressImage, isFoodItem, ratingSummary, isItemDue, tourProgress,
+  missionInviteMessage, parseOptions, todayIso, compressImage, isFoodItem, ratingSummary, isItemDue, tourProgress, photoUploadMessage,
 } from '../../utils/missionTrip'
 import DateInput from '../../components/DateInput'
 import { DayAccordion, ScheduleBlock, RatingBadge, CompletionPrompt, GuestPhotos, TourProgress } from '../../components/mission/TripSchedule'
@@ -451,7 +451,7 @@ function TripDetail({ trip, onBack, userProfile }) {
   async function addPhoto(it, file) {
     setBusy(it.id, true)
     try { await addMissionItemPhoto(trip.id, it.id, await compressImage(file)) }
-    catch (e) { console.error(e); alert(e?.message || 'Could not add the photo.') }
+    catch (e) { alert(photoUploadMessage(e, file)) }
     finally { setBusy(it.id, false) }
   }
   async function removePhoto(it, ph) {

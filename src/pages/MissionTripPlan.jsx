@@ -5,7 +5,7 @@ import {
   rateMissionTripItemPublic, addMissionGuestPhoto, removeMissionGuestPhoto, MISSION_PHOTO_LIMIT,
 } from '../services/firestore'
 import {
-  sortItems, tripDays, dayLabel, fullDate, answerablePrompts, todayIso, isFoodItem, compressImage, tourProgress,
+  sortItems, tripDays, dayLabel, fullDate, answerablePrompts, todayIso, isFoodItem, compressImage, tourProgress, photoUploadMessage,
 } from '../utils/missionTrip'
 import { DayAccordion, ScheduleBlock, FoodRating, GuestPhotos, TourProgress } from '../components/mission/TripSchedule'
 
@@ -162,7 +162,7 @@ export default function MissionTripPlan() {
     try {
       const ph = await addMissionGuestPhoto(token, guestId, itemId, await compressImage(file))
       setMine(itemId, (arr) => [...arr, ph])
-    } catch (e) { console.error(e); alert(e?.message?.startsWith('Only') ? e.message : 'Could not add the photo. Please check your internet and try again.') }
+    } catch (e) { alert(photoUploadMessage(e, file)) }
     finally { setPhotoBusy((b) => ({ ...b, [itemId]: false })) }
   }
   async function removePhoto(itemId, ph) {

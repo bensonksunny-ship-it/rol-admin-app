@@ -167,7 +167,9 @@ export function hasAccess(user, departmentName, requiredRole) {
 // Center at sign-in instead of My Workspace (see MyWorkspace.jsx).
 export function isSpOfficeOnly(user) {
   if (!user || isFounder(user) || user.role === 'Senior Pastor') return false
-  const positions = Array.isArray(user.positions) ? user.positions : []
+  // Temporary page grants (utils/tempAccess.js) don't change who he is — the
+  // secretary still lands on his Control Center while holding one.
+  const positions = (Array.isArray(user.positions) ? user.positions : []).filter((p) => !p?.temporary)
   const depts = positions.length
     ? positions.map((p) => String(p?.department || '').trim())
     : (Array.isArray(user.departments) ? user.departments : []).map((d) => String(d || '').trim())

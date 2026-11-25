@@ -4,6 +4,7 @@ import useActionNotifications from '../../hooks/useActionNotifications'
 import Sidebar from './Sidebar'
 import DesktopDepartmentNav from './DesktopDepartmentNav'
 import DepartmentDock from '../workspace/DepartmentDock'
+import PageAccessBar from '../access/PageAccessBar'
 
 // ─── Main Layout ──────────────────────────────────────────────────────────────
 // The sidebar is a permanent slim icon rail (~64px) at lg+ on every route, so
@@ -77,6 +78,7 @@ export default function MainLayout() {
             button — both lg:hidden now, so both offsets zero out at lg: too. */}
         <div className="flex-1 pt-[calc(3rem_+_env(safe-area-inset-top,24px))] lg:pt-0 pb-[calc(7rem_+_env(safe-area-inset-bottom,0px))] lg:pb-0">
           <div className={`px-4 sm:px-6 py-6 ${isAccountsFullWidth ? 'w-full' : `mx-auto ${isWide ? 'max-w-[1400px]' : isWideTab ? 'max-w-7xl' : 'max-w-5xl'}`}`}>
+            <PageAccessBar />
             <Outlet context={{ notifications, pendingApprovals, handleNotifAction, dismissNotification, addNotificationToTodo }} />
           </div>
         </div>

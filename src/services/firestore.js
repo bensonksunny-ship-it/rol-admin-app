@@ -21,6 +21,7 @@ import {
   arrayUnion,
   deleteField,
   runTransaction,
+  FieldPath,
 } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
 import { auth, db, storage, functions, httpsCallable } from '../lib/firebase'
@@ -33,6 +34,7 @@ import { mergeFamilyIntoProfile } from '../utils/familyDetails'
 import { userLinksToCellGroup } from '../utils/cellReportPermissions'
 import { SCHEDULER_FIELDS, schedulerFields, schedulerStamp } from '../utils/songScheduler'
 import { splitNames } from '../utils/programPeople'
+import { TEMP_ACCESS_COLLECTION, TEMP_ACCESS_LOG_COLLECTION, TEMP_ACCESS_GRANTEE_DEPARTMENT, MAX_TEMP_ACCESS_HOURS, isGrantableDepartment } from '../utils/tempAccess'
 import { normalizeMemberName, cellConflictMessage } from '../utils/cellDuplicates'
 
 // Firestore's writes reject any `undefined` field value, including ones nested inside
@@ -11385,4 +11387,109 @@ export async function rateMissionTripItemPublic(token, guestId, itemId, { stars,
 
 export async function updateMissionTripGuestPublic(token, guestId, guest) {
   await updateDoc(doc(db, MISSION_TRIPS, token, 'guests', guestId), { ...pickMissionGuest(guest), updatedAt: serverTimestamp() })
+}
+
+// ─── Time-bounded page access (SP Office secretary) ──────────────────────────
+// See utils/tempAccess.js for the model. Grants are written only by the Founder
+// (firestore.rules → temp_access_grants); every change is logged to temp_access_log.
+
+/** Live grant doc for one user (the grantee reads his own). cb(docData | null). */
+export function subscribeTempAccessGrant(uid, cb, onError) {
+  if (!db || !uid) { cb(null); return () => {} }
+  return onSnapshot(
+    doc(db, TEMP_ACCESS_COLLECTION, uid),
+    (snap) => cb(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+    (e) => { cb(null); if (onError) onError(e) }
+  )
+}
+
+/** Founder: every grant doc, live. cb(array). */
+export function subscribeAllTempAccessGrants(cb, onError) {
+  if (!db) { cb([]); return () => {} }
+  return onSnapshot(
+    collection(db, TEMP_ACCESS_COLLECTION),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    (e) => { cb([]); if (onError) onError(e) }
+  )
+}
+
+/** Founder: accounts that can receive a grant (anyone holding an SP Office position). */
+export async function listTempAccessGrantees() {
+  if (!db) return []
+  const snap = await getDocs(query(collection(db, 'users'), where('departments', 'array-contains', TEMP_ACCESS_GRANTEE_DEPARTMENT)))
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((u) => u.status !== 'inactive' && u.globalRole !== 'FOUNDER')
+    .map((u) => ({ uid: u.id, name: u.name || u.email || 'SP Office', email: u.email || '' }))
+}
+
+/**
+ * Founder: grant (or extend / re-level) `grantee` access to `department` for `hours`
+ * from now. Grant + audit entry are written in one batch.
+ */
+export async function grantTempAccess({ grantee, department, hours, level, grantedBy }) {
+  if (!db) throw new Error('Database unavailable')
+  if (!grantee?.uid) throw new Error('Choose who gets access')
+  if (!isGrantableDepartment(department)) throw new Error(`${department || 'This page'} can't be shared`)
+  const h = Number(hours)
+  if (!(h > 0) || h > MAX_TEMP_ACCESS_HOURS) throw new Error(`Access can last at most ${MAX_TEMP_ACCESS_HOURS / 24} days`)
+  const lvl = level === 'COORDINATOR' ? 'COORDINATOR' : 'DIRECTOR'
+  const expiresAt = Timestamp.fromMillis(Date.now() + h * 3600 * 1000)
+  const batch = writeBatch(db)
+  batch.set(doc(db, TEMP_ACCESS_COLLECTION, grantee.uid), {
+    uid: grantee.uid,
+    name: grantee.name || '',
+    grants: {
+      [department]: {
+        level: lvl,
+        expiresAt,
+        grantedAt: serverTimestamp(),
+        grantedBy: grantedBy?.uid || '',
+        grantedByName: grantedBy?.name || '',
+      },
+    },
+    updatedAt: serverTimestamp(),
+  }, { merge: true })
+  batch.set(doc(collection(db, TEMP_ACCESS_LOG_COLLECTION)), {
+    action: 'grant',
+    uid: grantee.uid,
+    name: grantee.name || '',
+    department,
+    level: lvl,
+    hours: h,
+    expiresAt,
+    by: grantedBy?.uid || '',
+    byName: grantedBy?.name || '',
+    at: serverTimestamp(),
+  })
+  await batch.commit()
+  return expiresAt.toMillis()
+}
+
+/** Founder: end a grant now. */
+export async function revokeTempAccess({ grantee, department, revokedBy }) {
+  if (!db || !grantee?.uid || !department) return
+  const batch = writeBatch(db)
+  batch.update(
+    doc(db, TEMP_ACCESS_COLLECTION, grantee.uid),
+    new FieldPath('grants', department), deleteField(),
+    'updatedAt', serverTimestamp()
+  )
+  batch.set(doc(collection(db, TEMP_ACCESS_LOG_COLLECTION)), {
+    action: 'revoke',
+    uid: grantee.uid,
+    name: grantee.name || '',
+    department,
+    by: revokedBy?.uid || '',
+    byName: revokedBy?.name || '',
+    at: serverTimestamp(),
+  })
+  await batch.commit()
+}
+
+/** Founder: recent grant/revoke history (newest first). */
+export async function getTempAccessLog(max = 30) {
+  if (!db) return []
+  const snap = await getDocs(query(collection(db, TEMP_ACCESS_LOG_COLLECTION), orderBy('at', 'desc'), limit(max)))
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
 }
