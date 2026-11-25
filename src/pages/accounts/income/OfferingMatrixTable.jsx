@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import { Plus, Trash2 } from 'lucide-react'
 import { ACCENT_STYLES, matchesCategory, toDate } from './incomeCategorize'
@@ -31,10 +31,16 @@ function sundaysInMonth(monthDate) {
 // Roomy cells: the table opens in a full-page popup with space to spare.
 const CELL_PAD = 'px-4 py-3'
 
-export default function OfferingMatrixTable({ entries, activeMonth, saveState, onApply, onPastePlan, onError, columnKeys, title = 'Offering' }) {
+// Cash counts plug in through: headerAction (header link), rowIsos (extra dates to
+// list), dateMark(iso) (beside the date), rowNote(iso) (line under the row) and
+// cellHint(iso, category) (placeholder of an empty cell).
+export default function OfferingMatrixTable({ entries, activeMonth, saveState, onApply, onPastePlan, onError, onLiveDelta, columnKeys, title = 'Offering', headerAction, rowIsos = [], dateMark, rowNote, cellHint }) {
   const COLUMNS = columnKeys ? ALL_COLUMNS.filter(c => columnKeys.includes(c.key)) : ALL_COLUMNS
-  const [extras, setExtras] = useState([]) // [{ key, iso }] — "Add row" rows; kept at the end this session
-  const [live, setLive] = useState(null) // { iso, category, amount } — the cell being typed in
+  // [{ key, iso, pending }] — "Add row" rows; kept at the end this session. `pending`
+  // ({ [category]: amount }) holds amounts typed before the row has a date; they
+  // save as soon as the date is entered.
+  const [extras, setExtras] = useState([])
+  const [live, setLiveState] = useState(null) // { iso, category, amount } — the cell being typed in
   const [confirm, setConfirm] = useState(null) // { lines, invalid } — paste waiting in ConfirmPasteDatesDialog
   const focusReq = useRef(null) // { r, c } to focus once the new row has rendered
   const nextRowId = useRef(0)
@@ -47,7 +53,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
     byDate.get(iso).push(entry)
   }
   const extraIsos = new Set(extras.map(x => x.iso).filter(Boolean))
-  const baseIsos = [...new Set([...sundaysInMonth(activeMonth), ...byDate.keys()])].filter(iso => !extraIsos.has(iso)).sort()
+  const baseIsos = [...new Set([...sundaysInMonth(activeMonth), ...byDate.keys(), ...rowIsos])].filter(iso => !extraIsos.has(iso)).sort()
   const rows = [
     ...baseIsos.map(iso => ({ key: iso, iso, extra: null })),
     ...extras.map(x => ({ key: x.key, iso: x.iso, extra: x })),
@@ -57,6 +63,13 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
   const savedCellAmount = (iso, category) => cellEntries(iso, category).reduce((s, e) => s + (Number(e.amount) || 0), 0)
   const cellAmount = (iso, category) =>
     live && live.iso === iso && live.category === category ? live.amount : savedCellAmount(iso, category)
+  // The cell being typed in, also reported up so the popup's summary cards follow it.
+  const setLive = next => {
+    setLiveState(next)
+    onLiveDelta?.(next?.iso ? { category: next.category, delta: next.amount - savedCellAmount(next.iso, next.category) } : null)
+  }
+  const pendingAmount = (row, category) => Number(row.extra?.pending?.[category]) || 0
+  const pendingTotal = row => COLUMNS.reduce((s, col) => s + pendingAmount(row, col.key), 0)
   const rowTotal = iso => COLUMNS.reduce((s, col) => s + cellAmount(iso, col.key), 0)
   const columnTotals = COLUMNS.map(col => rows.reduce((s, row) => s + (row.iso ? cellAmount(row.iso, col.key) : 0), 0))
   const grandTotal = columnTotals.reduce((a, b) => a + b, 0)
@@ -79,6 +92,10 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
   function commitAmount(row, category, text) {
     const { amount, error } = parseCellAmount(text)
     if (error) { onError(`Offering: ${error} — amounts must be numbers of 0 or more.`); return false }
+    if (!row.iso) {
+      setExtras(x => x.map(e => (e.key === row.key ? { ...e, pending: { ...e.pending, [category]: amount } } : e)))
+      return true
+    }
     const ops = cellOps(cellEntries(row.iso, category), row.iso, category, amount)
     if (ops.creates?.length || ops.updates?.length || ops.deletes?.length) onApply(ops)
     return true
@@ -105,7 +122,11 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
         onError(`Offering: pick a date in ${format(activeMonth, 'MMMM yyyy')}.`)
         return false
       }
-      setExtras(x => x.map(e => (e.key === row.key ? { ...e, iso } : e)))
+      setExtras(x => x.map(e => (e.key === row.key ? { ...e, iso, pending: undefined } : e)))
+      // Amounts typed before the date: save them now.
+      const creates = COLUMNS.filter(col => pendingAmount(row, col.key) > 0)
+        .flatMap(col => cellOps([], iso, col.key, pendingAmount(row, col.key)).creates)
+      if (creates.length) onApply({ creates })
       return true
     }
     if (!isoInMonth(iso, activeMonth) && !window.confirm(`${isoToDisplay(iso)} is outside ${format(activeMonth, 'MMMM yyyy')}. This date's offerings will move to that month. Continue?`)) return false
@@ -140,6 +161,10 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
     const parsed = readGridPaste(e)
     if (!parsed) return
     e.preventDefault()
+    if (!rows[Number(anchor.dataset.r)]?.iso && Number(anchor.dataset.c) > 0) {
+      onError("Offering: enter this row's date before pasting several amounts.")
+      return
+    }
     const r0 = Number(anchor.dataset.r)
     const c0 = Number(anchor.dataset.c)
     const lineOffset = parsed.headerSkipped ? 2 : 1
@@ -228,6 +253,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <SaveStatus state={saveState} />
+          {headerAction}
           <p className={`text-sm font-bold tabular-nums ${styles.text}`}>₹ {fmtAmount(grandTotal)}</p>
         </div>
       </div>
@@ -245,9 +271,13 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
           <tbody>
             {rows.map((row, r) => {
               const hasEntries = !!byDate.get(row.iso)?.length
+              const note = row.iso ? rowNote?.(row.iso) : null
+              const mark = row.iso ? dateMark?.(row.iso) : null
               return (
-                <tr key={row.key} className="group border-b border-slate-100 hover:bg-slate-50/70 focus-within:bg-indigo-50/30">
-                  <td className="p-0 border-r border-slate-100">
+                <Fragment key={row.key}>
+                <tr className="group border-b border-slate-100 hover:bg-slate-50/70 focus-within:bg-indigo-50/30">
+                  <td className="p-0 border-r border-slate-100 relative">
+                    {mark && <span className="absolute right-1 inset-y-0 flex items-center z-[1]">{mark}</span>}
                     <GridCell
                       r={r}
                       c={0}
@@ -263,7 +293,7 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
                     />
                   </td>
                   {COLUMNS.map((col, i) => {
-                    const amount = row.iso ? savedCellAmount(row.iso, col.key) : 0
+                    const amount = row.iso ? savedCellAmount(row.iso, col.key) : pendingAmount(row, col.key)
                     return (
                       <td key={col.key} className="p-0 border-r border-slate-100">
                         <GridCell
@@ -272,12 +302,11 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
                           ariaLabel={`Offering ${row.iso ? isoToDisplay(row.iso) : `row ${r + 1}`} ${col.label}`}
                           align="right"
                           inputMode="decimal"
-                          disabled={!row.iso}
                           value={amount ? String(amount) : ''}
                           display={amount ? fmtAmount(amount) : ''}
-                          placeholder="–"
+                          placeholder={(row.iso && cellHint?.(row.iso, col.key)) || 'Enter amount'}
                           padClass={CELL_PAD}
-                          className="font-medium"
+                          className="font-medium cursor-text hover:bg-indigo-50/60"
                           onLiveChange={text => setLive(text == null ? null : {
                             iso: row.iso,
                             category: col.key,
@@ -290,7 +319,9 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
                   })}
                   {showRowTotal && (
                     <td className="px-4 py-3 text-right font-semibold tabular-nums text-slate-700 border-r border-slate-100">
-                      {row.iso ? `₹ ${fmtAmount(rowTotal(row.iso))}` : ''}
+                      {row.iso ? `₹ ${fmtAmount(rowTotal(row.iso))}` : pendingTotal(row) > 0 && (
+                        <span className="text-[11px] font-semibold text-amber-700">Enter the date to save</span>
+                      )}
                     </td>
                   )}
                   <td className="p-0 text-center">
@@ -307,6 +338,8 @@ export default function OfferingMatrixTable({ entries, activeMonth, saveState, o
                     )}
                   </td>
                 </tr>
+                {note && <tr className="border-b border-slate-100"><td colSpan={COLUMNS.length + (showRowTotal ? 3 : 2)} className="p-0">{note}</td></tr>}
+                </Fragment>
               )
             })}
           </tbody>

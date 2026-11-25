@@ -61,7 +61,11 @@ export function IncomeSectionModal({ title, monthLabel, onClose, children }) {
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-[900] flex bg-slate-900/50 backdrop-blur-[2px] p-0 sm:p-3" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="fixed inset-0 z-[900] flex bg-slate-900/50 backdrop-blur-[2px] p-0 sm:p-3" onMouseDown={(e) => {
+      if (e.target !== e.currentTarget) return
+      document.activeElement?.blur?.() // cells save on blur — save the one being typed in before closing
+      onClose()
+    }}>
       <div role="dialog" aria-modal="true" aria-label={`${title} — ${monthLabel}`}
         className="w-full max-w-[250mm] mx-auto h-full flex flex-col sm:rounded-2xl bg-slate-50 shadow-2xl overflow-hidden">
         <div className="flex items-center gap-3 px-5 py-3 bg-white border-b border-slate-200 shrink-0">

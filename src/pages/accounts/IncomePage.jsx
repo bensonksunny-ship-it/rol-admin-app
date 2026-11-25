@@ -16,9 +16,9 @@ import CategoryListTable from './income/CategoryListTable'
 import PasteReviewDialog from './income/PasteReviewDialog'
 import { IncomeSectionCard, IncomeSectionModal } from './income/IncomeSectionCard'
 import OfferingPopupBody from './income/OfferingPopupBody'
-import CashCountPanel from './income/CashCountPanel'
+import { CashCountSuggestion, CashCountConfirmedMark, OpenCountPageButton } from './income/CashCountInline'
 import { cellOps, mergeOps, fmtAmount } from './income/gridUtils'
-import { CASH_SERVICES, CASH_SET_ASIDE_FUNDS, serviceTotal, titheTotal, setAsideAmount, sundaysOfMonth, otherCashLines } from '../../utils/cashCount'
+import { CASH_SERVICES, CASH_SET_ASIDE_FUNDS, serviceTotal, titheTotal, setAsideAmount, sundaysOfMonth, otherCashLines, countTotal, isCountPending } from '../../utils/cashCount'
 
 // The list-style Income sections, in page order. `categories[0]` is what new
 // rows and pasted rows are filed under; multi-category sections get a Category column.
@@ -88,6 +88,9 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
   // Sunday Cash Counter submissions for the month (offering_cash_counts).
   const [cashCounts, setCashCounts] = useState([])
   const [cashBusy, setCashBusy] = useState(null) // date being confirmed / reopened
+  // Offering cell being typed in: { category, delta } against its saved amount, so the
+  // popup's summary cards follow the typing. Null when no cell is mid-edit.
+  const [liveOffering, setLiveOffering] = useState(null)
   // A completed month opens as its statement; "Edit" switches that month back to the tables.
   const [editingCompletedMonth, setEditingCompletedMonth] = useState(null)
 
@@ -244,6 +247,21 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
     const day = isoToLocalDate(iso).toLocaleDateString('en-GB')
     const ops = {}
     const changes = []
+    // Compare against what is saved right now (after any edit still being written),
+    // so an amount typed in the ledger, here or by someone else on another device, is
+    // always listed below and never replaced or doubled unasked.
+    setCashBusy(iso)
+    try {
+      await opChainRef.current
+      const fresh = await getFinanceIncome({ year: activeMonth.getFullYear(), month: activeMonth.getMonth() })
+      entriesRef.current = fresh
+      setEntries(fresh)
+    } catch (err) {
+      console.error('confirmCashCount: reload', err)
+      showToast('Could not check the amounts already entered. Nothing was posted. Please try again.', 'error')
+      setCashBusy(null)
+      return
+    }
     CASH_SERVICES.forEach(s => {
       const cell = entriesRef.current.filter(e => entryField(e, 'date') === iso && matchesCategory(e, s.category))
       const now = cell.reduce((t, e) => t + (Number(e.amount) || 0), 0)
@@ -275,8 +293,7 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
       if (Object.keys(data).length) mergeOps(ops, { updates: [{ id: existing.id, data }] })
     })
     mergeOps(ops, { deletes: tagged.filter(e => !keys.has(e.cashCountLine)).map(e => e.id) })
-    if (changes.length && !window.confirm(`This replaces amounts already entered for ${day}:\n\n${changes.join('\n')}\n\nPost the cash count?`)) return
-    setCashBusy(iso)
+    if (changes.length && !window.confirm(`This replaces amounts already entered for ${day}:\n\n${changes.join('\n')}\n\nPost the cash count?`)) { setCashBusy(null); return }
     try {
       const ok = await applyOps('offering', ops, { label: `Cash count for ${day} posted — Ctrl+Z to undo` })
       if (ok) {
@@ -354,8 +371,10 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
 
   const categorized = categorizeEntries(entries)
   const offeringEntries = [...categorized.englishOffering, ...categorized.tamilOffering, ...categorized.onlineOffering]
+  const offeringTotal = (list, category) => sumOf(list) + (liveOffering?.category === category ? liveOffering.delta : 0)
   const monthKey = format(activeMonth, 'yyyy-MM')
-  const pendingCounts = cashCounts.filter(c => c.status !== 'confirmed').length
+  const pendingCounts = cashCounts.filter(isCountPending).length
+  const countByIso = new Map(cashCounts.map(c => [c.date, c]))
   const monthUnlock = monthUnlocks[unlockDocId('income', monthKey)]
   const monthCompleted = monthUnlock?.completed === true
   const showStatement = monthCompleted && editingCompletedMonth !== monthKey
@@ -376,7 +395,7 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
       {toast && (
         <div
           role="status"
-          className={`fixed top-4 right-4 z-[60] px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
+          className={`fixed top-4 right-4 z-[970] px-5 py-3 rounded-2xl text-white shadow-xl text-sm font-semibold ${
             toast.type === 'error' ? 'bg-red-500' : 'bg-emerald-500'
           }`}
         >
@@ -490,33 +509,36 @@ export default function IncomePage({ controlledMonth, onMonthChange } = {}) {
       )}
 
       {openSection && (
-        <IncomeSectionModal title={SECTION_TITLES[openSection]} monthLabel={format(activeMonth, 'MMMM yyyy')} onClose={() => setOpenSection(null)}>
+        <IncomeSectionModal title={SECTION_TITLES[openSection]} monthLabel={format(activeMonth, 'MMMM yyyy')} onClose={() => { setOpenSection(null); setLiveOffering(null) }}>
           {/* Keyed by month so grid-local state (unsaved new rows, row order) starts fresh. */}
           {openSection === 'offering'
             ? (
-              // Month summary, then Cash (Sunday counts → English / Tamil ledger) and Online tabs.
+              // Month summary, then Cash (English / Tamil, counts inside their row) and Online tabs.
               <OfferingPopupBody
-                englishTotal={sumOf(categorized.englishOffering)}
-                tamilTotal={sumOf(categorized.tamilOffering)}
-                onlineTotal={sumOf(categorized.onlineOffering)}
+                englishTotal={offeringTotal(categorized.englishOffering, 'English Offering')}
+                tamilTotal={offeringTotal(categorized.tamilOffering, 'Tamil Offering')}
+                onlineTotal={offeringTotal(categorized.onlineOffering, 'Online Offering')}
                 pendingCounts={pendingCounts}
-                cashCounts={(
-                  <CashCountPanel
-                    counts={cashCounts}
-                    sundays={sundaysOfMonth(activeMonth)}
-                    entries={offeringEntries}
-                    busyIso={cashBusy}
-                    onConfirm={confirmCashCount}
-                    onReopen={reopenCashCount}
-                  />
-                )}
                 cashLedger={(
-                  <OfferingMatrixTable key={`offering-cash-${monthKey}`} title="English & Tamil" columnKeys={['English Offering', 'Tamil Offering']}
-                    entries={[...categorized.englishOffering, ...categorized.tamilOffering]} {...gridProps('offering')} />
+                  <OfferingMatrixTable key={`offering-cash-${monthKey}`} title="Cash Offering" columnKeys={['English Offering', 'Tamil Offering']}
+                    headerAction={<OpenCountPageButton sundays={sundaysOfMonth(activeMonth)} />}
+                    rowIsos={cashCounts.filter(c => countTotal(c) > 0).map(c => c.date)}
+                    dateMark={iso => countByIso.get(iso)?.status === 'confirmed' && (
+                      <CashCountConfirmedMark count={countByIso.get(iso)} entries={offeringEntries} busy={cashBusy === iso} onReopen={reopenCashCount} />
+                    )}
+                    rowNote={iso => isCountPending(countByIso.get(iso)) && (
+                      <CashCountSuggestion count={countByIso.get(iso)} busy={cashBusy === iso} onConfirm={confirmCashCount} />
+                    )}
+                    cellHint={(iso, category) => {
+                      const c = countByIso.get(iso)
+                      const counted = isCountPending(c) ? serviceTotal(c, CASH_SERVICES.find(s => s.category === category)?.key) : 0
+                      return counted ? `Count ${fmtAmount(counted)}` : ''
+                    }}
+                    entries={[...categorized.englishOffering, ...categorized.tamilOffering]} onLiveDelta={setLiveOffering} {...gridProps('offering')} />
                 )}
                 online={(
                   <OfferingMatrixTable key={`offering-online-${monthKey}`} title="UPI / Bank" columnKeys={['Online Offering']}
-                    entries={categorized.onlineOffering} {...gridProps('offering')} />
+                    entries={categorized.onlineOffering} onLiveDelta={setLiveOffering} {...gridProps('offering')} />
                 )}
               />
             )

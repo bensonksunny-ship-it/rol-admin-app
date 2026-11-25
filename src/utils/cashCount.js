@@ -49,6 +49,9 @@ export const otherCashTotal = (count) => otherCashLines(count).reduce((s, l) => 
 
 export const countTotal = (count) => offeringCountTotal(count) + titheCountTotal(count) + otherCashTotal(count)
 
+/** A count with something in it that Accounts hasn't confirmed yet. */
+export const isCountPending = (c) => !!c && c.status !== 'confirmed' && countTotal(c) > 0
+
 /** Every Sunday of the month containing `monthDate`, as yyyy-MM-dd. */
 export function sundaysOfMonth(monthDate) {
   const isos = []

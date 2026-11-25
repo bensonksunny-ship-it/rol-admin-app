@@ -5,10 +5,10 @@ import { fmtAmount } from './gridUtils'
 const rupees = n => `₹ ${fmtAmount(n)}`
 
 // Body of the Offering popup: a month summary (Cash · Online · Total) over two tabs.
-//   Cash   — 1. the counter's Sunday counts to confirm, 2. the English / Tamil ledger.
+//   Cash   — the English / Tamil table (cash counts show inside their Sunday's row).
 //   Online — the UPI / bank transfers ledger.
 // `cash` / `online` are the tab contents; totals come from IncomePage.
-export default function OfferingPopupBody({ englishTotal, tamilTotal, onlineTotal, pendingCounts, cashCounts, cashLedger, online }) {
+export default function OfferingPopupBody({ englishTotal, tamilTotal, onlineTotal, pendingCounts, cashLedger, online }) {
   const [tab, setTab] = useState('cash')
   const cashTotal = englishTotal + tamilTotal
   const tabs = [
@@ -42,14 +42,9 @@ export default function OfferingPopupBody({ englishTotal, tamilTotal, onlineTota
       </div>
 
       {tab === 'cash' ? (
-        <div className="space-y-6">
-          <Step n={1} title="Confirm the Sunday cash counts" hint="Each Sunday's count from the cash counter. Confirming posts it to the ledger below.">
-            {cashCounts}
-          </Step>
-          <Step n={2} title="Cash offering ledger" hint="English and Tamil service offering per Sunday. Click any amount to correct it.">
-            {cashLedger}
-          </Step>
-        </div>
+        <Step title="Cash offering" hint="English and Tamil service offering per Sunday. Click any cell to enter or edit an amount.">
+          {cashLedger}
+        </Step>
       ) : (
         <Step title="Online offering ledger" hint="UPI and bank transfers received, by date. Click any amount to edit it; use Add row for a weekday transfer.">
           {online}
@@ -75,16 +70,11 @@ function SummaryTile({ label, amount, sub, tone }) {
   )
 }
 
-function Step({ n, title, hint, children }) {
+function Step({ title, hint, children }) {
   return (
     <section className="space-y-2 min-w-0">
-      <div className="flex items-start gap-2.5">
-        {n && <span className="mt-0.5 w-6 h-6 shrink-0 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center">{n}</span>}
-        <div className="min-w-0">
-          <h4 className="text-sm font-bold text-slate-800">{title}</h4>
-          <p className="text-xs text-slate-500">{hint}</p>
-        </div>
-      </div>
+      <h4 className="text-sm font-bold text-slate-800">{title}</h4>
+      <p className="text-xs text-slate-500">{hint}</p>
       {children}
     </section>
   )
